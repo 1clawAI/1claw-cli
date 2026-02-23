@@ -10,6 +10,7 @@ import { billingCommand } from "./commands/billing.js";
 import { auditCommand } from "./commands/audit.js";
 import { mfaCommand } from "./commands/mfa.js";
 import { configCommand } from "./commands/config.js";
+import { setOutputFormat, setApiUrl } from "./config.js";
 
 export function createProgram(): Command {
   const program = new Command("1claw")
@@ -47,14 +48,12 @@ export function createProgram(): Command {
   program.option("--json", "Force JSON output for all commands");
   program.option("--api-url <url>", "Override API URL for this invocation");
 
-  program.hook("preAction", (_thisCommand, actionCommand) => {
+  program.hook("preAction", () => {
     const globalOpts = program.opts();
     if (globalOpts.json) {
-      const { setOutputFormat } = require("./config.js");
       setOutputFormat("json");
     }
     if (globalOpts.apiUrl) {
-      const { setApiUrl } = require("./config.js");
       setApiUrl(globalOpts.apiUrl);
     }
   });

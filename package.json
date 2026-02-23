@@ -22,6 +22,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/bin/1claw.js",
+    "test": "bash scripts/test-cli.sh",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
