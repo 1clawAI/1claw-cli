@@ -1,6 +1,6 @@
 {
     "name": "@1claw/cli",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "CLI for 1Claw — secrets management for AI agents and humans",
     "license": "PolyForm-Noncommercial-1.0.0",
     "repository": {
@@ -20,6 +20,7 @@
     ],
     "scripts": {
         "build": "tsc",
+        "prepublishOnly": "npm run build",
         "dev": "tsc --watch",
         "start": "node dist/bin/1claw.js",
         "test": "bash scripts/test-cli.sh",
@@ -41,6 +42,9 @@
     "engines": {
         "node": ">=20"
     },
+    "publishConfig": {
+        "access": "public"
+    },
     "keywords": [
         "1claw",
         "secrets",
@@ -48,6 +52,11 @@
         "cli",
         "ai-agents",
         "devops",
-        "ci-cd"
+        "ci-cd",
+        "npm",
+        "credentials",
+        "api-keys",
+        "mcp",
+        "zero-trust"
     ]
 }

@@ -34,7 +34,8 @@ policyCommand
         try {
             requireToken();
             const vaultId = resolveVaultId(opts);
-            const policies = await api<Policy[]>(`/vaults/${vaultId}/policies`);
+            const res = await api<{ policies: Policy[] }>(`/vaults/${vaultId}/policies`);
+            const policies = res.policies ?? [];
 
             if (opts.json) {
                 printJson(policies);

@@ -29,7 +29,8 @@ vaultCommand
     .action(async (opts) => {
         try {
             requireToken();
-            const vaults = await api<Vault[]>("/vaults");
+            const res = await api<{ vaults: Vault[] }>("/vaults");
+            const vaults = res.vaults ?? [];
 
             if (opts.json) {
                 printJson(vaults);

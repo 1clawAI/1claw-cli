@@ -97,11 +97,16 @@ run config list --help
 
 echo ""
 echo "=== 2. Unauthenticated (expect clear errors) ==="
+# Unset auth so these commands get "Not authenticated"; restore after for section 6
+SAVE_TOKEN="${ONECLAW_TOKEN:-}"; SAVE_KEY="${ONECLAW_API_KEY:-}"
+unset ONECLAW_TOKEN ONECLAW_API_KEY
 run_fail_contains "Not authenticated" whoami
 run_fail_contains "Not authenticated" vault list
 run_fail_contains "Not authenticated" secret list
 run_fail_contains "Not authenticated" agent list
 run_fail_contains "Not authenticated" billing status
+[[ -n "$SAVE_TOKEN" ]] && export ONECLAW_TOKEN="$SAVE_TOKEN"
+[[ -n "$SAVE_KEY" ]] && export ONECLAW_API_KEY="$SAVE_KEY"
 
 echo ""
 echo "=== 3. Config (no auth required) ==="
@@ -117,7 +122,12 @@ run logout
 echo ""
 echo "=== 5. JSON output flag ==="
 run --json config list
+# vault list with --json fails without auth; unset so this "expected fail" passes
+SAVE_T="${ONECLAW_TOKEN:-}"; SAVE_K="${ONECLAW_API_KEY:-}"
+unset ONECLAW_TOKEN ONECLAW_API_KEY
 run_expect_fail --json vault list
+[[ -n "$SAVE_T" ]] && export ONECLAW_TOKEN="$SAVE_T"
+[[ -n "$SAVE_K" ]] && export ONECLAW_API_KEY="$SAVE_K"
 
 echo ""
 if [[ -n "$ONECLAW_TOKEN" || -n "$ONECLAW_API_KEY" ]]; then

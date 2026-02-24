@@ -32,7 +32,8 @@ agentCommand
     .action(async (opts) => {
         try {
             requireToken();
-            const agents = await api<Agent[]>("/agents");
+            const res = await api<{ agents: Agent[] }>("/agents");
+            const agents = res.agents ?? [];
 
             if (opts.json) {
                 printJson(agents);

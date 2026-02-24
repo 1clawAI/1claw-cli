@@ -100,7 +100,8 @@ shareCommand
         try {
             requireToken();
             const direction = opts.inbound ? "inbound" : "outbound";
-            const shares = await api<Share[]>(`/shares?direction=${direction}`);
+            const res = await api<{ shares: Share[] }>(`/shares?direction=${direction}`);
+            const shares = res.shares ?? [];
 
             if (opts.json) {
                 printJson(shares);

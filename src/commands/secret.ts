@@ -42,9 +42,10 @@ secretCommand
             const query: Record<string, string> = {};
             if (opts.prefix) query.prefix = opts.prefix;
 
-            const secrets = await api<Secret[]>(`/vaults/${vaultId}/secrets`, {
+            const res = await api<{ secrets: Secret[] }>(`/vaults/${vaultId}/secrets`, {
                 query,
             });
+            const secrets = res.secrets ?? [];
 
             if (opts.json) {
                 printJson(secrets);
@@ -137,8 +138,8 @@ secretCommand
             }
 
             const body: Record<string, unknown> = {
+                type: opts.type ?? "api_key",
                 value: secretValue,
-                secret_type: opts.type,
             };
             if (opts.expires) body.expires_at = opts.expires;
 
@@ -233,21 +234,22 @@ secretCommand
         try {
             requireToken();
             const vaultId = resolveVaultId(opts);
-            const secret = await api<Secret>(
-                `/vaults/${vaultId}/secrets/${encodeURIComponent(path)}/metadata`,
+            const secret = await api<{ path: string; type?: string; secret_type?: string; version: number; value: string; created_at: string; expires_at?: string }>(
+                `/vaults/${vaultId}/secrets/${encodeURIComponent(path)}`,
             );
 
             if (opts.json) {
-                printJson(secret);
+                const { value: _v, ...meta } = secret;
+                printJson(meta);
                 return;
             }
 
+            const secretType = secret.type ?? secret.secret_type ?? "—";
             printKeyValue([
                 ["Path", secret.path],
-                ["Type", secret.secret_type],
+                ["Type", secretType],
                 ["Version", String(secret.version)],
                 ["Created", new Date(secret.created_at).toLocaleString()],
-                ["Updated", new Date(secret.updated_at).toLocaleString()],
                 [
                     "Expires",
                     secret.expires_at

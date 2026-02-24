@@ -32,10 +32,13 @@ auditCommand
             const query: Record<string, string | number> = {
                 limit: opts.limit,
             };
-            if (opts.vault) query.vault_id = opts.vault;
+            if (opts.vault) query.resource_id = opts.vault;
             if (opts.action) query.action = opts.action;
 
-            const entries = await api<AuditEntry[]>("/audit", { query });
+            const res = await api<{ events: AuditEntry[] }>("/audit/events", {
+                query,
+            });
+            const entries = res.events ?? [];
 
             if (opts.json) {
                 printJson(entries);

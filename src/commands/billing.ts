@@ -4,19 +4,22 @@ import { api } from "../client.js";
 import { requireToken, handleError } from "../middleware.js";
 import { printKeyValue, printTable, printJson, printInfo } from "../output.js";
 
+interface UsageMeter {
+    used: number;
+    limit: number;
+}
+
 interface Subscription {
-    plan: string;
+    tier: string;
     status: string;
-    current_period_end?: string;
-    requests_used: number;
-    requests_limit: number;
-    vaults_used: number;
-    vaults_limit: number;
-    secrets_used: number;
-    secrets_limit: number;
-    agents_used: number;
-    agents_limit: number;
+    period_end?: string;
     overage_method: string;
+    usage?: {
+        requests?: UsageMeter;
+        vaults?: UsageMeter;
+        secrets?: UsageMeter;
+        agents?: UsageMeter;
+    };
 }
 
 interface CreditBalance {
@@ -49,13 +52,16 @@ billingCommand
                 return;
             }
 
-            const pct = Math.round(
-                (sub.requests_used / sub.requests_limit) * 100,
-            );
+            const req = sub.usage?.requests ?? { used: 0, limit: 0 };
+            const vaults = sub.usage?.vaults ?? { used: 0, limit: 0 };
+            const secrets = sub.usage?.secrets ?? { used: 0, limit: 0 };
+            const agents = sub.usage?.agents ?? { used: 0, limit: 0 };
+            const pct =
+                req.limit > 0 ? Math.round((req.used / req.limit) * 100) : 0;
             const bar = progressBar(pct);
 
             printKeyValue([
-                ["Plan", chalk.bold(sub.plan)],
+                ["Plan", chalk.bold(sub.tier)],
                 [
                     "Status",
                     sub.status === "active"
@@ -64,8 +70,8 @@ billingCommand
                 ],
                 [
                     "Period ends",
-                    sub.current_period_end
-                        ? new Date(sub.current_period_end).toLocaleDateString()
+                    sub.period_end
+                        ? new Date(sub.period_end).toLocaleDateString()
                         : "—",
                 ],
                 ["Overage method", sub.overage_method],
@@ -74,16 +80,14 @@ billingCommand
             console.log();
             console.log(chalk.bold("  Usage"));
             console.log(
-                `  Requests   ${bar}  ${sub.requests_used.toLocaleString()} / ${sub.requests_limit.toLocaleString()} (${pct}%)`,
+                `  Requests   ${bar}  ${req.used.toLocaleString()} / ${req.limit.toLocaleString()} (${pct}%)`,
+            );
+            console.log(`  Vaults     ${vaults.used} / ${vaults.limit}`);
+            console.log(
+                `  Secrets    ${secrets.used.toLocaleString()} / ${secrets.limit.toLocaleString()}`,
             );
             console.log(
-                `  Vaults     ${sub.vaults_used} / ${sub.vaults_limit}`,
-            );
-            console.log(
-                `  Secrets    ${sub.secrets_used.toLocaleString()} / ${sub.secrets_limit.toLocaleString()}`,
-            );
-            console.log(
-                `  Agents     ${sub.agents_used} / ${sub.agents_limit}`,
+                `  Agents     ${agents.used.toLocaleString()} / ${agents.limit.toLocaleString()}`,
             );
         } catch (err) {
             handleError(err);
@@ -139,31 +143,39 @@ billingCommand
                 return;
             }
 
+            const req = sub.usage?.requests ?? { used: 0, limit: 0 };
+            const vaults = sub.usage?.vaults ?? { used: 0, limit: 0 };
+            const secrets = sub.usage?.secrets ?? { used: 0, limit: 0 };
+            const agents = sub.usage?.agents ?? { used: 0, limit: 0 };
+
+            const pct = (u: number, l: number) =>
+                l > 0 ? Math.round((u / l) * 100) : 0;
+
             printTable(
                 [
                     {
                         resource: "API Requests",
-                        used: sub.requests_used.toLocaleString(),
-                        limit: sub.requests_limit.toLocaleString(),
-                        pct: `${Math.round((sub.requests_used / sub.requests_limit) * 100)}%`,
+                        used: req.used.toLocaleString(),
+                        limit: req.limit.toLocaleString(),
+                        pct: `${pct(req.used, req.limit)}%`,
                     },
                     {
                         resource: "Vaults",
-                        used: String(sub.vaults_used),
-                        limit: String(sub.vaults_limit),
-                        pct: `${Math.round((sub.vaults_used / sub.vaults_limit) * 100)}%`,
+                        used: String(vaults.used),
+                        limit: String(vaults.limit),
+                        pct: `${pct(vaults.used, vaults.limit)}%`,
                     },
                     {
                         resource: "Secrets",
-                        used: sub.secrets_used.toLocaleString(),
-                        limit: sub.secrets_limit.toLocaleString(),
-                        pct: `${Math.round((sub.secrets_used / sub.secrets_limit) * 100)}%`,
+                        used: secrets.used.toLocaleString(),
+                        limit: secrets.limit.toLocaleString(),
+                        pct: `${pct(secrets.used, secrets.limit)}%`,
                     },
                     {
                         resource: "Agents",
-                        used: String(sub.agents_used),
-                        limit: String(sub.agents_limit),
-                        pct: `${Math.round((sub.agents_used / sub.agents_limit) * 100)}%`,
+                        used: String(agents.used),
+                        limit: String(agents.limit),
+                        pct: `${pct(agents.used, agents.limit)}%`,
                     },
                 ],
                 [
