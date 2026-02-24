@@ -175,11 +175,11 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 
 Config is stored in `~/.config/1claw/config.json`. Keys:
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `api-url` | `https://api.1claw.xyz` | API base URL |
-| `output-format` | `table` | Default output: `table`, `json`, or `plain` |
-| `default-vault` | (none) | Default vault ID for commands |
+| Key             | Default                 | Description                                 |
+| --------------- | ----------------------- | ------------------------------------------- |
+| `api-url`       | `https://api.1claw.xyz` | API base URL                                |
+| `output-format` | `table`                 | Default output: `table`, `json`, or `plain` |
+| `default-vault` | (none)                  | Default vault ID for commands               |
 
 ## CI/CD examples
 
@@ -188,11 +188,11 @@ Config is stored in `~/.config/1claw/config.json`. Keys:
 ```yaml
 - name: Deploy with secrets
   env:
-    ONECLAW_TOKEN: ${{ secrets.ONECLAW_TOKEN }}
-    ONECLAW_VAULT_ID: ${{ secrets.ONECLAW_VAULT_ID }}
+      ONECLAW_TOKEN: ${{ secrets.ONECLAW_TOKEN }}
+      ONECLAW_VAULT_ID: ${{ secrets.ONECLAW_VAULT_ID }}
   run: |
-    npx @1claw/cli env pull -o .env.production
-    npm run deploy
+      npx @1claw/cli env pull -o .env.production
+      npm run deploy
 ```
 
 ### Docker
