@@ -98,7 +98,13 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 ```bash
 1claw agent list                               # List agents
 1claw agent create my-agent                    # Create an agent
+1claw agent create my-agent \
+  --token-ttl 300 \                            # 5-minute token TTL
+  --vault-ids <uuid1>,<uuid2>                  # Restrict to specific vaults
 1claw agent get <id>                           # Agent details
+1claw agent update <id> \
+  --token-ttl 600 \                            # Update TTL
+  --vault-ids <uuid>                           # Update vault binding
 1claw agent delete <id>                        # Delete an agent
 1claw agent token <id>                         # Generate agent JWT
 1claw agent token <id> --quiet                 # Raw token (for piping)
