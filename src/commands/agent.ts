@@ -18,6 +18,8 @@ interface Agent {
     tx_max_value_eth?: string;
     tx_daily_limit_eth?: string;
     tx_allowed_chains?: string[];
+    token_ttl_seconds?: number | null;
+    vault_ids?: string[];
     created_at: string;
     created_by: string;
 }
@@ -75,6 +77,8 @@ agentCommand
     .option("--tx-max-value <eth>", "Max ETH value per transaction")
     .option("--tx-daily-limit <eth>", "Max ETH spend per 24h rolling window")
     .option("--tx-allowed-chains <chains>", "Comma-separated allowed chain names")
+    .option("--token-ttl <seconds>", "Token TTL in seconds (overrides default 3600)")
+    .option("--vault-ids <ids>", "Comma-separated vault UUIDs to bind this agent to")
     .action(async (name, opts) => {
         try {
             requireToken();
@@ -87,6 +91,8 @@ agentCommand
             if (opts.txMaxValue) body.tx_max_value_eth = opts.txMaxValue;
             if (opts.txDailyLimit) body.tx_daily_limit_eth = opts.txDailyLimit;
             if (opts.txAllowedChains) body.tx_allowed_chains = opts.txAllowedChains.split(",").map((s: string) => s.trim());
+            if (opts.tokenTtl) body.token_ttl_seconds = parseInt(opts.tokenTtl, 10);
+            if (opts.vaultIds) body.vault_ids = opts.vaultIds.split(",").map((s: string) => s.trim());
 
             const agent = await api<Agent & { api_key?: string }>("/agents", {
                 method: "POST",
@@ -132,7 +138,9 @@ agentCommand
             const rows: [string, string][] = [
                 ["ID", agent.id],
                 ["Name", agent.name],
-                ["Scopes", agent.scopes.join(", ")],
+                ["Scopes", agent.scopes.length ? agent.scopes.join(", ") : chalk.dim("none (zero access)")],
+                ["Token TTL", agent.token_ttl_seconds ? `${agent.token_ttl_seconds}s` : chalk.dim("default (3600s)")],
+                ["Vault binding", agent.vault_ids?.length ? agent.vault_ids.join(", ") : chalk.dim("all vaults")],
                 [
                     "Crypto proxy",
                     agent.crypto_proxy_enabled ? "enabled" : "disabled",
@@ -172,6 +180,8 @@ agentCommand
     .option("--tx-max-value <eth>", 'Max ETH value per transaction (use "" to remove)')
     .option("--tx-daily-limit <eth>", 'Max ETH spend per 24h (use "" to remove)')
     .option("--tx-allowed-chains <chains>", 'Comma-separated allowed chains (use "" to clear)')
+    .option("--token-ttl <seconds>", 'Token TTL in seconds (use "" to reset to default)')
+    .option("--vault-ids <ids>", 'Comma-separated vault UUIDs (use "" to clear)')
     .option("--active <bool>", "Set agent active status (true/false)")
     .action(async (id, opts) => {
         try {
@@ -191,6 +201,12 @@ agentCommand
             }
             if (opts.txAllowedChains !== undefined) {
                 body.tx_allowed_chains = opts.txAllowedChains === "" ? [] : opts.txAllowedChains.split(",").map((s: string) => s.trim());
+            }
+            if (opts.tokenTtl !== undefined) {
+                body.token_ttl_seconds = opts.tokenTtl === "" ? null : parseInt(opts.tokenTtl, 10);
+            }
+            if (opts.vaultIds !== undefined) {
+                body.vault_ids = opts.vaultIds === "" ? [] : opts.vaultIds.split(",").map((s: string) => s.trim());
             }
 
             if (Object.keys(body).length === 0) {
