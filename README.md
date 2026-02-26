@@ -97,18 +97,27 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 
 ```bash
 1claw agent list                               # List agents
-1claw agent create my-agent                    # Create an agent
+1claw agent create my-agent                    # Create agent (default: api_key auth)
+1claw agent create my-agent \
+  --auth-method mtls \                         # mTLS auth (no API key generated)
+  --client-cert-fingerprint <sha256-hex>       # Client certificate fingerprint
+1claw agent create my-agent \
+  --auth-method oidc_client_credentials \      # OIDC auth (no API key generated)
+  --oidc-issuer https://accounts.google.com \  # OIDC issuer URL
+  --oidc-client-id <client-id>                 # OIDC client ID
 1claw agent create my-agent \
   --token-ttl 300 \                            # 5-minute token TTL
   --vault-ids <uuid1>,<uuid2>                  # Restrict to specific vaults
-1claw agent get <id>                           # Agent details
+1claw agent get <id>                           # Agent details + SSH public key
 1claw agent update <id> \
   --token-ttl 600 \                            # Update TTL
   --vault-ids <uuid>                           # Update vault binding
 1claw agent delete <id>                        # Delete an agent
-1claw agent token <id>                         # Generate agent JWT
+1claw agent token <id>                         # Generate agent JWT (api_key only)
 1claw agent token <id> --quiet                 # Raw token (for piping)
 ```
+
+All agents automatically receive an Ed25519 SSH keypair for future A2A messaging. The public key is shown in `agent get` output.
 
 ### Policies
 
