@@ -13,7 +13,7 @@ interface Agent {
     id: string;
     name: string;
     scopes: string[];
-    crypto_proxy_enabled: boolean;
+    intents_api_enabled: boolean;
     tx_to_allowlist?: string[];
     tx_max_value_eth?: string;
     tx_daily_limit_eth?: string;
@@ -45,7 +45,7 @@ agentCommand
             printTable(
                 agents.map((a) => ({
                     ...a,
-                    crypto: a.crypto_proxy_enabled
+                    intents: a.intents_api_enabled
                         ? chalk.green("✓")
                         : chalk.dim("—"),
                     scopes: a.scopes.join(", "),
@@ -55,7 +55,7 @@ agentCommand
                     { key: "id", header: "ID", width: 36 },
                     { key: "name", header: "Name", width: 24 },
                     { key: "scopes", header: "Scopes", width: 30 },
-                    { key: "crypto", header: "Crypto" },
+                    { key: "intents", header: "Intents" },
                     { key: "created", header: "Created" },
                 ],
             );
@@ -72,7 +72,7 @@ agentCommand
         "Comma-separated scopes",
         "vault.read,vault.write",
     )
-    .option("--crypto-proxy", "Enable crypto transaction proxy")
+    .option("--intents-api", "Enable Intents API")
     .option("--tx-to-allowlist <addrs>", "Comma-separated allowed destination addresses")
     .option("--tx-max-value <eth>", "Max ETH value per transaction")
     .option("--tx-daily-limit <eth>", "Max ETH spend per 24h rolling window")
@@ -86,7 +86,7 @@ agentCommand
                 name,
                 scopes: opts.scopes.split(",").map((s: string) => s.trim()),
             };
-            if (opts.cryptoProxy) body.crypto_proxy_enabled = true;
+            if (opts.intentsApi) body.intents_api_enabled = true;
             if (opts.txToAllowlist) body.tx_to_allowlist = opts.txToAllowlist.split(",").map((s: string) => s.trim());
             if (opts.txMaxValue) body.tx_max_value_eth = opts.txMaxValue;
             if (opts.txDailyLimit) body.tx_daily_limit_eth = opts.txDailyLimit;
@@ -142,11 +142,11 @@ agentCommand
                 ["Token TTL", agent.token_ttl_seconds ? `${agent.token_ttl_seconds}s` : chalk.dim("default (3600s)")],
                 ["Vault binding", agent.vault_ids?.length ? agent.vault_ids.join(", ") : chalk.dim("all vaults")],
                 [
-                    "Crypto proxy",
-                    agent.crypto_proxy_enabled ? "enabled" : "disabled",
+                    "Intents API",
+                    agent.intents_api_enabled ? "enabled" : "disabled",
                 ],
             ];
-            if (agent.crypto_proxy_enabled) {
+            if (agent.intents_api_enabled) {
                 rows.push([
                     "Allowed destinations",
                     agent.tx_to_allowlist?.length ? agent.tx_to_allowlist.join(", ") : chalk.dim("any"),
@@ -175,7 +175,7 @@ agentCommand
 agentCommand
     .command("update <id>")
     .description("Update agent settings")
-    .option("--crypto-proxy <bool>", "Enable/disable crypto proxy (true/false)")
+    .option("--intents-api <bool>", "Enable/disable Intents API (true/false)")
     .option("--tx-to-allowlist <addrs>", 'Comma-separated allowed destination addresses (use "" to clear)')
     .option("--tx-max-value <eth>", 'Max ETH value per transaction (use "" to remove)')
     .option("--tx-daily-limit <eth>", 'Max ETH spend per 24h (use "" to remove)')
@@ -188,7 +188,7 @@ agentCommand
             requireToken();
             const body: Record<string, unknown> = {};
 
-            if (opts.cryptoProxy !== undefined) body.crypto_proxy_enabled = opts.cryptoProxy === "true";
+            if (opts.intentsApi !== undefined) body.intents_api_enabled = opts.intentsApi === "true";
             if (opts.active !== undefined) body.is_active = opts.active === "true";
             if (opts.txToAllowlist !== undefined) {
                 body.tx_to_allowlist = opts.txToAllowlist === "" ? [] : opts.txToAllowlist.split(",").map((s: string) => s.trim());
@@ -222,7 +222,7 @@ agentCommand
             printSuccess(`Agent ${chalk.bold(agent.name)} updated.`);
             printKeyValue([
                 ["ID", agent.id],
-                ["Crypto proxy", agent.crypto_proxy_enabled ? "enabled" : "disabled"],
+                ["Intents API", agent.intents_api_enabled ? "enabled" : "disabled"],
                 ["Allowed destinations", agent.tx_to_allowlist?.length ? agent.tx_to_allowlist.join(", ") : chalk.dim("any")],
                 ["Max value/tx", agent.tx_max_value_eth ? `${agent.tx_max_value_eth} ETH` : chalk.dim("unlimited")],
                 ["Daily limit", agent.tx_daily_limit_eth ? `${agent.tx_daily_limit_eth} ETH` : chalk.dim("unlimited")],
