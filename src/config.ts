@@ -23,9 +23,11 @@ interface ConfigSchema {
     outputFormat: "table" | "json" | "plain";
 }
 
+const configDir =
+    process.env.ONECLAW_CONFIG_DIR || join(homedir(), ".config", "1claw");
 const config = new Conf<ConfigSchema>({
     projectName: "1claw",
-    cwd: join(homedir(), ".config", "1claw"),
+    cwd: configDir,
     defaults: {
         auth: null,
         apiUrl: "https://api.1claw.xyz",
