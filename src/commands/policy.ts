@@ -14,7 +14,7 @@ interface Policy {
     vault_id: string;
     principal_type: string;
     principal_id: string;
-    path_pattern: string;
+    secret_path_pattern: string;
     permissions: string[];
     expires_at?: string;
     created_at: string;
@@ -54,7 +54,7 @@ policyCommand
                 [
                     { key: "id", header: "ID", width: 36 },
                     { key: "principal", header: "Principal", width: 20 },
-                    { key: "path_pattern", header: "Path pattern", width: 20 },
+                    { key: "secret_path_pattern", header: "Path pattern", width: 20 },
                     { key: "permissions", header: "Permissions", width: 16 },
                     { key: "expires", header: "Expires" },
                 ],
@@ -85,7 +85,7 @@ policyCommand
             const body: Record<string, unknown> = {
                 principal_type: opts.principalType,
                 principal_id: opts.principalId,
-                path_pattern: opts.path,
+                secret_path_pattern: opts.path,
                 permissions: opts.permissions
                     .split(",")
                     .map((s: string) => s.trim()),
@@ -104,7 +104,7 @@ policyCommand
                     "Principal",
                     `${policy.principal_type}:${policy.principal_id}`,
                 ],
-                ["Path", policy.path_pattern],
+                ["Path", policy.secret_path_pattern],
                 ["Permissions", policy.permissions.join(", ")],
             ]);
         } catch (err) {

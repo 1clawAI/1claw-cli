@@ -44,7 +44,7 @@ shareCommand
         try {
             requireToken();
 
-            const body: Record<string, unknown> = { secret_id: secretId };
+            const body: Record<string, unknown> = {};
 
             if (opts.link) {
                 body.recipient_type = "anyone_with_link";
@@ -70,7 +70,7 @@ shareCommand
             if (opts.maxAccess) body.max_access_count = opts.maxAccess;
             if (opts.passphrase) body.passphrase = opts.passphrase;
 
-            const share = await api<Share>("/shares", { method: "POST", body });
+            const share = await api<Share>(`/secrets/${secretId}/share`, { method: "POST", body });
 
             printSuccess("Share created.");
             printKeyValue([
@@ -100,7 +100,7 @@ shareCommand
         try {
             requireToken();
             const direction = opts.inbound ? "inbound" : "outbound";
-            const res = await api<{ shares: Share[] }>(`/shares?direction=${direction}`);
+            const res = await api<{ shares: Share[] }>(`/shares/${direction}`);
             const shares = res.shares ?? [];
 
             if (opts.json) {
