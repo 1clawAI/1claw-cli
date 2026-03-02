@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import chalk from "chalk";
-import { api } from "../client.js";
+import { api, apiNoAuth } from "../client.js";
 import { requireToken, handleError } from "../middleware.js";
 import {
     printTable,
@@ -116,6 +116,50 @@ agentCommand
                 console.log(`  ${chalk.bold(agent.api_key)}`);
                 console.log();
             }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+agentCommand
+    .command("enroll <name>")
+    .description(
+        "Self-enroll an agent (no auth required). Credentials are emailed to the human.",
+    )
+    .requiredOption(
+        "--email <email>",
+        "Email of a human who has a 1Claw account",
+    )
+    .option("--description <desc>", "Agent description")
+    .action(async (name, opts) => {
+        try {
+            const res = await apiNoAuth<{ agent_id: string; message: string }>(
+                "/agents/enroll",
+                {
+                    method: "POST",
+                    body: {
+                        name,
+                        human_email: opts.email,
+                        description: opts.description,
+                    },
+                },
+            );
+            printSuccess("Enrollment request submitted.");
+            printKeyValue([
+                ["Agent ID", res.agent_id],
+                ["Message", res.message],
+            ]);
+            console.log();
+            console.log(
+                chalk.dim(
+                    "  The agent's credentials have been emailed to the human.",
+                ),
+            );
+            console.log(
+                chalk.dim(
+                    "  The human must create access policies before the agent can read secrets.",
+                ),
+            );
         } catch (err) {
             handleError(err);
         }
