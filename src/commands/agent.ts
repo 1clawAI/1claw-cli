@@ -9,6 +9,17 @@ import {
     printJson,
 } from "../output.js";
 
+interface ShroudConfig {
+    pii_policy?: string;
+    injection_threshold?: number;
+    allowed_providers?: string[];
+    allowed_models?: string[];
+    max_tokens_per_request?: number;
+    daily_budget_usd?: number;
+    enable_secret_redaction?: boolean;
+    enable_response_filtering?: boolean;
+}
+
 interface Agent {
     id: string;
     name: string;
@@ -20,6 +31,8 @@ interface Agent {
     tx_allowed_chains?: string[];
     token_ttl_seconds?: number | null;
     vault_ids?: string[];
+    shroud_enabled: boolean;
+    shroud_config?: ShroudConfig | null;
     created_at: string;
     created_by: string;
 }
@@ -48,6 +61,9 @@ agentCommand
                     intents: a.intents_api_enabled
                         ? chalk.green("✓")
                         : chalk.dim("—"),
+                    shroud: a.shroud_enabled
+                        ? chalk.cyan("✓")
+                        : chalk.dim("—"),
                     scopes: a.scopes.join(", "),
                     created: new Date(a.created_at).toLocaleDateString(),
                 })),
@@ -73,6 +89,7 @@ agentCommand
         "vault.read,vault.write",
     )
     .option("--intents-api", "Enable Intents API")
+    .option("--shroud", "Enable Shroud LLM Proxy")
     .option("--tx-to-allowlist <addrs>", "Comma-separated allowed destination addresses")
     .option("--tx-max-value <eth>", "Max ETH value per transaction")
     .option("--tx-daily-limit <eth>", "Max ETH spend per 24h rolling window")
@@ -87,6 +104,7 @@ agentCommand
                 scopes: opts.scopes.split(",").map((s: string) => s.trim()),
             };
             if (opts.intentsApi) body.intents_api_enabled = true;
+            if (opts.shroud) body.shroud_enabled = true;
             if (opts.txToAllowlist) body.tx_to_allowlist = opts.txToAllowlist.split(",").map((s: string) => s.trim());
             if (opts.txMaxValue) body.tx_max_value_eth = opts.txMaxValue;
             if (opts.txDailyLimit) body.tx_daily_limit_eth = opts.txDailyLimit;
@@ -189,7 +207,29 @@ agentCommand
                     "Intents API",
                     agent.intents_api_enabled ? "enabled" : "disabled",
                 ],
+                [
+                    "Shroud LLM Proxy",
+                    agent.shroud_enabled ? "enabled" : "disabled",
+                ],
             ];
+            if (agent.shroud_enabled && agent.shroud_config) {
+                rows.push([
+                    "  PII policy",
+                    agent.shroud_config.pii_policy ?? "redact",
+                ]);
+                rows.push([
+                    "  Injection threshold",
+                    String(agent.shroud_config.injection_threshold ?? 0.7),
+                ]);
+                rows.push([
+                    "  Providers",
+                    agent.shroud_config.allowed_providers?.length ? agent.shroud_config.allowed_providers.join(", ") : chalk.dim("all"),
+                ]);
+                rows.push([
+                    "  Models",
+                    agent.shroud_config.allowed_models?.length ? agent.shroud_config.allowed_models.join(", ") : chalk.dim("all"),
+                ]);
+            }
             if (agent.intents_api_enabled) {
                 rows.push([
                     "Allowed destinations",
@@ -220,6 +260,7 @@ agentCommand
     .command("update <id>")
     .description("Update agent settings")
     .option("--intents-api <bool>", "Enable/disable Intents API (true/false)")
+    .option("--shroud <bool>", "Enable/disable Shroud LLM Proxy (true/false)")
     .option("--tx-to-allowlist <addrs>", 'Comma-separated allowed destination addresses (use "" to clear)')
     .option("--tx-max-value <eth>", 'Max ETH value per transaction (use "" to remove)')
     .option("--tx-daily-limit <eth>", 'Max ETH spend per 24h (use "" to remove)')
@@ -233,6 +274,7 @@ agentCommand
             const body: Record<string, unknown> = {};
 
             if (opts.intentsApi !== undefined) body.intents_api_enabled = opts.intentsApi === "true";
+            if (opts.shroud !== undefined) body.shroud_enabled = opts.shroud === "true";
             if (opts.active !== undefined) body.is_active = opts.active === "true";
             if (opts.txToAllowlist !== undefined) {
                 body.tx_to_allowlist = opts.txToAllowlist === "" ? [] : opts.txToAllowlist.split(",").map((s: string) => s.trim());
@@ -267,6 +309,7 @@ agentCommand
             printKeyValue([
                 ["ID", agent.id],
                 ["Intents API", agent.intents_api_enabled ? "enabled" : "disabled"],
+                ["Shroud", agent.shroud_enabled ? "enabled" : "disabled"],
                 ["Allowed destinations", agent.tx_to_allowlist?.length ? agent.tx_to_allowlist.join(", ") : chalk.dim("any")],
                 ["Max value/tx", agent.tx_max_value_eth ? `${agent.tx_max_value_eth} ETH` : chalk.dim("unlimited")],
                 ["Daily limit", agent.tx_daily_limit_eth ? `${agent.tx_daily_limit_eth} ETH` : chalk.dim("unlimited")],
