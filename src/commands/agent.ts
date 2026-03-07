@@ -18,6 +18,15 @@ interface ShroudConfig {
     daily_budget_usd?: number;
     enable_secret_redaction?: boolean;
     enable_response_filtering?: boolean;
+    // Threat detection (optional nested configs)
+    unicode_normalization?: { enabled?: boolean };
+    command_injection_detection?: { enabled?: boolean };
+    social_engineering_detection?: { enabled?: boolean };
+    encoding_detection?: { enabled?: boolean };
+    network_detection?: { enabled?: boolean };
+    filesystem_detection?: { enabled?: boolean };
+    sanitization_mode?: string;
+    threat_logging?: boolean;
 }
 
 interface Agent {
@@ -61,9 +70,7 @@ agentCommand
                     intents: a.intents_api_enabled
                         ? chalk.green("✓")
                         : chalk.dim("—"),
-                    shroud: a.shroud_enabled
-                        ? chalk.cyan("✓")
-                        : chalk.dim("—"),
+                    shroud: a.shroud_enabled ? chalk.cyan("✓") : chalk.dim("—"),
                     scopes: a.scopes.join(", "),
                     created: new Date(a.created_at).toLocaleDateString(),
                 })),
@@ -90,12 +97,24 @@ agentCommand
     )
     .option("--intents-api", "Enable Intents API")
     .option("--shroud", "Enable Shroud LLM Proxy")
-    .option("--tx-to-allowlist <addrs>", "Comma-separated allowed destination addresses")
+    .option(
+        "--tx-to-allowlist <addrs>",
+        "Comma-separated allowed destination addresses",
+    )
     .option("--tx-max-value <eth>", "Max ETH value per transaction")
     .option("--tx-daily-limit <eth>", "Max ETH spend per 24h rolling window")
-    .option("--tx-allowed-chains <chains>", "Comma-separated allowed chain names")
-    .option("--token-ttl <seconds>", "Token TTL in seconds (overrides default 3600)")
-    .option("--vault-ids <ids>", "Comma-separated vault UUIDs to bind this agent to")
+    .option(
+        "--tx-allowed-chains <chains>",
+        "Comma-separated allowed chain names",
+    )
+    .option(
+        "--token-ttl <seconds>",
+        "Token TTL in seconds (overrides default 3600)",
+    )
+    .option(
+        "--vault-ids <ids>",
+        "Comma-separated vault UUIDs to bind this agent to",
+    )
     .action(async (name, opts) => {
         try {
             requireToken();
@@ -105,12 +124,22 @@ agentCommand
             };
             if (opts.intentsApi) body.intents_api_enabled = true;
             if (opts.shroud) body.shroud_enabled = true;
-            if (opts.txToAllowlist) body.tx_to_allowlist = opts.txToAllowlist.split(",").map((s: string) => s.trim());
+            if (opts.txToAllowlist)
+                body.tx_to_allowlist = opts.txToAllowlist
+                    .split(",")
+                    .map((s: string) => s.trim());
             if (opts.txMaxValue) body.tx_max_value_eth = opts.txMaxValue;
             if (opts.txDailyLimit) body.tx_daily_limit_eth = opts.txDailyLimit;
-            if (opts.txAllowedChains) body.tx_allowed_chains = opts.txAllowedChains.split(",").map((s: string) => s.trim());
-            if (opts.tokenTtl) body.token_ttl_seconds = parseInt(opts.tokenTtl, 10);
-            if (opts.vaultIds) body.vault_ids = opts.vaultIds.split(",").map((s: string) => s.trim());
+            if (opts.txAllowedChains)
+                body.tx_allowed_chains = opts.txAllowedChains
+                    .split(",")
+                    .map((s: string) => s.trim());
+            if (opts.tokenTtl)
+                body.token_ttl_seconds = parseInt(opts.tokenTtl, 10);
+            if (opts.vaultIds)
+                body.vault_ids = opts.vaultIds
+                    .split(",")
+                    .map((s: string) => s.trim());
 
             const agent = await api<Agent & { api_key?: string }>("/agents", {
                 method: "POST",
@@ -200,9 +229,24 @@ agentCommand
             const rows: [string, string][] = [
                 ["ID", agent.id],
                 ["Name", agent.name],
-                ["Scopes", agent.scopes.length ? agent.scopes.join(", ") : chalk.dim("none (zero access)")],
-                ["Token TTL", agent.token_ttl_seconds ? `${agent.token_ttl_seconds}s` : chalk.dim("default (3600s)")],
-                ["Vault binding", agent.vault_ids?.length ? agent.vault_ids.join(", ") : chalk.dim("all vaults")],
+                [
+                    "Scopes",
+                    agent.scopes.length
+                        ? agent.scopes.join(", ")
+                        : chalk.dim("none (zero access)"),
+                ],
+                [
+                    "Token TTL",
+                    agent.token_ttl_seconds
+                        ? `${agent.token_ttl_seconds}s`
+                        : chalk.dim("default (3600s)"),
+                ],
+                [
+                    "Vault binding",
+                    agent.vault_ids?.length
+                        ? agent.vault_ids.join(", ")
+                        : chalk.dim("all vaults"),
+                ],
                 [
                     "Intents API",
                     agent.intents_api_enabled ? "enabled" : "disabled",
@@ -223,29 +267,61 @@ agentCommand
                 ]);
                 rows.push([
                     "  Providers",
-                    agent.shroud_config.allowed_providers?.length ? agent.shroud_config.allowed_providers.join(", ") : chalk.dim("all"),
+                    agent.shroud_config.allowed_providers?.length
+                        ? agent.shroud_config.allowed_providers.join(", ")
+                        : chalk.dim("all"),
                 ]);
                 rows.push([
                     "  Models",
-                    agent.shroud_config.allowed_models?.length ? agent.shroud_config.allowed_models.join(", ") : chalk.dim("all"),
+                    agent.shroud_config.allowed_models?.length
+                        ? agent.shroud_config.allowed_models.join(", ")
+                        : chalk.dim("all"),
                 ]);
+                const threatKeys = [
+                    "unicode_normalization",
+                    "command_injection_detection",
+                    "social_engineering_detection",
+                    "encoding_detection",
+                    "network_detection",
+                    "filesystem_detection",
+                ] as const;
+                const cfg = agent.shroud_config as Record<string, unknown> | undefined;
+                const configured = threatKeys.filter(
+                    (k) => cfg && cfg[k] != null && typeof cfg[k] === "object",
+                );
+                if (configured.length > 0) {
+                    rows.push([
+                        "  Threat detection",
+                        configured
+                            .map((k) => k.replace(/_detection$/, "").replace(/_/g, " "))
+                            .join(", "),
+                    ]);
+                }
             }
             if (agent.intents_api_enabled) {
                 rows.push([
                     "Allowed destinations",
-                    agent.tx_to_allowlist?.length ? agent.tx_to_allowlist.join(", ") : chalk.dim("any"),
+                    agent.tx_to_allowlist?.length
+                        ? agent.tx_to_allowlist.join(", ")
+                        : chalk.dim("any"),
                 ]);
                 rows.push([
                     "Max value/tx",
-                    agent.tx_max_value_eth ? `${agent.tx_max_value_eth} ETH` : chalk.dim("unlimited"),
+                    agent.tx_max_value_eth
+                        ? `${agent.tx_max_value_eth} ETH`
+                        : chalk.dim("unlimited"),
                 ]);
                 rows.push([
                     "Daily limit",
-                    agent.tx_daily_limit_eth ? `${agent.tx_daily_limit_eth} ETH` : chalk.dim("unlimited"),
+                    agent.tx_daily_limit_eth
+                        ? `${agent.tx_daily_limit_eth} ETH`
+                        : chalk.dim("unlimited"),
                 ]);
                 rows.push([
                     "Allowed chains",
-                    agent.tx_allowed_chains?.length ? agent.tx_allowed_chains.join(", ") : chalk.dim("all"),
+                    agent.tx_allowed_chains?.length
+                        ? agent.tx_allowed_chains.join(", ")
+                        : chalk.dim("all"),
                 ]);
             }
             rows.push(["Created by", agent.created_by]);
@@ -261,42 +337,83 @@ agentCommand
     .description("Update agent settings")
     .option("--intents-api <bool>", "Enable/disable Intents API (true/false)")
     .option("--shroud <bool>", "Enable/disable Shroud LLM Proxy (true/false)")
-    .option("--tx-to-allowlist <addrs>", 'Comma-separated allowed destination addresses (use "" to clear)')
-    .option("--tx-max-value <eth>", 'Max ETH value per transaction (use "" to remove)')
-    .option("--tx-daily-limit <eth>", 'Max ETH spend per 24h (use "" to remove)')
-    .option("--tx-allowed-chains <chains>", 'Comma-separated allowed chains (use "" to clear)')
-    .option("--token-ttl <seconds>", 'Token TTL in seconds (use "" to reset to default)')
-    .option("--vault-ids <ids>", 'Comma-separated vault UUIDs (use "" to clear)')
+    .option(
+        "--tx-to-allowlist <addrs>",
+        'Comma-separated allowed destination addresses (use "" to clear)',
+    )
+    .option(
+        "--tx-max-value <eth>",
+        'Max ETH value per transaction (use "" to remove)',
+    )
+    .option(
+        "--tx-daily-limit <eth>",
+        'Max ETH spend per 24h (use "" to remove)',
+    )
+    .option(
+        "--tx-allowed-chains <chains>",
+        'Comma-separated allowed chains (use "" to clear)',
+    )
+    .option(
+        "--token-ttl <seconds>",
+        'Token TTL in seconds (use "" to reset to default)',
+    )
+    .option(
+        "--vault-ids <ids>",
+        'Comma-separated vault UUIDs (use "" to clear)',
+    )
     .option("--active <bool>", "Set agent active status (true/false)")
     .action(async (id, opts) => {
         try {
             requireToken();
             const body: Record<string, unknown> = {};
 
-            if (opts.intentsApi !== undefined) body.intents_api_enabled = opts.intentsApi === "true";
-            if (opts.shroud !== undefined) body.shroud_enabled = opts.shroud === "true";
-            if (opts.active !== undefined) body.is_active = opts.active === "true";
+            if (opts.intentsApi !== undefined)
+                body.intents_api_enabled = opts.intentsApi === "true";
+            if (opts.shroud !== undefined)
+                body.shroud_enabled = opts.shroud === "true";
+            if (opts.active !== undefined)
+                body.is_active = opts.active === "true";
             if (opts.txToAllowlist !== undefined) {
-                body.tx_to_allowlist = opts.txToAllowlist === "" ? [] : opts.txToAllowlist.split(",").map((s: string) => s.trim());
+                body.tx_to_allowlist =
+                    opts.txToAllowlist === ""
+                        ? []
+                        : opts.txToAllowlist
+                              .split(",")
+                              .map((s: string) => s.trim());
             }
             if (opts.txMaxValue !== undefined) {
-                body.tx_max_value_eth = opts.txMaxValue === "" ? null : opts.txMaxValue;
+                body.tx_max_value_eth =
+                    opts.txMaxValue === "" ? null : opts.txMaxValue;
             }
             if (opts.txDailyLimit !== undefined) {
-                body.tx_daily_limit_eth = opts.txDailyLimit === "" ? null : opts.txDailyLimit;
+                body.tx_daily_limit_eth =
+                    opts.txDailyLimit === "" ? null : opts.txDailyLimit;
             }
             if (opts.txAllowedChains !== undefined) {
-                body.tx_allowed_chains = opts.txAllowedChains === "" ? [] : opts.txAllowedChains.split(",").map((s: string) => s.trim());
+                body.tx_allowed_chains =
+                    opts.txAllowedChains === ""
+                        ? []
+                        : opts.txAllowedChains
+                              .split(",")
+                              .map((s: string) => s.trim());
             }
             if (opts.tokenTtl !== undefined) {
-                body.token_ttl_seconds = opts.tokenTtl === "" ? null : parseInt(opts.tokenTtl, 10);
+                body.token_ttl_seconds =
+                    opts.tokenTtl === "" ? null : parseInt(opts.tokenTtl, 10);
             }
             if (opts.vaultIds !== undefined) {
-                body.vault_ids = opts.vaultIds === "" ? [] : opts.vaultIds.split(",").map((s: string) => s.trim());
+                body.vault_ids =
+                    opts.vaultIds === ""
+                        ? []
+                        : opts.vaultIds.split(",").map((s: string) => s.trim());
             }
 
             if (Object.keys(body).length === 0) {
-                console.log(chalk.yellow("No update options provided. Use --help for available flags."));
+                console.log(
+                    chalk.yellow(
+                        "No update options provided. Use --help for available flags.",
+                    ),
+                );
                 return;
             }
 
@@ -308,12 +425,35 @@ agentCommand
             printSuccess(`Agent ${chalk.bold(agent.name)} updated.`);
             printKeyValue([
                 ["ID", agent.id],
-                ["Intents API", agent.intents_api_enabled ? "enabled" : "disabled"],
+                [
+                    "Intents API",
+                    agent.intents_api_enabled ? "enabled" : "disabled",
+                ],
                 ["Shroud", agent.shroud_enabled ? "enabled" : "disabled"],
-                ["Allowed destinations", agent.tx_to_allowlist?.length ? agent.tx_to_allowlist.join(", ") : chalk.dim("any")],
-                ["Max value/tx", agent.tx_max_value_eth ? `${agent.tx_max_value_eth} ETH` : chalk.dim("unlimited")],
-                ["Daily limit", agent.tx_daily_limit_eth ? `${agent.tx_daily_limit_eth} ETH` : chalk.dim("unlimited")],
-                ["Allowed chains", agent.tx_allowed_chains?.length ? agent.tx_allowed_chains.join(", ") : chalk.dim("all")],
+                [
+                    "Allowed destinations",
+                    agent.tx_to_allowlist?.length
+                        ? agent.tx_to_allowlist.join(", ")
+                        : chalk.dim("any"),
+                ],
+                [
+                    "Max value/tx",
+                    agent.tx_max_value_eth
+                        ? `${agent.tx_max_value_eth} ETH`
+                        : chalk.dim("unlimited"),
+                ],
+                [
+                    "Daily limit",
+                    agent.tx_daily_limit_eth
+                        ? `${agent.tx_daily_limit_eth} ETH`
+                        : chalk.dim("unlimited"),
+                ],
+                [
+                    "Allowed chains",
+                    agent.tx_allowed_chains?.length
+                        ? agent.tx_allowed_chains.join(", ")
+                        : chalk.dim("all"),
+                ],
             ]);
         } catch (err) {
             handleError(err);
