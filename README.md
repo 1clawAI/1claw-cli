@@ -227,4 +227,4 @@ eval $(1claw env pull --format shell)
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](../../LICENSE)
+[MIT](./LICENSE)
