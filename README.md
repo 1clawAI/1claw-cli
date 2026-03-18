@@ -115,6 +115,14 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 1claw agent delete <id>                        # Delete an agent
 1claw agent token <id>                         # Generate agent JWT (api_key only)
 1claw agent token <id> --quiet                 # Raw token (for piping)
+1claw agent enroll my-agent \
+  --email human@example.com                    # Self-enroll (no auth needed)
+1claw agent create my-agent \
+  --shroud \                                   # Enable Shroud LLM proxy
+  --tx-to-allowlist 0x... \                    # Transaction guardrails
+  --tx-max-value 0.1 \
+  --tx-daily-limit 1.0 \
+  --tx-allowed-chains sepolia,base
 ```
 
 All agents automatically receive an Ed25519 SSH keypair for future A2A messaging. The public key is shown in `agent get` output.
