@@ -168,7 +168,7 @@ shareCommand
     .action(async (id) => {
         try {
             requireToken();
-            await api(`/shares/${id}`, { method: "DELETE" });
+            await api(`/share/${id}`, { method: "DELETE" });
             printSuccess("Share revoked.");
         } catch (err) {
             handleError(err);

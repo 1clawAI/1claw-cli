@@ -514,3 +514,229 @@ agentCommand
             handleError(err);
         }
     });
+
+// ── Transaction commands ────────────────────────────────────────────────
+
+interface TxResponse {
+    id: string;
+    agent_id: string;
+    chain: string;
+    chain_id: number;
+    to: string;
+    value_wei: string;
+    status: string;
+    signed_tx?: string;
+    tx_hash?: string;
+    error_message?: string;
+    created_at: string;
+    signed_at?: string;
+    simulation_id?: string;
+    simulation_status?: string;
+}
+
+interface SignTxResponse {
+    signed_tx: string;
+    tx_hash: string;
+    from: string;
+    to: string;
+    chain: string;
+    chain_id: number;
+    nonce: number;
+    value_wei: string;
+    status: string;
+    simulation_id?: string;
+    simulation_status?: string;
+}
+
+const txCommand = agentCommand
+    .command("tx")
+    .description("Transaction commands (Intents API)");
+
+txCommand
+    .command("submit <agent-id>")
+    .description("Submit a transaction for signing and broadcasting")
+    .requiredOption("--to <address>", "Destination address")
+    .requiredOption("--value <eth>", "Value in ETH")
+    .requiredOption("--chain <chain>", "Chain name or ID")
+    .option("--data <hex>", "Hex-encoded calldata")
+    .option("--signing-key-path <path>", "Vault path to signing key")
+    .option("--nonce <n>", "Transaction nonce")
+    .option("--gas-price <wei>", "Gas price in wei (legacy)")
+    .option("--gas-limit <n>", "Gas limit")
+    .option("--max-fee-per-gas <wei>", "EIP-1559 max fee per gas")
+    .option("--max-priority-fee-per-gas <wei>", "EIP-1559 max priority fee")
+    .option("--simulate", "Simulate before signing", false)
+    .option("--json", "Output raw JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {
+                to: opts.to,
+                value: opts.value,
+                chain: opts.chain,
+                simulate_first: opts.simulate,
+            };
+            if (opts.data) body.data = opts.data;
+            if (opts.signingKeyPath) body.signing_key_path = opts.signingKeyPath;
+            if (opts.nonce) body.nonce = parseInt(opts.nonce, 10);
+            if (opts.gasPrice) body.gas_price = opts.gasPrice;
+            if (opts.gasLimit) body.gas_limit = parseInt(opts.gasLimit, 10);
+            if (opts.maxFeePerGas) body.max_fee_per_gas = opts.maxFeePerGas;
+            if (opts.maxPriorityFeePerGas) body.max_priority_fee_per_gas = opts.maxPriorityFeePerGas;
+
+            const tx = await api<TxResponse>(`/agents/${agentId}/transactions`, {
+                method: "POST",
+                body,
+            });
+
+            if (opts.json) {
+                printJson(tx);
+                return;
+            }
+
+            printSuccess(`Transaction ${tx.status.toUpperCase()}`);
+            printKeyValue([
+                ["ID", tx.id],
+                ["Chain", `${tx.chain} (${tx.chain_id})`],
+                ["To", tx.to],
+                ["Value", `${tx.value_wei} wei`],
+                ["Status", tx.status],
+                ...(tx.tx_hash ? [["Tx hash", tx.tx_hash] as [string, string]] : []),
+                ...(tx.error_message ? [["Error", chalk.red(tx.error_message)] as [string, string]] : []),
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+txCommand
+    .command("sign <agent-id>")
+    .description("Sign a transaction without broadcasting (returns signed_tx for self-broadcast)")
+    .requiredOption("--to <address>", "Destination address")
+    .requiredOption("--value <eth>", "Value in ETH")
+    .requiredOption("--chain <chain>", "Chain name or ID")
+    .option("--data <hex>", "Hex-encoded calldata")
+    .option("--signing-key-path <path>", "Vault path to signing key")
+    .option("--nonce <n>", "Transaction nonce")
+    .option("--gas-price <wei>", "Gas price in wei (legacy)")
+    .option("--gas-limit <n>", "Gas limit")
+    .option("--max-fee-per-gas <wei>", "EIP-1559 max fee per gas")
+    .option("--max-priority-fee-per-gas <wei>", "EIP-1559 max priority fee")
+    .option("--simulate", "Simulate before signing", false)
+    .option("--json", "Output raw JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {
+                to: opts.to,
+                value: opts.value,
+                chain: opts.chain,
+                simulate_first: opts.simulate,
+            };
+            if (opts.data) body.data = opts.data;
+            if (opts.signingKeyPath) body.signing_key_path = opts.signingKeyPath;
+            if (opts.nonce) body.nonce = parseInt(opts.nonce, 10);
+            if (opts.gasPrice) body.gas_price = opts.gasPrice;
+            if (opts.gasLimit) body.gas_limit = parseInt(opts.gasLimit, 10);
+            if (opts.maxFeePerGas) body.max_fee_per_gas = opts.maxFeePerGas;
+            if (opts.maxPriorityFeePerGas) body.max_priority_fee_per_gas = opts.maxPriorityFeePerGas;
+
+            const tx = await api<SignTxResponse>(`/agents/${agentId}/transactions/sign`, {
+                method: "POST",
+                body,
+            });
+
+            if (opts.json) {
+                printJson(tx);
+                return;
+            }
+
+            printSuccess("Transaction SIGNED (not broadcast)");
+            printKeyValue([
+                ["Tx hash", tx.tx_hash],
+                ["From", tx.from],
+                ["To", tx.to],
+                ["Chain", `${tx.chain} (${tx.chain_id})`],
+                ["Nonce", String(tx.nonce)],
+                ["Value", `${tx.value_wei} wei`],
+                ["Signed tx", tx.signed_tx],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+txCommand
+    .command("list <agent-id>")
+    .description("List recent transactions for an agent")
+    .option("--include-signed-tx", "Include signed_tx in response")
+    .option("--json", "Output raw JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+            const qs = opts.includeSignedTx ? "?include_signed_tx=true" : "";
+            const result = await api<{ transactions: TxResponse[] }>(
+                `/agents/${agentId}/transactions${qs}`,
+            );
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            if (!result.transactions.length) {
+                console.log(chalk.dim("No transactions found."));
+                return;
+            }
+
+            printTable(
+                ["ID", "Chain", "To", "Status", "Tx Hash", "Created"],
+                result.transactions.map((tx) => [
+                    tx.id.slice(0, 8) + "…",
+                    tx.chain,
+                    tx.to.slice(0, 10) + "…",
+                    tx.status,
+                    tx.tx_hash ? tx.tx_hash.slice(0, 10) + "…" : "-",
+                    new Date(tx.created_at).toLocaleString(),
+                ]),
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+txCommand
+    .command("get <agent-id> <tx-id>")
+    .description("Get a transaction by ID")
+    .option("--include-signed-tx", "Include signed_tx in response")
+    .option("--json", "Output raw JSON")
+    .action(async (agentId, txId, opts) => {
+        try {
+            requireToken();
+            const qs = opts.includeSignedTx ? "?include_signed_tx=true" : "";
+            const tx = await api<TxResponse>(
+                `/agents/${agentId}/transactions/${txId}${qs}`,
+            );
+
+            if (opts.json) {
+                printJson(tx);
+                return;
+            }
+
+            printKeyValue([
+                ["ID", tx.id],
+                ["Agent", tx.agent_id],
+                ["Chain", `${tx.chain} (${tx.chain_id})`],
+                ["To", tx.to],
+                ["Value", `${tx.value_wei} wei`],
+                ["Status", tx.status],
+                ...(tx.tx_hash ? [["Tx hash", tx.tx_hash] as [string, string]] : []),
+                ...(tx.signed_tx ? [["Signed tx", tx.signed_tx] as [string, string]] : []),
+                ...(tx.error_message ? [["Error", chalk.red(tx.error_message)] as [string, string]] : []),
+                ["Created", tx.created_at],
+                ...(tx.signed_at ? [["Signed at", tx.signed_at] as [string, string]] : []),
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
