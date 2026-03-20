@@ -690,15 +690,22 @@ txCommand
             }
 
             printTable(
-                ["ID", "Chain", "To", "Status", "Tx Hash", "Created"],
-                result.transactions.map((tx) => [
-                    tx.id.slice(0, 8) + "…",
-                    tx.chain,
-                    tx.to.slice(0, 10) + "…",
-                    tx.status,
-                    tx.tx_hash ? tx.tx_hash.slice(0, 10) + "…" : "-",
-                    new Date(tx.created_at).toLocaleString(),
-                ]),
+                result.transactions.map((tx) => ({
+                    id: tx.id.slice(0, 8) + "…",
+                    chain: tx.chain,
+                    to: tx.to.slice(0, 10) + "…",
+                    status: tx.status,
+                    tx_hash: tx.tx_hash ? tx.tx_hash.slice(0, 10) + "…" : "-",
+                    created: new Date(tx.created_at).toLocaleString(),
+                })),
+                [
+                    { key: "id", header: "ID" },
+                    { key: "chain", header: "Chain" },
+                    { key: "to", header: "To" },
+                    { key: "status", header: "Status" },
+                    { key: "tx_hash", header: "Tx Hash" },
+                    { key: "created", header: "Created" },
+                ],
             );
         } catch (err) {
             handleError(err);
