@@ -7,6 +7,7 @@ import {
 import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
 import chalk from "chalk";
+import { apiNoAuth, ApiError } from "../client.js";
 import { printError, printInfo, printSuccess } from "../output.js";
 
 const DEFAULT_PORT = 11434;
@@ -24,6 +25,47 @@ const PROVIDER_FROM_MODEL: Record<string, string> = {
     "command-": "cohere",
     "openrouter/": "openrouter",
 };
+
+/** Build `agent_id:api_key` for Shroud. Accepts full pair or key-only `ocv_...` (Vault resolves agent by prefix). */
+async function resolveShroudAgentKey(input: string): Promise<string> {
+    const trimmed = input.trim();
+    if (trimmed.includes(":")) {
+        return trimmed;
+    }
+    if (!trimmed.startsWith("ocv_")) {
+        printError(
+            "Pass agent credentials as agent_id:api_key, or a standalone agent API key (ocv_...).",
+        );
+        process.exit(1);
+    }
+    try {
+        const res = await apiNoAuth<{ agent_id?: string }>("/auth/agent-token", {
+            method: "POST",
+            body: { api_key: trimmed },
+        });
+        if (!res.agent_id) {
+            printError(
+                "Token exchange succeeded but server did not return agent_id. Use agent_id:api_key explicitly.",
+            );
+            process.exit(1);
+        }
+        printInfo(
+            `Resolved agent ${chalk.bold(res.agent_id)} from API key (key-only auth).`,
+        );
+        return `${res.agent_id}:${trimmed}`;
+    } catch (err) {
+        if (err instanceof ApiError) {
+            printError(
+                `Could not resolve agent from API key (${err.status}): ${err.detail}`,
+            );
+        } else if (err instanceof Error) {
+            printError(err.message);
+        } else {
+            printError(String(err));
+        }
+        process.exit(1);
+    }
+}
 
 function detectProvider(model: string): string {
     const lower = model.toLowerCase();
@@ -134,7 +176,7 @@ export const proxyCommand = new Command("proxy")
     )
     .requiredOption(
         "--agent-key <key>",
-        "Agent credentials as agent_id:api_key (e.g. 550e8400-...:ocv_abc123)",
+        "agent_id:api_key or key-only ocv_... (resolved via POST /v1/auth/agent-token)",
     )
     .option("-p, --port <port>", "Local port to listen on", String(DEFAULT_PORT))
     .option(
@@ -147,20 +189,14 @@ export const proxyCommand = new Command("proxy")
         process.env.ONECLAW_SHROUD_URL ?? DEFAULT_SHROUD_URL,
     )
     .option("-v, --verbose", "Log each proxied request", false)
-    .action((opts) => {
+    .action(async (opts) => {
         const port = parseInt(opts.port, 10);
         if (isNaN(port) || port < 1 || port > 65535) {
             printError("Invalid port number.");
             process.exit(1);
         }
 
-        const agentKey: string = opts.agentKey;
-        if (!agentKey.includes(":")) {
-            printError(
-                "Agent key must be in the format agent_id:api_key (e.g. 550e8400-...:ocv_abc123)",
-            );
-            process.exit(1);
-        }
+        const agentKey = await resolveShroudAgentKey(opts.agentKey);
 
         const proxyOpts: ProxyOptions = {
             agentKey,
