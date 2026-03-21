@@ -14,6 +14,7 @@ import { billingCommand } from "./commands/billing.js";
 import { auditCommand } from "./commands/audit.js";
 import { mfaCommand } from "./commands/mfa.js";
 import { configCommand } from "./commands/config.js";
+import { proxyCommand } from "./commands/proxy.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 export function createProgram(): Command {
@@ -47,6 +48,9 @@ export function createProgram(): Command {
 
     // Config
     program.addCommand(configCommand);
+
+    // Proxy
+    program.addCommand(proxyCommand);
 
     // Global options
     program.option("--json", "Force JSON output for all commands");
