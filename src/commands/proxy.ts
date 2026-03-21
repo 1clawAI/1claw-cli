@@ -2,6 +2,7 @@ import { Command } from "commander";
 import {
     createServer,
     type IncomingMessage,
+    type Server,
     type ServerResponse,
 } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -12,6 +13,67 @@ import { printError, printInfo, printSuccess } from "../output.js";
 
 const DEFAULT_PORT = 11434;
 const DEFAULT_SHROUD_URL = "https://shroud.1claw.xyz";
+/** If the preferred port is busy (e.g. Ollama on 11434), try this many consecutive ports. */
+const MAX_PORT_TRIES = 32;
+
+/**
+ * Bind the server: uses `preferredPort`, or scans upward on EADDRINUSE.
+ * `preferredPort === 0` lets the OS pick a free port.
+ */
+function listenProxyServer(
+    server: Server,
+    preferredPort: number,
+): Promise<{ port: number; usedFallbackPort: boolean }> {
+    if (preferredPort === 0) {
+        return new Promise((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(0, "127.0.0.1", () => {
+                server.removeAllListeners("error");
+                const addr = server.address();
+                const p =
+                    addr && typeof addr === "object" ? addr.port : 0;
+                resolve({ port: p, usedFallbackPort: false });
+            });
+        });
+    }
+
+    return new Promise((resolve, reject) => {
+        let offset = 0;
+
+        const tryPort = (p: number) => {
+            const onListen = () => {
+                server.off("error", onErr);
+                resolve({
+                    port: p,
+                    usedFallbackPort: p !== preferredPort,
+                });
+            };
+            const onErr = (err: NodeJS.ErrnoException) => {
+                server.off("listening", onListen);
+                if (
+                    err.code === "EADDRINUSE" &&
+                    offset < MAX_PORT_TRIES - 1
+                ) {
+                    offset += 1;
+                    tryPort(preferredPort + offset);
+                } else if (err.code === "EADDRINUSE") {
+                    reject(
+                        new Error(
+                            `Ports ${preferredPort}–${preferredPort + MAX_PORT_TRIES - 1} are all in use. Stop the other process (e.g. another \`1claw proxy\`, Ollama) or pass --port.`,
+                        ),
+                    );
+                } else {
+                    reject(err);
+                }
+            };
+            server.once("listening", onListen);
+            server.once("error", onErr);
+            server.listen(p, "127.0.0.1");
+        };
+
+        tryPort(preferredPort);
+    });
+}
 
 const PROVIDER_FROM_MODEL: Record<string, string> = {
     "gpt-": "openai",
@@ -178,7 +240,11 @@ export const proxyCommand = new Command("proxy")
         "--agent-key <key>",
         "agent_id:api_key or key-only ocv_... (resolved via POST /v1/auth/agent-token)",
     )
-    .option("-p, --port <port>", "Local port to listen on", String(DEFAULT_PORT))
+    .option(
+        "-p, --port <port>",
+        `Local port (default ${DEFAULT_PORT}). If busy, tries up to ${MAX_PORT_TRIES} higher ports. Use 0 for OS-assigned.`,
+        String(DEFAULT_PORT),
+    )
     .option(
         "--provider <name>",
         "Force a provider (openai, anthropic, google, etc.) instead of auto-detecting from model",
@@ -190,9 +256,13 @@ export const proxyCommand = new Command("proxy")
     )
     .option("-v, --verbose", "Log each proxied request", false)
     .action(async (opts) => {
-        const port = parseInt(opts.port, 10);
-        if (isNaN(port) || port < 1 || port > 65535) {
-            printError("Invalid port number.");
+        const preferredPort = parseInt(opts.port, 10);
+        if (
+            isNaN(preferredPort) ||
+            preferredPort < 0 ||
+            preferredPort > 65535
+        ) {
+            printError("Invalid port (use 0–65535).");
             process.exit(1);
         }
 
@@ -256,66 +326,73 @@ export const proxyCommand = new Command("proxy")
             }
         });
 
-        server.listen(port, "127.0.0.1", () => {
-            console.log();
-            printSuccess(
-                `1Claw LLM proxy running on ${chalk.bold(`http://127.0.0.1:${port}`)}`,
+        let boundPort: number;
+        try {
+            const { port, usedFallbackPort } = await listenProxyServer(
+                server,
+                preferredPort,
             );
-            console.log(
-                `  ${chalk.dim("→")} Forwarding to ${chalk.cyan(proxyOpts.shroudUrl)}`,
-            );
-            console.log(
-                `  ${chalk.dim("→")} Provider: ${proxyOpts.provider ? chalk.cyan(proxyOpts.provider) : chalk.dim("auto-detect from model name")}`,
-            );
-            console.log();
-            console.log(chalk.bold("  Configure your editor:"));
-            console.log();
-            console.log(
-                `  ${chalk.bold("Cursor / VS Code (OpenAI override):")}`,
-            );
-            console.log(
-                `    Base URL:  ${chalk.cyan(`http://127.0.0.1:${port}/v1`)}`,
-            );
-            console.log(
-                `    API Key:   ${chalk.dim("any value (e.g. \"1claw\")")}`,
-            );
-            console.log();
-            console.log(`  ${chalk.bold("Continue (~/.continue/config.json):")}`);
-            console.log(
-                chalk.dim(`    {
+            boundPort = port;
+            if (usedFallbackPort) {
+                printInfo(
+                    `Port ${chalk.bold(String(preferredPort))} was in use (e.g. Ollama or another proxy); using ${chalk.bold(String(port))} instead.`,
+                );
+                console.log();
+            }
+        } catch (err) {
+            if (err instanceof Error) {
+                printError(err.message);
+            } else {
+                printError(String(err));
+            }
+            process.exit(1);
+        }
+
+        console.log();
+        printSuccess(
+            `1Claw LLM proxy running on ${chalk.bold(`http://127.0.0.1:${boundPort}`)}`,
+        );
+        console.log(
+            `  ${chalk.dim("→")} Forwarding to ${chalk.cyan(proxyOpts.shroudUrl)}`,
+        );
+        console.log(
+            `  ${chalk.dim("→")} Provider: ${proxyOpts.provider ? chalk.cyan(proxyOpts.provider) : chalk.dim("auto-detect from model name")}`,
+        );
+        console.log();
+        console.log(chalk.bold("  Configure your editor:"));
+        console.log();
+        console.log(`  ${chalk.bold("Cursor / VS Code (OpenAI override):")}`);
+        console.log(
+            `    Base URL:  ${chalk.cyan(`http://127.0.0.1:${boundPort}/v1`)}`,
+        );
+        console.log(
+            `    API Key:   ${chalk.dim("any value (e.g. \"1claw\")")}`,
+        );
+        console.log();
+        console.log(`  ${chalk.bold("Continue (~/.continue/config.json):")}`);
+        console.log(
+            chalk.dim(`    {
       "models": [{
         "title": "1Claw Shroud",
         "provider": "openai",
         "model": "gpt-4o",
-        "apiBase": "http://127.0.0.1:${port}/v1",
+        "apiBase": "http://127.0.0.1:${boundPort}/v1",
         "apiKey": "1claw"
       }]
     }`),
-            );
-            console.log();
-            console.log(`  ${chalk.bold("curl:")}`);
-            console.log(
-                chalk.dim(
-                    `    curl http://127.0.0.1:${port}/v1/chat/completions \\
+        );
+        console.log();
+        console.log(`  ${chalk.bold("curl:")}`);
+        console.log(
+            chalk.dim(
+                `    curl http://127.0.0.1:${boundPort}/v1/chat/completions \\
       -H "Content-Type: application/json" \\
       -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}'`,
-                ),
-            );
-            console.log();
-            printInfo("Press Ctrl+C to stop.");
-            console.log();
-        });
-
-        server.on("error", (err: NodeJS.ErrnoException) => {
-            if (err.code === "EADDRINUSE") {
-                printError(
-                    `Port ${port} is already in use. Try --port ${port + 1}`,
-                );
-            } else {
-                printError(`Server error: ${err.message}`);
-            }
-            process.exit(1);
-        });
+            ),
+        );
+        console.log();
+        printInfo("Press Ctrl+C to stop.");
+        console.log();
 
         const shutdown = () => {
             console.log();
