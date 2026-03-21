@@ -19,7 +19,7 @@ import { setOutputFormat, setApiUrl } from "./config.js";
 
 export function createProgram(): Command {
     const program = new Command("1claw")
-        .version("0.8.0")
+        .version("0.10.0")
         .description(
             "1Claw CLI — HSM-backed secret management for AI agents and humans",
         );
