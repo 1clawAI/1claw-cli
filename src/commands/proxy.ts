@@ -174,6 +174,11 @@ function forwardRequest(
         }
     }
 
+    const pathOnly = (req.url ?? "").split("?")[0] ?? "";
+    if (!provider && (pathOnly.includes("/v1/messages") || pathOnly.endsWith("/messages"))) {
+        provider = "anthropic";
+    }
+
     if (!provider) provider = "openai";
 
     const upstream = new URL(req.url ?? "/", opts.shroudUrl);
@@ -232,13 +237,72 @@ function forwardRequest(
     upstreamReq.end();
 }
 
+/** CLI flag or ONECLAW_AGENT_API_KEY (+ optional ONECLAW_AGENT_ID), same as MCP examples. */
+function getAgentKeyFromOptsOrEnv(agentKeyFlag: string | undefined): string {
+    const flag = agentKeyFlag?.trim();
+    if (flag) return flag;
+    const envKey = process.env.ONECLAW_AGENT_API_KEY?.trim();
+    const envId = process.env.ONECLAW_AGENT_ID?.trim();
+    if (envId && envKey) return `${envId}:${envKey}`;
+    if (envKey) return envKey;
+    printError(
+        "Missing agent credentials: use --agent-key, or set ONECLAW_AGENT_API_KEY (and optionally ONECLAW_AGENT_ID for non-ocv flows).",
+    );
+    process.exit(1);
+}
+
+function printIdeSetupBlock(boundPort: number): void {
+    const base = `http://127.0.0.1:${boundPort}`;
+    const openaiV1 = `${base}/v1`;
+
+    console.log(chalk.bold("  Cursor"));
+    console.log(
+        `    ${chalk.dim("Settings → Models → OpenAI (override)")} → Base URL: ${chalk.cyan(openaiV1)} → API key: ${chalk.dim("1claw (any value)")}`,
+    );
+    console.log();
+
+    console.log(chalk.bold("  Claude Code"));
+    console.log(
+        chalk.dim(
+            `    export ANTHROPIC_BASE_URL="${base}"`,
+        ),
+    );
+    console.log(
+        chalk.dim(`    export ANTHROPIC_API_KEY="1claw"`),
+    );
+    console.log(
+        chalk.dim(
+            `    # Optional if MCP tool search matters: ENABLE_TOOL_SEARCH=true`,
+        ),
+    );
+    console.log(chalk.dim(`    claude`));
+    console.log();
+
+    console.log(chalk.bold("  VS Code + GitHub Copilot"));
+    console.log(
+        `    ${chalk.dim("Chat → model picker → Manage models → add OpenAI-compatible → Base URL:")} ${chalk.cyan(openaiV1)}`,
+    );
+    console.log(
+        chalk.dim(
+            "    (May require VS Code Insiders; BYOK not on all Copilot org plans — see docs.)",
+        ),
+    );
+    console.log();
+
+    console.log(chalk.bold("  Continue / other OpenAI-compatible extensions"));
+    console.log(
+        chalk.dim(`    "apiBase": "${openaiV1}"`),
+    );
+    console.log();
+}
+
 export const proxyCommand = new Command("proxy")
     .description(
         "Start a local OpenAI-compatible proxy that routes through Shroud",
     )
-    .requiredOption(
+    .option(
         "--agent-key <key>",
-        "agent_id:api_key or key-only ocv_... (resolved via POST /v1/auth/agent-token)",
+        "agent_id:api_key or key-only ocv_... (else ONECLAW_AGENT_API_KEY env)",
     )
     .option(
         "-p, --port <port>",
@@ -266,7 +330,12 @@ export const proxyCommand = new Command("proxy")
             process.exit(1);
         }
 
-        const agentKey = await resolveShroudAgentKey(opts.agentKey);
+        const rawAgentInput = getAgentKeyFromOptsOrEnv(opts.agentKey);
+        if (!opts.agentKey?.trim() && process.env.ONECLAW_AGENT_API_KEY) {
+            printInfo("Using agent credentials from ONECLAW_AGENT_API_KEY.");
+            console.log();
+        }
+        const agentKey = await resolveShroudAgentKey(rawAgentInput);
 
         const proxyOpts: ProxyOptions = {
             agentKey,
@@ -359,30 +428,10 @@ export const proxyCommand = new Command("proxy")
             `  ${chalk.dim("→")} Provider: ${proxyOpts.provider ? chalk.cyan(proxyOpts.provider) : chalk.dim("auto-detect from model name")}`,
         );
         console.log();
-        console.log(chalk.bold("  Configure your editor:"));
+        console.log(chalk.bold("  Configure your tools (copy-paste)"));
         console.log();
-        console.log(`  ${chalk.bold("Cursor / VS Code (OpenAI override):")}`);
-        console.log(
-            `    Base URL:  ${chalk.cyan(`http://127.0.0.1:${boundPort}/v1`)}`,
-        );
-        console.log(
-            `    API Key:   ${chalk.dim("any value (e.g. \"1claw\")")}`,
-        );
-        console.log();
-        console.log(`  ${chalk.bold("Continue (~/.continue/config.json):")}`);
-        console.log(
-            chalk.dim(`    {
-      "models": [{
-        "title": "1Claw Shroud",
-        "provider": "openai",
-        "model": "gpt-4o",
-        "apiBase": "http://127.0.0.1:${boundPort}/v1",
-        "apiKey": "1claw"
-      }]
-    }`),
-        );
-        console.log();
-        console.log(`  ${chalk.bold("curl:")}`);
+        printIdeSetupBlock(boundPort);
+        console.log(`  ${chalk.bold("curl (OpenAI-style)")}`);
         console.log(
             chalk.dim(
                 `    curl http://127.0.0.1:${boundPort}/v1/chat/completions \\
