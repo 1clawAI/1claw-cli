@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import open from "open";
 import ora from "ora";
 import chalk from "chalk";
+import inquirer from "inquirer";
 import { api, apiNoAuth, type ApiError } from "./client.js";
 import { setAuth, getApiUrl, clearAuth, type StoredAuth } from "./config.js";
 import { printError, printSuccess } from "./output.js";
@@ -30,13 +31,27 @@ interface DeviceTokenResponse {
 }
 
 export async function loginWithDevice(): Promise<StoredAuth | null> {
+    const { email } = await inquirer.prompt([
+        {
+            type: "input",
+            name: "email",
+            message: "Email address for this 1Claw account:",
+            validate: (v: string) => {
+                const t = v.trim().toLowerCase();
+                return t.includes("@") && t.length <= 254
+                    ? true
+                    : "Enter a valid email address";
+            },
+        },
+    ]);
+
     const spinner = ora("Requesting login code…").start();
 
     let device: DeviceCodeResponse;
     try {
         device = await apiNoAuth<DeviceCodeResponse>("/auth/device/code", {
             method: "POST",
-            body: { client_id: "cli" },
+            body: { client_id: "cli", email: email.trim().toLowerCase() },
         });
     } catch (err) {
         spinner.fail("Failed to request device code");
