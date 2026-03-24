@@ -4,6 +4,8 @@ Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret mana
 
 Designed for CI/CD pipelines, DevOps workflows, and server environments.
 
+**HTTP surface:** Commands call the Vault REST API. The authoritative contract is [@1claw/openapi-spec](https://www.npmjs.com/package/@1claw/openapi-spec) (`openapi.yaml` / `openapi.json`).
+
 ## Installation
 
 ```bash
