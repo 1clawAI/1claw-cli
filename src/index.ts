@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
@@ -25,9 +25,14 @@ import { proxyCommand } from "./commands/proxy.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const cliPackageVersion = JSON.parse(
-    readFileSync(join(__dirname, "../package.json"), "utf8"),
-).version as string;
+// Compiled to dist/src/index.js → ../../package.json; ts-node from src/ → ../package.json
+const pkgJsonPath = [join(__dirname, "../../package.json"), join(__dirname, "../package.json")].find(
+    (p) => existsSync(p),
+);
+if (!pkgJsonPath) {
+    throw new Error("package.json not found next to CLI package root");
+}
+const cliPackageVersion = JSON.parse(readFileSync(pkgJsonPath, "utf8")).version as string;
 
 export function createProgram(): Command {
     const program = new Command("1claw")
