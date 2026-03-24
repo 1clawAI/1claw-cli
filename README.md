@@ -51,9 +51,13 @@ export ONECLAW_API_KEY="1ck_..."
 ```bash
 1claw login              # Browser-based login
 1claw login --email      # Email/password login
+1claw forgot-password    # Request password reset email (no login required)
+1claw reset-password     # Set new password from email token (no login required)
 1claw logout             # Clear stored credentials
 1claw whoami             # Show current user info
 ```
+
+Password reset only applies to **email/password** accounts (not Google/SSO-only). After reset, open the link in the email (dashboard) or pass `--token` to `reset-password`.
 
 ### Vaults
 

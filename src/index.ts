@@ -1,9 +1,16 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import {
     loginCommand,
     logoutCommand,
     whoamiCommand,
 } from "./commands/login.js";
+import {
+    forgotPasswordCommand,
+    resetPasswordCommand,
+} from "./commands/password-reset.js";
 import { vaultCommand } from "./commands/vault.js";
 import { secretCommand } from "./commands/secret.js";
 import { envCommand } from "./commands/env.js";
@@ -17,9 +24,14 @@ import { configCommand } from "./commands/config.js";
 import { proxyCommand } from "./commands/proxy.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const cliPackageVersion = JSON.parse(
+    readFileSync(join(__dirname, "../package.json"), "utf8"),
+).version as string;
+
 export function createProgram(): Command {
     const program = new Command("1claw")
-        .version("0.10.3")
+        .version(cliPackageVersion)
         .description(
             "1Claw CLI — HSM-backed secret management for AI agents and humans",
         );
@@ -28,6 +40,8 @@ export function createProgram(): Command {
     program.addCommand(loginCommand);
     program.addCommand(logoutCommand);
     program.addCommand(whoamiCommand);
+    program.addCommand(forgotPasswordCommand);
+    program.addCommand(resetPasswordCommand);
 
     // Core resources
     program.addCommand(vaultCommand);
