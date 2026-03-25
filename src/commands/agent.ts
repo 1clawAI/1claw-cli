@@ -12,21 +12,31 @@ import {
 interface ShroudConfig {
     pii_policy?: string;
     injection_threshold?: number;
+    context_injection_threshold?: number;
     allowed_providers?: string[];
     allowed_models?: string[];
+    denied_models?: string[];
     max_tokens_per_request?: number;
+    max_requests_per_minute?: number;
+    max_requests_per_day?: number;
     daily_budget_usd?: number;
     enable_secret_redaction?: boolean;
     enable_response_filtering?: boolean;
     // Threat detection (optional nested configs)
     unicode_normalization?: { enabled?: boolean };
-    command_injection_detection?: { enabled?: boolean };
-    social_engineering_detection?: { enabled?: boolean };
-    encoding_detection?: { enabled?: boolean };
-    network_detection?: { enabled?: boolean };
-    filesystem_detection?: { enabled?: boolean };
+    command_injection_detection?: { enabled?: boolean; action?: string };
+    social_engineering_detection?: { enabled?: boolean; action?: string; sensitivity?: string };
+    encoding_detection?: { enabled?: boolean; action?: string };
+    network_detection?: { enabled?: boolean; action?: string; blocked_domains?: string[]; allowed_domains?: string[] };
+    filesystem_detection?: { enabled?: boolean; action?: string; blocked_paths?: string[] };
+    tool_call_inspection?: { enabled?: boolean; allowed_tool_names?: string[]; denied_tool_names?: string[]; scan_arguments?: boolean; block_credential_exfil?: boolean; action?: string };
+    output_policy?: { enabled?: boolean; blocked_patterns?: string[]; blocked_entities?: string[]; block_harmful_content?: boolean; harmful_categories?: string[]; action?: string };
+    secret_injection_detection?: { enabled?: boolean; action?: string; sensitivity?: string };
+    advanced_redaction?: { enabled?: boolean; detect_base64_encoded?: boolean; detect_split_secrets?: boolean; detect_prefix_leak?: boolean; min_secret_length?: number };
+    semantic_policy?: { enabled?: boolean; allowed_topics?: string[]; denied_topics?: string[]; allowed_tasks?: string[]; denied_tasks?: string[]; action?: string };
     sanitization_mode?: string;
     threat_logging?: boolean;
+    flagged_request_retention_days?: number;
 }
 
 interface Agent {
@@ -79,6 +89,7 @@ agentCommand
                     { key: "name", header: "Name", width: 24 },
                     { key: "scopes", header: "Scopes", width: 30 },
                     { key: "intents", header: "Intents" },
+                    { key: "shroud", header: "Shroud" },
                     { key: "created", header: "Created" },
                 ],
             );
@@ -277,6 +288,24 @@ agentCommand
                         ? agent.shroud_config.allowed_models.join(", ")
                         : chalk.dim("all"),
                 ]);
+                if (agent.shroud_config.denied_models?.length) {
+                    rows.push([
+                        "  Denied models",
+                        agent.shroud_config.denied_models.join(", "),
+                    ]);
+                }
+                if (agent.shroud_config.max_requests_per_minute != null) {
+                    rows.push([
+                        "  Rate limit (min)",
+                        String(agent.shroud_config.max_requests_per_minute),
+                    ]);
+                }
+                if (agent.shroud_config.max_requests_per_day != null) {
+                    rows.push([
+                        "  Rate limit (day)",
+                        String(agent.shroud_config.max_requests_per_day),
+                    ]);
+                }
                 const threatKeys = [
                     "unicode_normalization",
                     "command_injection_detection",
@@ -284,6 +313,11 @@ agentCommand
                     "encoding_detection",
                     "network_detection",
                     "filesystem_detection",
+                    "tool_call_inspection",
+                    "output_policy",
+                    "secret_injection_detection",
+                    "advanced_redaction",
+                    "semantic_policy",
                 ] as const;
                 const cfg = agent.shroud_config as Record<string, unknown> | undefined;
                 const configured = threatKeys.filter(
@@ -293,8 +327,75 @@ agentCommand
                     rows.push([
                         "  Threat detection",
                         configured
-                            .map((k) => k.replace(/_detection$/, "").replace(/_/g, " "))
+                            .map((k) =>
+                                k
+                                    .replace(/_detection$/, "")
+                                    .replace(/_inspection$/, "")
+                                    .replace(/_policy$/, " policy")
+                                    .replace(/_redaction$/, " redaction")
+                                    .replace(/_/g, " "),
+                            )
                             .join(", "),
+                    ]);
+                }
+                if (agent.shroud_config.tool_call_inspection?.enabled) {
+                    const tci = agent.shroud_config.tool_call_inspection;
+                    if (tci.allowed_tool_names?.length)
+                        rows.push(["    Allowed tools", tci.allowed_tool_names.join(", ")]);
+                    if (tci.denied_tool_names?.length)
+                        rows.push(["    Denied tools", tci.denied_tool_names.join(", ")]);
+                    if (tci.block_credential_exfil)
+                        rows.push(["    Block cred exfil", "yes"]);
+                    if (tci.action)
+                        rows.push(["    Action", tci.action]);
+                }
+                if (agent.shroud_config.output_policy?.enabled) {
+                    const op = agent.shroud_config.output_policy;
+                    if (op.blocked_patterns?.length)
+                        rows.push(["    Blocked patterns", op.blocked_patterns.join(", ")]);
+                    if (op.blocked_entities?.length)
+                        rows.push(["    Blocked entities", op.blocked_entities.join(", ")]);
+                    if (op.block_harmful_content)
+                        rows.push(["    Block harmful", "yes"]);
+                    if (op.action)
+                        rows.push(["    Action", op.action]);
+                }
+                if (agent.shroud_config.secret_injection_detection?.enabled) {
+                    const sid = agent.shroud_config.secret_injection_detection;
+                    if (sid.sensitivity)
+                        rows.push(["    Sensitivity", sid.sensitivity]);
+                    if (sid.action)
+                        rows.push(["    Action", sid.action]);
+                }
+                if (agent.shroud_config.advanced_redaction?.enabled) {
+                    const ar = agent.shroud_config.advanced_redaction;
+                    const flags = [
+                        ar.detect_base64_encoded && "base64",
+                        ar.detect_split_secrets && "split",
+                        ar.detect_prefix_leak && "prefix",
+                    ].filter(Boolean);
+                    if (flags.length)
+                        rows.push(["    Detectors", flags.join(", ")]);
+                    if (ar.min_secret_length != null)
+                        rows.push(["    Min secret len", String(ar.min_secret_length)]);
+                }
+                if (agent.shroud_config.semantic_policy?.enabled) {
+                    const sp = agent.shroud_config.semantic_policy;
+                    if (sp.allowed_topics?.length)
+                        rows.push(["    Allowed topics", sp.allowed_topics.join(", ")]);
+                    if (sp.denied_topics?.length)
+                        rows.push(["    Denied topics", sp.denied_topics.join(", ")]);
+                    if (sp.allowed_tasks?.length)
+                        rows.push(["    Allowed tasks", sp.allowed_tasks.join(", ")]);
+                    if (sp.denied_tasks?.length)
+                        rows.push(["    Denied tasks", sp.denied_tasks.join(", ")]);
+                    if (sp.action)
+                        rows.push(["    Action", sp.action]);
+                }
+                if (agent.shroud_config.flagged_request_retention_days != null) {
+                    rows.push([
+                        "  Flagged retention",
+                        `${agent.shroud_config.flagged_request_retention_days} days`,
                     ]);
                 }
             }

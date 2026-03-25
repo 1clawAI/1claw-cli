@@ -117,7 +117,9 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 1claw agent get <id>                           # Agent details + SSH public key
 1claw agent update <id> \
   --token-ttl 600 \                            # Update TTL
-  --vault-ids <uuid>                           # Update vault binding
+  --vault-ids <uuid> \                         # Update vault binding
+  --shroud true \                              # Enable/disable Shroud LLM proxy
+  --intents-api true                           # Enable/disable Intents API
 1claw agent delete <id>                        # Delete an agent
 1claw agent token <id>                         # Generate agent JWT (api_key only)
 1claw agent token <id> --quiet                 # Raw token (for piping)
@@ -132,6 +134,47 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 ```
 
 All agents automatically receive an Ed25519 SSH keypair for future A2A messaging. The public key is shown in `agent get` output.
+
+### Transactions (Intents API)
+
+Submit, sign, and inspect on-chain transactions for agents with Intents API enabled.
+
+```bash
+1claw agent tx submit <agent-id> \
+  --to 0xRecipient \
+  --value 0.01 \
+  --chain sepolia                              # Sign + broadcast
+1claw agent tx submit <agent-id> \
+  --to 0xRecipient \
+  --value 0.01 \
+  --chain sepolia \
+  --simulate                                   # Simulate before signing
+1claw agent tx sign <agent-id> \
+  --to 0xRecipient \
+  --value 0.01 \
+  --chain sepolia                              # Sign only (no broadcast)
+1claw agent tx list <agent-id>                 # List recent transactions
+1claw agent tx get <agent-id> <tx-id>          # Get transaction details
+```
+
+Common options for `submit` and `sign`:
+
+| Flag | Description |
+| ---- | ----------- |
+| `--to <address>` | Destination address (required) |
+| `--value <eth>` | Value in ETH (required) |
+| `--chain <name>` | Chain name or ID (required) |
+| `--data <hex>` | Hex-encoded calldata |
+| `--signing-key-path <path>` | Vault path to signing key |
+| `--nonce <n>` | Transaction nonce |
+| `--gas-price <wei>` | Gas price in wei (legacy) |
+| `--gas-limit <n>` | Gas limit |
+| `--max-fee-per-gas <wei>` | EIP-1559 max fee per gas |
+| `--max-priority-fee-per-gas <wei>` | EIP-1559 max priority fee |
+| `--simulate` | Run Tenderly simulation first |
+| `--json` | Output raw JSON |
+
+`list` and `get` accept `--include-signed-tx` to include the raw signed transaction in the response.
 
 ### Policies
 
