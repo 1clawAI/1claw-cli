@@ -77,15 +77,19 @@ secretCommand
     .command("get <path>")
     .description("Fetch a decrypted secret value")
     .option("-v, --vault <id>", "Vault ID")
+    .option("--version <n>", "Retrieve a specific version number")
     .option("--json", "Output as JSON")
     .option("--quiet", "Print only the raw value (for piping)")
     .action(async (path, opts) => {
         try {
             requireToken();
             const vaultId = resolveVaultId(opts);
-            const secret = await api<SecretValue>(
-                `/vaults/${vaultId}/secrets/${encodeURIComponent(path)}`,
-            );
+
+            const ver = opts.version ? parseInt(opts.version, 10) : undefined;
+            const url = ver
+                ? `/vaults/${vaultId}/secret-version/${encodeURIComponent(path)}/${ver}`
+                : `/vaults/${vaultId}/secrets/${encodeURIComponent(path)}`;
+            const secret = await api<SecretValue>(url);
 
             if (opts.quiet) {
                 process.stdout.write(secret.value);
@@ -102,7 +106,7 @@ secretCommand
                 ["Type", secret.secret_type],
                 ["Version", String(secret.version)],
                 ["Value", secret.value],
-                ["Updated", new Date(secret.updated_at).toLocaleString()],
+                ["Updated", new Date(secret.updated_at ?? secret.created_at).toLocaleString()],
             ]);
         } catch (err) {
             handleError(err);
@@ -194,13 +198,31 @@ secretCommand
 
 secretCommand
     .command("rotate <path> [value]")
-    .description("Store a new version of an existing secret")
+    .description("Rotate a secret. With --generate, the server creates a random value.")
     .option("-v, --vault <id>", "Vault ID")
     .option("--stdin", "Read value from stdin")
+    .option("-g, --generate", "Server-side generation (no value needed)")
+    .option("-l, --length <n>", "Generated value length (default 32)")
+    .option("-c, --charset <charset>", "hex|base64|alphanumeric|ascii (default hex)")
     .action(async (path, value, opts) => {
         try {
             requireToken();
             const vaultId = resolveVaultId(opts);
+
+            if (opts.generate) {
+                const body: Record<string, unknown> = {};
+                if (opts.length) body.length = parseInt(opts.length, 10);
+                if (opts.charset) body.charset = opts.charset;
+
+                const result = await api<{ version: number }>(
+                    `/vaults/${vaultId}/secret-rotate/${encodeURIComponent(path)}`,
+                    { method: "POST", body },
+                );
+                printSuccess(
+                    `Secret ${chalk.bold(path)} rotated (server-generated). Version: ${result.version}`,
+                );
+                return;
+            }
 
             let secretValue = value;
             if (opts.stdin || !value) {
@@ -209,6 +231,11 @@ secretCommand
                     chunks.push(chunk);
                 }
                 secretValue = Buffer.concat(chunks).toString().trim();
+            }
+
+            if (!secretValue) {
+                printWarning("No value provided. Use --generate for server-side rotation, or pass a value.");
+                process.exit(1);
             }
 
             await api(
@@ -220,6 +247,48 @@ secretCommand
             );
 
             printSuccess(`Secret ${chalk.bold(path)} rotated.`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+secretCommand
+    .command("versions <path>")
+    .description("List all versions of a secret")
+    .option("-v, --vault <id>", "Vault ID")
+    .option("--json", "Output as JSON")
+    .action(async (path, opts) => {
+        try {
+            requireToken();
+            const vaultId = resolveVaultId(opts);
+            const res = await api<{ versions: Secret[] }>(
+                `/vaults/${vaultId}/secret-versions/${encodeURIComponent(path)}`,
+            );
+            const versions = res.versions ?? [];
+
+            if (opts.json) {
+                printJson(versions);
+                return;
+            }
+
+            if (versions.length === 0) {
+                printWarning("No versions found.");
+                return;
+            }
+
+            printTable(
+                versions.map((v) => ({
+                    ...v,
+                    created: new Date(v.created_at).toLocaleDateString(),
+                    disabled: (v as Record<string, unknown>).is_disabled ? chalk.red("yes") : chalk.dim("no"),
+                })),
+                [
+                    { key: "version", header: "Ver" },
+                    { key: "secret_type", header: "Type", width: 14 },
+                    { key: "created", header: "Created" },
+                    { key: "disabled", header: "Disabled" },
+                ],
+            );
         } catch (err) {
             handleError(err);
         }
