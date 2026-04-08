@@ -18,6 +18,7 @@ interface Secret {
     created_at: string;
     updated_at: string;
     expires_at?: string;
+    is_disabled?: boolean;
 }
 
 interface SecretValue extends Secret {
@@ -280,7 +281,7 @@ secretCommand
                 versions.map((v) => ({
                     ...v,
                     created: new Date(v.created_at).toLocaleDateString(),
-                    disabled: (v as Record<string, unknown>).is_disabled ? chalk.red("yes") : chalk.dim("no"),
+                    disabled: v.is_disabled ? chalk.red("yes") : chalk.dim("no"),
                 })),
                 [
                     { key: "version", header: "Ver" },
