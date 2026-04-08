@@ -1,4 +1,4 @@
-# @1claw/cli
+# @1claw/cli (v0.14.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
