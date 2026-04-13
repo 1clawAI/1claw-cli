@@ -1,0 +1,54 @@
+# Secrets & credentials — keep out of AI index / context
+.env
+.env.*
+!.env.example
+!.env.*.example
+**/.env.local
+**/.env.*.local
+
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
+**/credentials.json
+**/service-account*.json
+**/client_secret*.json
+**/google-credentials*.json
+
+# Terraform & IaC secrets
+**/*.auto.tfvars
+!**/*.tfvars.example
+**/terraform.tfvars
+!**/terraform.tfvars.example
+*.tfstate
+*.tfstate.backup
+*.tfplan
+
+.netrc
+**/.aws/credentials
+
+# Dependencies & build noise
+node_modules/
+dist/
+build/
+.next/
+coverage/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+
