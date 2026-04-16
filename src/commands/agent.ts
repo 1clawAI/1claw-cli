@@ -182,40 +182,49 @@ agentCommand
 agentCommand
     .command("enroll <name>")
     .description(
-        "Self-enroll an agent (no auth required). Credentials are emailed to the human.",
+        "Self-enroll an agent (no auth required). Use --email to email the account holder, or omit it for link-only enrollment.",
     )
-    .requiredOption(
+    .option(
         "--email <email>",
-        "Email of a human who has a 1Claw account",
+        "Email of a human with a 1Claw account (optional; omit for approval URL only)",
     )
     .option("--description <desc>", "Agent description")
     .action(async (name, opts) => {
         try {
-            const res = await apiNoAuth<{ agent_id: string; message: string }>(
-                "/agents/enroll",
-                {
-                    method: "POST",
-                    body: {
-                        name,
-                        human_email: opts.email,
-                        description: opts.description,
-                    },
-                },
-            );
+            const body: {
+                name: string;
+                description?: string;
+                human_email?: string;
+            } = { name };
+            if (opts.description) body.description = opts.description;
+            if (opts.email) body.human_email = opts.email;
+
+            const res = await apiNoAuth<{
+                agent_id: string;
+                message: string;
+                approval_url?: string;
+            }>("/agents/enroll", {
+                method: "POST",
+                body,
+            });
             printSuccess("Enrollment request submitted.");
             printKeyValue([
                 ["Agent ID", res.agent_id],
                 ["Message", res.message],
             ]);
+            if (res.approval_url) {
+                printKeyValue([["Approval URL", res.approval_url]]);
+                console.log();
+                console.log(
+                    chalk.dim(
+                        "  Open this URL while signed in to approve (also check email if you used --email).",
+                    ),
+                );
+            }
             console.log();
             console.log(
                 chalk.dim(
-                    "  The agent's credentials have been emailed to the human.",
-                ),
-            );
-            console.log(
-                chalk.dim(
-                    "  The human must create access policies before the agent can read secrets.",
+                    "  After approval, the human receives the API key by email. They must create access policies before the agent can read secrets.",
                 ),
             );
         } catch (err) {
