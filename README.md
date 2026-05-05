@@ -1,4 +1,4 @@
-# @1claw/cli (v0.15.1)
+# @1claw/cli (v0.15.2)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -57,9 +57,25 @@ export ONECLAW_API_KEY="1ck_..."
 1claw reset-password     # Set new password from email token (no login required)
 1claw logout             # Clear stored credentials
 1claw whoami             # Show current user info
+
+# OIDC federation (RFC 8693 token exchange)
+1claw auth federated-token \
+  --audience https://api.anthropic.com    # Mint short-lived RS256 JWT for an external relying party
+1claw auth federated-token \
+  -a https://api.anthropic.com --raw      # Just the access_token, for `export` / pipes
+1claw auth federated-token \
+  -a https://api.anthropic.com \
+  --subject-token "$ONECLAW_AGENT_API_KEY" # Override the default subject token (current login or env)
 ```
 
 Password reset only applies to **email/password** accounts (not Google/SSO-only). After reset, open the link in the email (dashboard) or pass `--token` to `reset-password`.
+
+`auth federated-token` uses your current 1claw credential as the **subject_token** and asks 1claw (an OIDC issuer at `https://api.1claw.xyz`) for a short-lived **RS256** JWT scoped to the `audience`. The acting agent must have `federation_enabled = true` and the audience must be on its `federation_audiences` allowlist (set in the dashboard or via `agents.update`). Pair with `--raw` for shell pipelines, e.g. Anthropic Workload Identity Federation:
+
+```bash
+ANTHROPIC_OIDC=$(1claw auth federated-token -a https://api.anthropic.com --raw)
+# exchange ANTHROPIC_OIDC at Anthropic's WIF endpoint for an sk-ant-oat01-... token
+```
 
 ### Vaults
 
@@ -103,14 +119,7 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 
 ```bash
 1claw agent list                               # List agents
-1claw agent create my-agent                    # Create agent (default: api_key auth)
-1claw agent create my-agent \
-  --auth-method mtls \                         # mTLS auth (no API key generated)
-  --client-cert-fingerprint <sha256-hex>       # Client certificate fingerprint
-1claw agent create my-agent \
-  --auth-method oidc_client_credentials \      # OIDC auth (no API key generated)
-  --oidc-issuer https://accounts.google.com \  # OIDC issuer URL
-  --oidc-client-id <client-id>                 # OIDC client ID
+1claw agent create my-agent                    # Create agent (api_key auth)
 1claw agent create my-agent \
   --token-ttl 300 \                            # 5-minute token TTL
   --vault-ids <uuid1>,<uuid2>                  # Restrict to specific vaults
@@ -132,6 +141,8 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
   --tx-daily-limit 1.0 \
   --tx-allowed-chains sepolia,base
 ```
+
+The CLI's `agent create` always uses `auth_method=api_key` (default; returns an `ocv_` API key). To register an `mtls` or `oidc_client_credentials` agent, use the SDK or `POST /v1/agents` directly — those auth methods don't generate an API key.
 
 All agents automatically receive an Ed25519 SSH keypair for future A2A messaging. The public key is shown in `agent get` output.
 
@@ -217,6 +228,18 @@ Common options for `submit` and `sign`:
 1claw audit list --vault <id>                  # Filter by vault
 1claw audit list --action secret.read          # Filter by action
 ```
+
+### Local OpenAI-compatible proxy
+
+```bash
+1claw proxy                                    # Start a local OpenAI-compatible proxy → Shroud (default :11434)
+1claw proxy --port 8080                        # Use a specific port (auto-falls-forward if busy)
+1claw proxy --provider anthropic               # Force a provider instead of auto-detecting from model
+1claw proxy --shroud-url https://shroud.1claw.xyz   # Override Shroud endpoint
+1claw proxy -v                                 # Verbose: log each proxied request
+```
+
+`1claw proxy` is for letting tools that only know how to talk to `localhost:11434` (e.g. Ollama-compatible clients) hit Shroud transparently. Auth is taken from `--agent-key` (`agent_id:api_key` or just `ocv_…`) or `ONECLAW_AGENT_API_KEY`. If the preferred port is busy, the CLI scans up to 32 higher ports automatically.
 
 ### MFA
 

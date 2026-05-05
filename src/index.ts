@@ -11,6 +11,7 @@ import {
     forgotPasswordCommand,
     resetPasswordCommand,
 } from "./commands/password-reset.js";
+import { authCommand } from "./commands/auth.js";
 import { vaultCommand } from "./commands/vault.js";
 import { secretCommand } from "./commands/secret.js";
 import { envCommand } from "./commands/env.js";
@@ -47,6 +48,7 @@ export function createProgram(): Command {
     program.addCommand(whoamiCommand);
     program.addCommand(forgotPasswordCommand);
     program.addCommand(resetPasswordCommand);
+    program.addCommand(authCommand);
 
     // Core resources
     program.addCommand(vaultCommand);
