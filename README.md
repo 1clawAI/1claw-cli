@@ -1,4 +1,4 @@
-# @1claw/cli (v0.15.2)
+# @1claw/cli (v0.18.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -186,6 +186,62 @@ Common options for `submit` and `sign`:
 | `--json` | Output raw JSON |
 
 `list` and `get` accept `--include-signed-tx` to include the raw signed transaction in the response.
+
+### Signing Keys (Multi-Chain)
+
+Manage per-agent multi-chain signing keys. Keys are generated server-side and stored in the vault — the private key never leaves the HSM.
+
+```bash
+1claw agent keys list <agent-id>               # List all signing keys
+1claw agent keys create <agent-id> \
+  --chain ethereum                             # Provision a key (secp256k1)
+1claw agent keys create <agent-id> \
+  --chain solana                               # Provision a key (ed25519)
+1claw agent keys rotate <agent-id> \
+  --chain ethereum                             # Rotate key (new version)
+1claw agent keys delete <agent-id> \
+  --chain ethereum                             # Deactivate key
+```
+
+Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. The curve is determined by the chain.
+
+### Unified Signing (`agent sign`)
+
+Sign messages, typed data, or raw transactions using the agent's multi-chain signing key.
+
+```bash
+# EIP-191 personal_sign
+1claw agent sign <agent-id> \
+  --intent-type personal_sign \
+  --message 0x48656c6c6f                       # Hex-encoded message
+
+# EIP-712 typed data
+1claw agent sign <agent-id> \
+  --intent-type typed_data \
+  --typed-data ./permit.json                   # JSON file with EIP-712 payload
+
+# Raw transaction (all EIP-2718 types: legacy, EIP-1559, EIP-4844, EIP-7702)
+1claw agent sign <agent-id> \
+  --intent-type transaction \
+  --to 0xRecipient \
+  --value 0.01 \
+  --chain base \
+  --tx-type 2                                  # EIP-1559
+```
+
+Common options for `agent sign`:
+
+| Flag | Description |
+| ---- | ----------- |
+| `--intent-type <type>` | `personal_sign`, `typed_data`, or `transaction` (required) |
+| `--chain <name>` | Chain name (default: `ethereum`) |
+| `--signing-key-path <path>` | Override signing key vault path |
+| `--message <hex>` | Hex-encoded message (personal_sign) |
+| `--typed-data <file>` | Path to EIP-712 JSON file (typed_data) |
+| `--to <address>` | Destination (transaction) |
+| `--value <eth>` | Value in ETH (transaction) |
+| `--tx-type <n>` | Transaction type 0–4 (transaction) |
+| `--json` | Output raw JSON |
 
 ### Policies
 
