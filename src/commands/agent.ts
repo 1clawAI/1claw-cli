@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { Command } from "commander";
 import chalk from "chalk";
 import { api, apiNoAuth } from "../client.js";
@@ -853,6 +854,274 @@ txCommand
                 ["Created", tx.created_at],
                 ...(tx.signed_at ? [["Signed at", tx.signed_at] as [string, string]] : []),
             ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+// ── Signing key commands ────────────────────────────────────────────────
+
+interface SigningKeyResponse {
+    id: string;
+    agent_id: string;
+    chain: string;
+    curve: string;
+    public_key: string;
+    address?: string;
+    key_version: number;
+    is_active: boolean;
+    created_at: string;
+    rotated_at?: string;
+}
+
+const keysCommand = agentCommand
+    .command("keys")
+    .description("Manage agent signing keys");
+
+keysCommand
+    .command("list <agent-id>")
+    .alias("ls")
+    .description("List signing keys for an agent")
+    .option("--json", "Output as JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+            const res = await api<{ keys: SigningKeyResponse[] }>(
+                `/agents/${agentId}/signing-keys`,
+            );
+            const keys = res.keys ?? [];
+
+            if (opts.json) {
+                printJson(keys);
+                return;
+            }
+
+            if (!keys.length) {
+                console.log(chalk.dim("No signing keys found."));
+                return;
+            }
+
+            printTable(
+                keys.map((k) => ({
+                    id: k.id.slice(0, 8) + "…",
+                    chain: k.chain,
+                    curve: k.curve,
+                    address: k.address ?? chalk.dim("—"),
+                    version: String(k.key_version),
+                    active: k.is_active ? chalk.green("✓") : chalk.dim("✗"),
+                    created: new Date(k.created_at).toLocaleDateString(),
+                })),
+                [
+                    { key: "id", header: "ID" },
+                    { key: "chain", header: "Chain", width: 12 },
+                    { key: "curve", header: "Curve", width: 12 },
+                    { key: "address", header: "Address", width: 44 },
+                    { key: "version", header: "Ver" },
+                    { key: "active", header: "Active" },
+                    { key: "created", header: "Created" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+keysCommand
+    .command("create <agent-id>")
+    .description("Create a signing key for an agent")
+    .requiredOption("--chain <chain>", "Chain name (e.g. ethereum, solana, bitcoin)")
+    .option("--json", "Output as JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+            const key = await api<SigningKeyResponse>(
+                `/agents/${agentId}/signing-keys`,
+                { method: "POST", body: { chain: opts.chain } },
+            );
+
+            if (opts.json) {
+                printJson(key);
+                return;
+            }
+
+            printSuccess(`Signing key created for ${chalk.bold(opts.chain)}.`);
+            printKeyValue([
+                ["ID", key.id],
+                ["Chain", key.chain],
+                ["Curve", key.curve],
+                ["Public key", key.public_key],
+                ["Address", key.address ?? chalk.dim("n/a")],
+                ["Version", String(key.key_version)],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+keysCommand
+    .command("rotate <agent-id>")
+    .description("Rotate a signing key for a chain")
+    .requiredOption("--chain <chain>", "Chain name to rotate key for")
+    .option("--json", "Output as JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+            const key = await api<SigningKeyResponse>(
+                `/agents/${agentId}/signing-keys/${encodeURIComponent(opts.chain)}/rotate`,
+                { method: "POST" },
+            );
+
+            if (opts.json) {
+                printJson(key);
+                return;
+            }
+
+            printSuccess(`Signing key rotated for ${chalk.bold(opts.chain)}.`);
+            printKeyValue([
+                ["ID", key.id],
+                ["Chain", key.chain],
+                ["Curve", key.curve],
+                ["Public key", key.public_key],
+                ["Address", key.address ?? chalk.dim("n/a")],
+                ["Version", String(key.key_version)],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+keysCommand
+    .command("delete <agent-id>")
+    .description("Deactivate a signing key for a chain")
+    .requiredOption("--chain <chain>", "Chain name to deactivate key for")
+    .option("-y, --yes", "Skip confirmation")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+
+            if (!opts.yes) {
+                const inquirer = await import("inquirer");
+                const { confirm } = await inquirer.default.prompt([
+                    {
+                        type: "confirm",
+                        name: "confirm",
+                        message: `Deactivate signing key for ${opts.chain} on agent ${agentId}?`,
+                        default: false,
+                    },
+                ]);
+                if (!confirm) return;
+            }
+
+            await api(
+                `/agents/${agentId}/signing-keys/${encodeURIComponent(opts.chain)}`,
+                { method: "DELETE" },
+            );
+            printSuccess(`Signing key for ${chalk.bold(opts.chain)} deactivated.`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+// ── Unified sign command ────────────────────────────────────────────────
+
+interface SignIntentResponse {
+    intent_type: string;
+    chain: string;
+    from: string;
+    signature?: string;
+    signed_tx?: string;
+    tx_hash?: string;
+    message_hash?: string;
+    typed_data_hash?: string;
+    tx_type?: number;
+}
+
+agentCommand
+    .command("sign <agent-id>")
+    .description("Unified signing: personal_sign, typed_data, or transaction")
+    .requiredOption("--intent-type <type>", "Intent type: personal_sign, typed_data, transaction")
+    .option("--chain <chain>", "Chain name", "ethereum")
+    .option("--signing-key-path <path>", "Override vault path to signing key")
+    .option("--message <hex>", "Hex-encoded message (personal_sign)")
+    .option("--typed-data <file>", "Path to JSON file with EIP-712 typed data")
+    .option("--to <address>", "Destination address (transaction)")
+    .option("--value <eth>", "Value in ETH (transaction)")
+    .option("--tx-type <n>", "Transaction type (0-4)")
+    .option("--data <hex>", "Hex-encoded calldata (transaction)")
+    .option("--nonce <n>", "Transaction nonce")
+    .option("--gas-limit <n>", "Gas limit")
+    .option("--gas-price <wei>", "Gas price in wei (legacy)")
+    .option("--max-fee-per-gas <wei>", "EIP-1559 max fee per gas")
+    .option("--max-priority-fee-per-gas <wei>", "EIP-1559 max priority fee")
+    .option("--access-list <json>", "JSON-encoded access list")
+    .option("--max-fee-per-blob-gas <wei>", "EIP-4844 max fee per blob gas")
+    .option("--blob-versioned-hashes <hashes>", "Comma-separated blob versioned hashes")
+    .option("--authorization-list <json>", "JSON-encoded authorization list (EIP-7702)")
+    .option("--json", "Output raw JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+
+            const body: Record<string, unknown> = {
+                intent_type: opts.intentType,
+                chain: opts.chain,
+            };
+
+            if (opts.signingKeyPath) body.signing_key_path = opts.signingKeyPath;
+            if (opts.message) body.message = opts.message;
+
+            if (opts.typedData) {
+                const filePath = opts.typedData as string;
+                if (!existsSync(filePath)) {
+                    throw new Error(`Typed data file not found: ${filePath}`);
+                }
+                body.typed_data = JSON.parse(readFileSync(filePath, "utf8"));
+            }
+
+            if (opts.to) body.to = opts.to;
+            if (opts.value) body.value = opts.value;
+            if (opts.txType != null) body.tx_type = parseInt(opts.txType, 10);
+            if (opts.data) body.data = opts.data;
+            if (opts.nonce != null) body.nonce = parseInt(opts.nonce, 10);
+            if (opts.gasLimit) body.gas_limit = parseInt(opts.gasLimit, 10);
+            if (opts.gasPrice) body.gas_price = opts.gasPrice;
+            if (opts.maxFeePerGas) body.max_fee_per_gas = opts.maxFeePerGas;
+            if (opts.maxPriorityFeePerGas) body.max_priority_fee_per_gas = opts.maxPriorityFeePerGas;
+            if (opts.accessList) body.access_list = JSON.parse(opts.accessList);
+            if (opts.maxFeePerBlobGas) body.max_fee_per_blob_gas = opts.maxFeePerBlobGas;
+            if (opts.blobVersionedHashes) {
+                body.blob_versioned_hashes = (opts.blobVersionedHashes as string)
+                    .split(",")
+                    .map((h: string) => h.trim());
+            }
+            if (opts.authorizationList) body.authorization_list = JSON.parse(opts.authorizationList);
+
+            const result = await api<SignIntentResponse>(
+                `/agents/${agentId}/sign`,
+                { method: "POST", body },
+            );
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess(`Signed ${chalk.bold(result.intent_type)} on ${chalk.bold(result.chain)}`);
+
+            const rows: [string, string][] = [
+                ["Intent type", result.intent_type],
+                ["Chain", result.chain],
+                ["From", result.from],
+            ];
+
+            if (result.signature) rows.push(["Signature", result.signature]);
+            if (result.message_hash) rows.push(["Message hash", result.message_hash]);
+            if (result.typed_data_hash) rows.push(["Typed data hash", result.typed_data_hash]);
+            if (result.tx_type != null) rows.push(["Tx type", String(result.tx_type)]);
+            if (result.signed_tx) rows.push(["Signed tx", result.signed_tx]);
+            if (result.tx_hash) rows.push(["Tx hash", result.tx_hash]);
+
+            printKeyValue(rows);
         } catch (err) {
             handleError(err);
         }
