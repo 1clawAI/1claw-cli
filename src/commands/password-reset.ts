@@ -32,17 +32,25 @@ export const forgotPasswordCommand = new Command("forgot-password")
                 process.exit(2);
             }
 
-            const res = await apiNoAuth<{ message: string }>(
+            const res = await apiNoAuth<{ message: string; status: string }>(
                 "/auth/forgot-password",
                 {
                     method: "POST",
                     body: { email },
                 },
             );
-            printSuccess(res.message || "If an account exists, check your email.");
-            printInfo(
-                `Open the link in the message in your browser (${chalk.dim("1claw.xyz/reset-password")}).`,
-            );
+
+            if (res.status === "no_account") {
+                printError(res.message || "No account found with that email.");
+            } else if (res.status === "social_account") {
+                printInfo(res.message || "This account uses social sign-in.");
+                printInfo("Open the dashboard to sign in: " + chalk.dim("1claw.xyz/login"));
+            } else {
+                printSuccess(res.message || "Check your email for reset instructions.");
+                printInfo(
+                    `Open the link in the email in your browser (${chalk.dim("1claw.xyz/reset-password")}).`,
+                );
+            }
         } catch (err) {
             handleError(err);
         }
