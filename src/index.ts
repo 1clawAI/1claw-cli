@@ -23,6 +23,7 @@ import { auditCommand } from "./commands/audit.js";
 import { mfaCommand } from "./commands/mfa.js";
 import { configCommand } from "./commands/config.js";
 import { proxyCommand } from "./commands/proxy.js";
+import { treasuryCommand } from "./commands/treasury.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -69,6 +70,9 @@ export function createProgram(): Command {
 
     // Config
     program.addCommand(configCommand);
+
+    // Treasury
+    program.addCommand(treasuryCommand);
 
     // Proxy
     program.addCommand(proxyCommand);

@@ -1,4 +1,4 @@
-# @1claw/cli (v0.18.0)
+# @1claw/cli (v0.21.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -242,6 +242,23 @@ Common options for `agent sign`:
 | `--value <eth>` | Value in ETH (transaction) |
 | `--tx-type <n>` | Transaction type 0–4 (transaction) |
 | `--json` | Output raw JSON |
+
+### Treasury Wallets
+
+Multi-chain wallet generation for human users (replaces CDP embedded wallets). Private keys are stored in a per-org `__treasury-keys` vault with tier-appropriate MPC custody.
+
+```bash
+1claw treasury generate                         # Generate wallets for all supported chains
+1claw treasury generate \
+  --chains ethereum,solana,bitcoin              # Generate for specific chains only
+1claw treasury list                             # List your treasury wallets
+1claw treasury get <chain>                      # Get wallet details for a chain
+1claw treasury export <chain>                   # Export private key (audit-logged)
+1claw treasury rotate <chain>                   # Rotate key (new keypair, old deactivated)
+1claw treasury deactivate <chain>               # Deactivate wallet for a chain
+```
+
+Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. Requires Pro or higher billing tier for generate and rotate.
 
 ### Policies
 
