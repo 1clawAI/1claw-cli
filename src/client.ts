@@ -32,6 +32,7 @@ export async function api<T = unknown>(
         body?: unknown;
         token?: string;
         query?: Record<string, string | number | boolean | undefined>;
+        headers?: Record<string, string>;
     } = {},
 ): Promise<T> {
     const baseUrl = getApiUrl();
@@ -47,6 +48,7 @@ export async function api<T = unknown>(
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "User-Agent": "@1claw/cli",
+        ...options.headers,
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 

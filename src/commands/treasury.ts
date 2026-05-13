@@ -143,14 +143,32 @@ treasuryCommand
 
 treasuryCommand
     .command("export <chain>")
-    .description("Export private key for a treasury wallet (audit-logged)")
+    .description("Export private key for a treasury wallet (audit-logged, requires re-auth)")
     .option("--json", "Output as JSON")
+    .option("--password <password>", "Account password for re-authentication")
     .action(async (chain: string, opts) => {
         try {
             requireToken();
+            let password: string = opts.password ?? "";
+            if (!password) {
+                const inquirer = await import("inquirer");
+                const answers = await inquirer.default.prompt([
+                    {
+                        type: "password",
+                        name: "password",
+                        message: "Account password (re-authentication required):",
+                        mask: "*",
+                    },
+                ]);
+                password = String(answers.password ?? "");
+            }
+            if (!password) {
+                console.error(chalk.red("Password is required for wallet export."));
+                process.exit(1);
+            }
             const result = await api<TreasuryWalletExport>(
                 `/treasury/wallets/${chain.toLowerCase()}/export`,
-                { method: "POST" },
+                { method: "POST", headers: { "X-Auth-Confirm": password } },
             );
             if (opts.json) {
                 printJson(result);

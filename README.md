@@ -253,7 +253,7 @@ Multi-chain wallet generation for human users (replaces CDP embedded wallets). P
   --chains ethereum,solana,bitcoin              # Generate for specific chains only
 1claw treasury list                             # List your treasury wallets
 1claw treasury get <chain>                      # Get wallet details for a chain
-1claw treasury export <chain>                   # Export private key (audit-logged)
+1claw treasury export <chain> --password <pw>    # Export private key (audit-logged, requires password)
 1claw treasury rotate <chain>                   # Rotate key (new keypair, old deactivated)
 1claw treasury deactivate <chain>               # Deactivate wallet for a chain
 ```
