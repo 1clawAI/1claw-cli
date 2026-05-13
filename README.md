@@ -1,4 +1,4 @@
-# @1claw/cli (v0.21.1)
+# @1claw/cli (v0.22.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -320,6 +320,20 @@ Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. Req
 1claw mfa status                               # Check 2FA status
 1claw mfa enable                               # Set up TOTP 2FA
 1claw mfa disable                              # Turn off 2FA
+```
+
+### Platform
+
+Manage platform apps for developers building multi-tenant applications on top of 1Claw.
+
+```bash
+1claw platform create my-app                   # Register a new platform app (returns plt_ key)
+1claw platform list                            # List all platform apps in your org
+1claw platform get <app-id>                    # Get platform app details
+1claw platform update <app-id> --name new-name # Update app settings
+1claw platform delete <app-id>                 # Delete a platform app
+1claw platform users <app-id>                  # List connected users for an app
+1claw platform bootstrap <connection-id>       # Bootstrap resources for a connected user
 ```
 
 ### Configuration

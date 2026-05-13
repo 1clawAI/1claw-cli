@@ -24,6 +24,7 @@ import { mfaCommand } from "./commands/mfa.js";
 import { configCommand } from "./commands/config.js";
 import { proxyCommand } from "./commands/proxy.js";
 import { treasuryCommand } from "./commands/treasury.js";
+import { platformCommand } from "./commands/platform.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,9 @@ export function createProgram(): Command {
 
     // Proxy
     program.addCommand(proxyCommand);
+
+    // Platform
+    program.addCommand(platformCommand);
 
     // Global options
     program.option("--json", "Force JSON output for all commands");
