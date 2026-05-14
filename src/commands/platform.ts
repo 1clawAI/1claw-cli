@@ -17,6 +17,7 @@ interface PlatformApp {
     description: string;
     logo_url?: string;
     api_key_prefix: string;
+    oidc_audience?: string;
     is_active: boolean;
     billing_model: string;
     auth_mode: string;
@@ -75,6 +76,7 @@ platformCommand
     )
     .option("--oidc-jwks-url <url>", "OIDC JWKS URL for token validation")
     .option("--oidc-issuer <url>", "OIDC issuer URL")
+    .option("--oidc-audience <audience>", "OIDC audience for token validation")
     .option("--json", "Output as JSON")
     .action(async (name, slug, opts) => {
         try {
@@ -87,6 +89,7 @@ platformCommand
             };
             if (opts.oidcJwksUrl) body.oidc_jwks_url = opts.oidcJwksUrl;
             if (opts.oidcIssuer) body.oidc_issuer = opts.oidcIssuer;
+            if (opts.oidcAudience) body.oidc_audience = opts.oidcAudience;
 
             const app = await api<PlatformApp & { api_key?: string }>(
                 "/platform/apps",
