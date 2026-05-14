@@ -1022,6 +1022,65 @@ keysCommand
         }
     });
 
+// ── Export signing key command ───────────────────────────────────────────
+
+interface SigningKeyExportResponse {
+    chain: string;
+    curve: string;
+    public_key: string;
+    address?: string;
+    private_key: string;
+    key_version: number;
+    agent_id: string;
+}
+
+agentCommand
+    .command("export-signing-key <agent-id>")
+    .description("Export a signing key's private key (requires password)")
+    .requiredOption("--chain <chain>", "Chain name (ethereum, bitcoin, solana, ...)")
+    .option("--password <password>", "Account password (prompted if omitted)")
+    .action(async (agentId: string, opts: { chain: string; password?: string }) => {
+        try {
+            requireToken();
+
+            let password = opts.password;
+            if (!password) {
+                const inquirer = await import("inquirer");
+                const answers = await inquirer.default.prompt([
+                    {
+                        type: "password",
+                        name: "password",
+                        message: "Account password (for re-authentication):",
+                        mask: "*",
+                    },
+                ]);
+                password = answers.password;
+            }
+            if (!password) {
+                printError("Password is required to export signing keys.");
+                return;
+            }
+
+            const result = await api<SigningKeyExportResponse>(
+                `/agents/${agentId}/signing-keys/${encodeURIComponent(opts.chain)}/export`,
+                { method: "POST", headers: { "X-Auth-Confirm": password } },
+            );
+
+            console.log(chalk.yellow.bold("\n⚠  SENSITIVE — Store securely and never share\n"));
+            console.log(`  Chain:       ${chalk.bold(result.chain)}`);
+            console.log(`  Curve:       ${result.curve}`);
+            if (result.address) {
+                console.log(`  Address:     ${chalk.cyan(result.address)}`);
+            }
+            console.log(`  Public Key:  ${result.public_key}`);
+            console.log(`  Private Key: ${chalk.red(result.private_key)}`);
+            console.log(`  Version:     v${result.key_version}`);
+            console.log();
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 // ── Unified sign command ────────────────────────────────────────────────
 
 interface SignIntentResponse {
