@@ -1057,7 +1057,7 @@ agentCommand
                 password = answers.password;
             }
             if (!password) {
-                printError("Password is required to export signing keys.");
+                console.error(chalk.red("Password is required to export signing keys."));
                 return;
             }
 
