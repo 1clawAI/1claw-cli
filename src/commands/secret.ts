@@ -8,6 +8,7 @@ import {
     printSuccess,
     printJson,
     printWarning,
+    formatDate,
 } from "../output.js";
 
 interface Secret {
@@ -56,10 +57,8 @@ secretCommand
             printTable(
                 secrets.map((s) => ({
                     ...s,
-                    updated: new Date(s.updated_at).toLocaleDateString(),
-                    expires: s.expires_at
-                        ? new Date(s.expires_at).toLocaleDateString()
-                        : chalk.dim("—"),
+                    updated: formatDate(s.updated_at),
+                    expires: formatDate(s.expires_at),
                 })),
                 [
                     { key: "path", header: "Path", width: 35 },
@@ -107,7 +106,7 @@ secretCommand
                 ["Type", secret.secret_type],
                 ["Version", String(secret.version)],
                 ["Value", secret.value],
-                ["Updated", new Date(secret.updated_at ?? secret.created_at).toLocaleString()],
+                ["Updated", formatDate(secret.updated_at ?? secret.created_at, "long")],
             ]);
         } catch (err) {
             handleError(err);
@@ -120,14 +119,15 @@ secretCommand
     .option("-v, --vault <id>", "Vault ID")
     .option("-t, --type <type>", "Secret type", "api_key")
     .option("-e, --expires <date>", "Expiration date (ISO 8601)")
+    .option("--value <val>", "Secret value (alternative to positional argument)")
     .option("--stdin", "Read value from stdin")
     .action(async (path, value, opts) => {
         try {
             requireToken();
             const vaultId = resolveVaultId(opts);
 
-            let secretValue = value;
-            if (opts.stdin || !value) {
+            let secretValue = value ?? opts.value;
+            if (opts.stdin || !secretValue) {
                 const chunks: Buffer[] = [];
                 for await (const chunk of process.stdin) {
                     chunks.push(chunk);
@@ -280,7 +280,7 @@ secretCommand
             printTable(
                 versions.map((v) => ({
                     ...v,
-                    created: new Date(v.created_at).toLocaleDateString(),
+                    created: formatDate(v.created_at),
                     disabled: v.is_disabled ? chalk.red("yes") : chalk.dim("no"),
                 })),
                 [
@@ -319,13 +319,8 @@ secretCommand
                 ["Path", secret.path],
                 ["Type", secretType],
                 ["Version", String(secret.version)],
-                ["Created", new Date(secret.created_at).toLocaleString()],
-                [
-                    "Expires",
-                    secret.expires_at
-                        ? new Date(secret.expires_at).toLocaleString()
-                        : "never",
-                ],
+                ["Created", formatDate(secret.created_at, "long")],
+                ["Expires", secret.expires_at ? formatDate(secret.expires_at, "long") : "never"],
             ]);
         } catch (err) {
             handleError(err);

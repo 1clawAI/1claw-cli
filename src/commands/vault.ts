@@ -9,6 +9,7 @@ import {
     printSuccess,
     printInfo,
     printJson,
+    formatDate,
 } from "../output.js";
 
 interface Vault {
@@ -45,7 +46,7 @@ vaultCommand
                         v.id === defaultId
                             ? `${v.name} ${chalk.green("(linked)")}`
                             : v.name,
-                    created: new Date(v.created_at).toLocaleDateString(),
+                    created: formatDate(v.created_at),
                 })),
                 [
                     { key: "id", header: "ID", width: 36 },
@@ -96,7 +97,7 @@ vaultCommand
                 ["ID", vault.id],
                 ["Name", vault.name],
                 ["Description", vault.description || chalk.dim("(none)")],
-                ["Created", new Date(vault.created_at).toLocaleString()],
+                ["Created", formatDate(vault.created_at, "long")],
             ]);
         } catch (err) {
             handleError(err);

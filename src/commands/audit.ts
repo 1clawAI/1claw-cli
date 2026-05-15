@@ -2,7 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { api } from "../client.js";
 import { requireToken, handleError } from "../middleware.js";
-import { printTable, printJson } from "../output.js";
+import { printTable, printJson, formatDate } from "../output.js";
 
 interface AuditEntry {
     id: string;
@@ -48,7 +48,7 @@ auditCommand
             printTable(
                 entries.map((e) => ({
                     ...e,
-                    time: new Date(e.created_at).toLocaleString(),
+                    time: formatDate(e.created_at, "long"),
                     actor: `${e.actor_type}:${e.actor_id.slice(0, 8)}…`,
                     resource: `${e.resource_type}:${e.resource_id.slice(0, 8)}…`,
                     action: colorAction(e.action),

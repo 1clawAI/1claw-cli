@@ -8,6 +8,7 @@ import {
     printKeyValue,
     printSuccess,
     printJson,
+    formatDate,
 } from "../output.js";
 
 interface ShroudConfig {
@@ -82,8 +83,8 @@ agentCommand
                         ? chalk.green("✓")
                         : chalk.dim("—"),
                     shroud: a.shroud_enabled ? chalk.cyan("✓") : chalk.dim("—"),
-                    scopes: a.scopes.join(", "),
-                    created: new Date(a.created_at).toLocaleDateString(),
+                    scopes: (a.scopes ?? []).join(", "),
+                    created: formatDate(a.created_at),
                 })),
                 [
                     { key: "id", header: "ID", width: 36 },
@@ -102,11 +103,7 @@ agentCommand
 agentCommand
     .command("create <name>")
     .description("Register a new agent")
-    .option(
-        "--scopes <scopes>",
-        "Comma-separated scopes",
-        "vault.read,vault.write",
-    )
+    .option("--scopes <scopes>", "Comma-separated scopes")
     .option("--intents-api", "Enable Intents API")
     .option("--shroud", "Enable Shroud LLM Proxy")
     .option(
@@ -130,10 +127,10 @@ agentCommand
     .action(async (name, opts) => {
         try {
             requireToken();
-            const body: Record<string, unknown> = {
-                name,
-                scopes: opts.scopes.split(",").map((s: string) => s.trim()),
-            };
+            const body: Record<string, unknown> = { name };
+            if (opts.scopes) {
+                body.scopes = opts.scopes.split(",").map((s: string) => s.trim());
+            }
             if (opts.intentsApi) body.intents_api_enabled = true;
             if (opts.shroud) body.shroud_enabled = true;
             if (opts.txToAllowlist)
@@ -158,11 +155,11 @@ agentCommand
                 body,
             });
 
-            printSuccess(`Agent ${chalk.bold(agent.name)} created.`);
+            printSuccess(`Agent ${chalk.bold(agent.name ?? name)} created.`);
             printKeyValue([
                 ["ID", agent.id],
-                ["Name", agent.name],
-                ["Scopes", agent.scopes.join(", ")],
+                ["Name", agent.name ?? name],
+                ["Scopes", (agent.scopes ?? []).join(", ") || "none (policy-derived)"],
             ]);
 
             if (agent.api_key) {
@@ -252,8 +249,8 @@ agentCommand
                 ["Name", agent.name],
                 [
                     "Scopes",
-                    agent.scopes.length
-                        ? agent.scopes.join(", ")
+                    (agent.scopes ?? []).length
+                        ? (agent.scopes ?? []).join(", ")
                         : chalk.dim("none (zero access)"),
                 ],
                 [
@@ -436,7 +433,7 @@ agentCommand
                 ]);
             }
             rows.push(["Created by", agent.created_by]);
-            rows.push(["Created", new Date(agent.created_at).toLocaleString()]);
+            rows.push(["Created", formatDate(agent.created_at, "long")]);
             printKeyValue(rows);
         } catch (err) {
             handleError(err);
@@ -807,7 +804,7 @@ txCommand
                     to: tx.to.slice(0, 10) + "…",
                     status: tx.status,
                     tx_hash: tx.tx_hash ? tx.tx_hash.slice(0, 10) + "…" : "-",
-                    created: new Date(tx.created_at).toLocaleString(),
+                    created: formatDate(tx.created_at, "long"),
                 })),
                 [
                     { key: "id", header: "ID" },
@@ -909,7 +906,7 @@ keysCommand
                     address: k.address ?? chalk.dim("—"),
                     version: String(k.key_version),
                     active: k.is_active ? chalk.green("✓") : chalk.dim("✗"),
-                    created: new Date(k.created_at).toLocaleDateString(),
+                    created: formatDate(k.created_at),
                 })),
                 [
                     { key: "id", header: "ID" },

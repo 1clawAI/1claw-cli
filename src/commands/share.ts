@@ -8,6 +8,7 @@ import {
     printSuccess,
     printJson,
     printInfo,
+    formatDate,
 } from "../output.js";
 
 interface Share {
@@ -115,11 +116,9 @@ shareCommand
                         s.recipient_email ??
                         s.recipient_id?.slice(0, 8) ??
                         "link",
-                    expires: s.expires_at
-                        ? new Date(s.expires_at).toLocaleDateString()
-                        : chalk.dim("never"),
+                    expires: formatDate(s.expires_at),
                     access: `${s.access_count}/${s.max_access_count ?? "∞"}`,
-                    created: new Date(s.created_at).toLocaleDateString(),
+                    created: formatDate(s.created_at),
                 })),
                 [
                     { key: "id", header: "ID", width: 36 },

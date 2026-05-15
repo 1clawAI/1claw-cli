@@ -84,3 +84,10 @@ export function printError(msg: string): void {
 export function printInfo(msg: string): void {
     console.log(chalk.blue("ℹ") + " " + msg);
 }
+
+export function formatDate(value: string | null | undefined, style: "short" | "long" = "short"): string {
+    if (!value) return chalk.dim("—");
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return chalk.dim("—");
+    return style === "long" ? d.toLocaleString() : d.toLocaleDateString();
+}

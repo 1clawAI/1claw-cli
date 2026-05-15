@@ -2,7 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { api } from "../client.js";
 import { requireToken, handleError } from "../middleware.js";
-import { printKeyValue, printTable, printJson, printInfo } from "../output.js";
+import { printKeyValue, printTable, printJson, printInfo, formatDate } from "../output.js";
 
 interface UsageMeter {
     used: number;
@@ -68,12 +68,7 @@ billingCommand
                         ? chalk.green("Active")
                         : chalk.yellow(sub.status),
                 ],
-                [
-                    "Period ends",
-                    sub.period_end
-                        ? new Date(sub.period_end).toLocaleDateString()
-                        : "—",
-                ],
+                ["Period ends", formatDate(sub.period_end)],
                 ["Overage method", sub.overage_method],
             ]);
 
@@ -219,7 +214,7 @@ billingCommand
                             : chalk.red(
                                   `-$${(Math.abs(t.amount_cents) / 100).toFixed(2)}`,
                               ),
-                    date: new Date(t.created_at).toLocaleString(),
+                    date: formatDate(t.created_at, "long"),
                 })),
                 [
                     { key: "date", header: "Date", width: 22 },

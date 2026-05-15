@@ -1,4 +1,5 @@
 import Conf from "conf";
+import { chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -51,6 +52,11 @@ export function getAuth(): StoredAuth | null {
 
 export function setAuth(auth: StoredAuth): void {
     config.set("auth", auth);
+    try {
+        chmodSync(config.path, 0o600);
+    } catch {
+        // Best-effort; may fail on Windows
+    }
 }
 
 export function clearAuth(): void {
