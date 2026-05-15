@@ -201,7 +201,11 @@ Manage per-agent multi-chain signing keys. Keys are generated server-side and st
   --chain ethereum                             # Rotate key (new version)
 1claw agent keys delete <agent-id> \
   --chain ethereum                             # Deactivate key
+1claw agent export-signing-key <agent-id> \
+  --chain ethereum                             # Export private key (requires password)
 ```
+
+Export requires re-authentication via your account password. The private key is displayed once and audit-logged.
 
 Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. The curve is determined by the chain.
 
