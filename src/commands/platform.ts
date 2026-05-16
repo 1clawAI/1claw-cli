@@ -66,12 +66,12 @@ platformCommand
     .description("Create a new platform app")
     .option(
         "--billing-model <model>",
-        "Billing model (platform_pays or user_pays)",
+        "Billing model (platform_pays, user_pays, or hybrid)",
         "platform_pays",
     )
     .option(
         "--auth-mode <mode>",
-        "Auth mode (silent or explicit)",
+        "Auth mode (silent, user_signin, or configurable)",
         "silent",
     )
     .option("--oidc-jwks-url <url>", "OIDC JWKS URL for token validation")
