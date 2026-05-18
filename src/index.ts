@@ -25,6 +25,8 @@ import { configCommand } from "./commands/config.js";
 import { proxyCommand } from "./commands/proxy.js";
 import { treasuryCommand } from "./commands/treasury.js";
 import { platformCommand } from "./commands/platform.js";
+import { deviceCommand } from "./commands/device.js";
+import { approvalCommand } from "./commands/approval.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -80,6 +82,10 @@ export function createProgram(): Command {
 
     // Platform
     program.addCommand(platformCommand);
+
+    // Mobile companion
+    program.addCommand(deviceCommand);
+    program.addCommand(approvalCommand);
 
     // Global options
     program.option("--json", "Force JSON output for all commands");
