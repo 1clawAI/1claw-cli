@@ -91,3 +91,30 @@ export function formatDate(value: string | null | undefined, style: "short" | "l
     if (isNaN(d.getTime())) return chalk.dim("—");
     return style === "long" ? d.toLocaleString() : d.toLocaleDateString();
 }
+
+/**
+ * Parse a date string that is either ISO 8601 or a relative duration like "30d", "90d", "6m", "1y".
+ * Returns an ISO 8601 string (absolute date) or null if the input is empty/clearing.
+ */
+export function resolveExpiresAt(input: string): string | null {
+    if (!input || input === '""' || input === "''") return null;
+
+    const match = input.match(/^(\d+)(d|m|y)$/i);
+    if (match) {
+        const amount = parseInt(match[1], 10);
+        const unit = match[2].toLowerCase();
+        const date = new Date();
+        if (unit === "d") date.setDate(date.getDate() + amount);
+        else if (unit === "m") date.setMonth(date.getMonth() + amount);
+        else if (unit === "y") date.setFullYear(date.getFullYear() + amount);
+        return date.toISOString();
+    }
+
+    const parsed = new Date(input);
+    if (isNaN(parsed.getTime())) {
+        throw new Error(
+            `Invalid date: "${input}". Use ISO 8601 (e.g. 2025-12-31T00:00:00Z) or relative duration (30d, 6m, 1y).`,
+        );
+    }
+    return parsed.toISOString();
+}

@@ -8,6 +8,8 @@ import {
     printKeyValue,
     printSuccess,
     printJson,
+    formatDate,
+    resolveExpiresAt,
 } from "../output.js";
 
 interface PlatformApp {
@@ -17,6 +19,8 @@ interface PlatformApp {
     description: string;
     logo_url?: string;
     api_key_prefix: string;
+    api_key_expires_at?: string | null;
+    api_key_rotated_at?: string | null;
     oidc_audience?: string;
     is_active: boolean;
     billing_model: string;
@@ -77,6 +81,10 @@ platformCommand
     .option("--oidc-jwks-url <url>", "OIDC JWKS URL for token validation")
     .option("--oidc-issuer <url>", "OIDC issuer URL")
     .option("--oidc-audience <audience>", "OIDC audience for token validation")
+    .option(
+        "--api-key-expires-at <date>",
+        "API key expiration (ISO 8601 or relative: 30d, 90d, 6m, 1y)",
+    )
     .option("--json", "Output as JSON")
     .action(async (name, slug, opts) => {
         try {
@@ -90,6 +98,8 @@ platformCommand
             if (opts.oidcJwksUrl) body.oidc_jwks_url = opts.oidcJwksUrl;
             if (opts.oidcIssuer) body.oidc_issuer = opts.oidcIssuer;
             if (opts.oidcAudience) body.oidc_audience = opts.oidcAudience;
+            if (opts.apiKeyExpiresAt)
+                body.api_key_expires_at = resolveExpiresAt(opts.apiKeyExpiresAt);
 
             const app = await api<PlatformApp & { api_key?: string }>(
                 "/platform/apps",
@@ -201,6 +211,15 @@ platformCommand
                         : chalk.dim("unlimited"),
                 ],
                 ["API key prefix", app.api_key_prefix],
+                [
+                    "API key expires",
+                    app.api_key_expires_at
+                        ? formatDate(app.api_key_expires_at, "long")
+                        : chalk.dim("never"),
+                ],
+                ...(app.api_key_rotated_at
+                    ? [["API key rotated", formatDate(app.api_key_rotated_at, "long")] as [string, string]]
+                    : []),
                 ["Created", new Date(app.created_at).toLocaleString()],
                 ["Updated", new Date(app.updated_at).toLocaleString()],
             ]);
@@ -232,6 +251,134 @@ platformCommand
 
             await api(`/platform/apps/${appId}`, { method: "DELETE" });
             printSuccess("Platform app deleted.");
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("update <appId>")
+    .description("Update a platform app")
+    .option("--name <name>", "App name")
+    .option(
+        "--billing-model <model>",
+        "Billing model (platform_pays, user_pays, or hybrid)",
+    )
+    .option(
+        "--auth-mode <mode>",
+        "Auth mode (silent, user_signin, or configurable)",
+    )
+    .option("--oidc-jwks-url <url>", "OIDC JWKS URL for token validation")
+    .option("--oidc-issuer <url>", "OIDC issuer URL")
+    .option("--oidc-audience <audience>", "OIDC audience for token validation")
+    .option(
+        "--api-key-expires-at <date>",
+        'API key expiration (ISO 8601, relative: 30d/90d/6m/1y, or "" to clear)',
+    )
+    .option("--json", "Output as JSON")
+    .action(async (appId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+
+            if (opts.name) body.name = opts.name;
+            if (opts.billingModel) body.billing_model = opts.billingModel;
+            if (opts.authMode) body.auth_mode = opts.authMode;
+            if (opts.oidcJwksUrl) body.oidc_jwks_url = opts.oidcJwksUrl;
+            if (opts.oidcIssuer) body.oidc_issuer = opts.oidcIssuer;
+            if (opts.oidcAudience) body.oidc_audience = opts.oidcAudience;
+            if (opts.apiKeyExpiresAt !== undefined) {
+                body.api_key_expires_at =
+                    opts.apiKeyExpiresAt === ""
+                        ? null
+                        : resolveExpiresAt(opts.apiKeyExpiresAt);
+            }
+
+            if (Object.keys(body).length === 0) {
+                console.log(
+                    chalk.yellow(
+                        "No update options provided. Use --help for available flags.",
+                    ),
+                );
+                return;
+            }
+
+            const app = await api<PlatformApp>(`/platform/apps/${appId}`, {
+                method: "PATCH",
+                body,
+            });
+
+            if (opts.json) {
+                printJson(app);
+                return;
+            }
+
+            printSuccess(`Platform app ${chalk.bold(app.name)} updated.`);
+            printKeyValue([
+                ["ID", app.id],
+                ["Name", app.name],
+                ["Slug", app.slug],
+                ["Billing", app.billing_model],
+                ["Auth mode", app.auth_mode],
+                [
+                    "API key expires",
+                    app.api_key_expires_at
+                        ? formatDate(app.api_key_expires_at, "long")
+                        : chalk.dim("never"),
+                ],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("rotate-key <appId>")
+    .description("Rotate the API key for a platform app")
+    .option(
+        "--api-key-expires-at <date>",
+        "New key expiration (ISO 8601 or relative: 30d, 90d, 6m, 1y)",
+    )
+    .option("--json", "Output as JSON")
+    .action(async (appId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.apiKeyExpiresAt)
+                body.api_key_expires_at = resolveExpiresAt(opts.apiKeyExpiresAt);
+
+            const result = await api<{
+                api_key: string;
+                api_key_prefix: string;
+                api_key_expires_at?: string | null;
+            }>(`/platform/apps/${appId}/rotate-key`, {
+                method: "POST",
+                body,
+            });
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess("Platform app API key rotated.");
+            console.log();
+            console.log(
+                chalk.yellow(
+                    "  Save this API key — it won't be shown again:",
+                ),
+            );
+            console.log(`  ${chalk.bold(result.api_key)}`);
+            console.log();
+            printKeyValue([
+                ["Prefix", result.api_key_prefix],
+                [
+                    "Expires",
+                    result.api_key_expires_at
+                        ? formatDate(result.api_key_expires_at, "long")
+                        : chalk.dim("never"),
+                ],
+            ]);
         } catch (err) {
             handleError(err);
         }

@@ -9,6 +9,7 @@ import {
     printSuccess,
     printJson,
     formatDate,
+    resolveExpiresAt,
 } from "../output.js";
 
 interface ShroudConfig {
@@ -54,6 +55,7 @@ interface Agent {
     vault_ids?: string[];
     shroud_enabled: boolean;
     shroud_config?: ShroudConfig | null;
+    api_key_expires_at?: string | null;
     created_at: string;
     created_by: string;
 }
@@ -124,6 +126,10 @@ agentCommand
         "--vault-ids <ids>",
         "Comma-separated vault UUIDs to bind this agent to",
     )
+    .option(
+        "--api-key-expires-at <date>",
+        "API key expiration (ISO 8601 or relative: 30d, 90d, 6m, 1y)",
+    )
     .action(async (name, opts) => {
         try {
             requireToken();
@@ -149,6 +155,8 @@ agentCommand
                 body.vault_ids = opts.vaultIds
                     .split(",")
                     .map((s: string) => s.trim());
+            if (opts.apiKeyExpiresAt)
+                body.api_key_expires_at = resolveExpiresAt(opts.apiKeyExpiresAt);
 
             const agent = await api<Agent & { api_key?: string }>("/agents", {
                 method: "POST",
@@ -272,6 +280,12 @@ agentCommand
                 [
                     "Shroud LLM Proxy",
                     agent.shroud_enabled ? "enabled" : "disabled",
+                ],
+                [
+                    "API key expires",
+                    agent.api_key_expires_at
+                        ? formatDate(agent.api_key_expires_at, "long")
+                        : chalk.dim("never"),
                 ],
             ];
             if (agent.shroud_enabled && agent.shroud_config) {
@@ -470,6 +484,10 @@ agentCommand
         'Comma-separated vault UUIDs (use "" to clear)',
     )
     .option("--active <bool>", "Set agent active status (true/false)")
+    .option(
+        "--api-key-expires-at <date>",
+        'API key expiration (ISO 8601, relative: 30d/90d/6m/1y, or "" to clear)',
+    )
     .action(async (id, opts) => {
         try {
             requireToken();
@@ -514,6 +532,12 @@ agentCommand
                     opts.vaultIds === ""
                         ? []
                         : opts.vaultIds.split(",").map((s: string) => s.trim());
+            }
+            if (opts.apiKeyExpiresAt !== undefined) {
+                body.api_key_expires_at =
+                    opts.apiKeyExpiresAt === ""
+                        ? null
+                        : resolveExpiresAt(opts.apiKeyExpiresAt);
             }
 
             if (Object.keys(body).length === 0) {

@@ -1,4 +1,4 @@
-# @1claw/cli (v0.22.1)
+# @1claw/cli (v0.24.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -55,6 +55,8 @@ export ONECLAW_API_KEY="1ck_..."
 1claw login --email      # Email/password login
 1claw forgot-password    # Request password reset email (no login required)
 1claw reset-password     # Set new password from email token (no login required)
+1claw set-password       # Set a password (platform users who don't have one)
+1claw change-email       # Change your email address (sends verification code)
 1claw logout             # Clear stored credentials
 1claw whoami             # Show current user info
 
@@ -69,6 +71,8 @@ export ONECLAW_API_KEY="1ck_..."
 ```
 
 Password reset only applies to **email/password** accounts (not Google/SSO-only). After reset, open the link in the email (dashboard) or pass `--token` to `reset-password`.
+
+`set-password` is for Platform API users provisioned via OIDC who don't have a password yet. `change-email` sends a 6-digit verification code to the new address and prompts you to enter it inline.
 
 `auth federated-token` uses your current 1claw credential as the **subject_token** and asks 1claw (an OIDC issuer at `https://api.1claw.xyz`) for a short-lived **RS256** JWT scoped to the `audience`. The acting agent must have `federation_enabled = true` and the audience must be on its `federation_audiences` allowlist (set in the dashboard or via `agents.update`). Pair with `--raw` for shell pipelines, e.g. Anthropic Workload Identity Federation:
 
@@ -338,6 +342,18 @@ Manage platform apps for developers building multi-tenant applications on top of
 1claw platform delete <app-id>                 # Delete a platform app
 1claw platform users <app-id>                  # List connected users for an app
 1claw platform bootstrap <connection-id>       # Bootstrap resources for a connected user
+```
+
+### Approvals
+
+Human-in-the-loop approval workflow for agent actions.
+
+```bash
+1claw approval list                            # List pending approval requests
+1claw approval list --status approved          # Filter by status
+1claw approval get <id>                        # Get approval request details
+1claw approval approve <id>                    # Approve a pending request
+1claw approval deny <id> --reason "Not needed" # Deny with a reason
 ```
 
 ### Configuration
