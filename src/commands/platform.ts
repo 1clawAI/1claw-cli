@@ -423,3 +423,45 @@ platformCommand
             handleError(err);
         }
     });
+
+// ── Reissue claim ───────────────────────────────────────────────────────
+
+platformCommand
+    .command("reissue-claim <connectionId>")
+    .description(
+        "Reissue a claim URL for a bootstrapped connection (no re-provisioning)",
+    )
+    .option("--return-to <url>", "Redirect URL after claim")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.returnTo) body.return_to = opts.returnTo;
+
+            const result = await api<{
+                claim_url: string;
+                claim_token: string;
+                expires_in: number;
+                connection_id: string;
+            }>(`/platform/connections/${connectionId}/reissue-claim`, {
+                method: "POST",
+                body,
+            });
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess("Claim URL reissued.");
+            printKeyValue([
+                ["Connection", result.connection_id],
+                ["Claim URL", result.claim_url],
+                ["Token", result.claim_token],
+                ["Expires in", `${result.expires_in}s`],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
