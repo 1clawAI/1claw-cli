@@ -28,6 +28,7 @@ import { mfaCommand } from "./commands/mfa.js";
 import { configCommand } from "./commands/config.js";
 import { proxyCommand } from "./commands/proxy.js";
 import { treasuryCommand } from "./commands/treasury.js";
+import { webhookCommand } from "./commands/webhook.js";
 import { platformCommand } from "./commands/platform.js";
 import { deviceCommand } from "./commands/device.js";
 import { approvalCommand } from "./commands/approval.js";
@@ -82,6 +83,9 @@ export function createProgram(): Command {
 
     // Treasury
     program.addCommand(treasuryCommand);
+
+    // Webhooks
+    program.addCommand(webhookCommand);
 
     // Proxy
     program.addCommand(proxyCommand);

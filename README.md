@@ -1,4 +1,4 @@
-# @1claw/cli (v0.24.0)
+# @1claw/cli (v0.29.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -261,12 +261,43 @@ Multi-chain wallet generation for human users (replaces CDP embedded wallets). P
   --chains ethereum,solana,bitcoin              # Generate for specific chains only
 1claw treasury list                             # List your treasury wallets
 1claw treasury get <chain>                      # Get wallet details for a chain
+1claw treasury balance <chain>                  # Get native + token balances
+1claw treasury balance ethereum \
+  --tokens 0xA0b8...eB48,0x6B17...71d0         # Include ERC-20 token balances
+1claw treasury send <chain> \
+  --to 0xRecipient --amount 0.01               # Send native currency (requires password)
+1claw treasury send ethereum \
+  --to 0xRecipient --amount 100 \
+  --token 0xA0b8...eB48                        # Send ERC-20 tokens
+1claw treasury swap <chain> \
+  --sell-token native --buy-token 0xA0b8... \
+  --amount 0.1 --slippage 1                    # Swap via DEX aggregator
 1claw treasury export <chain> --password <pw>    # Export private key (audit-logged, requires password)
 1claw treasury rotate <chain>                   # Rotate key (new keypair, old deactivated)
 1claw treasury deactivate <chain>               # Deactivate wallet for a chain
 ```
 
 Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. Requires Pro or higher billing tier for generate and rotate.
+
+`send` and `swap` require re-authentication via account password (prompted interactively or via `--password`). Both operations are audit-logged.
+
+### Treasury Proposals (Multisig)
+
+Create, sign, and execute Safe multisig transaction proposals.
+
+```bash
+1claw treasury proposal create <treasury-id> \
+  --to 0xRecipient --value 1000000000000000 \
+  --chain ethereum                              # Create a proposal (value in wei)
+1claw treasury proposal list <treasury-id>      # List proposals
+1claw treasury proposal list <treasury-id> \
+  --status pending                              # Filter by status
+1claw treasury proposal get <treasury-id> <id>  # Get proposal + signatures
+1claw treasury proposal sign <treasury-id> <id> \
+  --signature 0x... --decision approve          # Approve with EIP-712 signature
+1claw treasury proposal execute <treasury-id> <id>  # Force-execute if threshold met
+1claw treasury proposal cancel <treasury-id> <id>   # Cancel pending proposal
+```
 
 ### Policies
 
@@ -309,6 +340,29 @@ Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. Req
 1claw audit list --vault <id>                  # Filter by vault
 1claw audit list --action secret.read          # Filter by action
 ```
+
+### Webhooks
+
+Register and manage event webhooks for your org.
+
+```bash
+1claw webhook create \
+  --url https://example.com/hook \
+  --events wallet.transfer.sent,proposal.created  # Register webhook
+1claw webhook create \
+  --url https://example.com/hook \
+  --events agent.transaction.broadcast \
+  --secret my-hmac-secret                         # With HMAC verification
+1claw webhook list                                # List all webhooks
+1claw webhook get <id>                            # Get webhook details
+1claw webhook update <id> \
+  --active false                                  # Disable a webhook
+1claw webhook update <id> \
+  --events proposal.signed,proposal.executed      # Change event subscriptions
+1claw webhook delete <id>                         # Delete a webhook
+```
+
+Supported events: `wallet.transfer.sent`, `wallet.transfer.received`, `proposal.created`, `proposal.signed`, `proposal.executed`, `proposal.cancelled`, `agent.transaction.broadcast`, `agent.transaction.signed`, `signing_key.rotated`, `policy.created`, `policy.updated`, `policy.deleted`.
 
 ### Local OpenAI-compatible proxy
 
