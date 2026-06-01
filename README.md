@@ -389,13 +389,22 @@ Supported events: `wallet.transfer.sent`, `wallet.transfer.received`, `proposal.
 Manage platform apps for developers building multi-tenant applications on top of 1Claw.
 
 ```bash
-1claw platform create my-app                   # Register a new platform app (returns plt_ key)
+1claw platform create my-app my-slug           # Register a new platform app (returns plt_ key)
 1claw platform list                            # List all platform apps in your org
 1claw platform get <app-id>                    # Get platform app details
 1claw platform update <app-id> --name new-name # Update app settings
 1claw platform delete <app-id>                 # Delete a platform app
-1claw platform users <app-id>                  # List connected users for an app
-1claw platform bootstrap <connection-id>       # Bootstrap resources for a connected user
+1claw platform rotate-key <app-id>             # Rotate the plt_ API key
+1claw platform reissue-claim <connection-id>   # Reissue a claim URL (no re-provisioning)
+
+# Template management
+1claw platform templates list <app-id>         # List templates for an app
+1claw platform templates create <app-id> <name> \
+  --spec ./template.json                       # Create a template from JSON spec
+
+# Connected users
+1claw platform users list <app-id>             # List connected users for an app
+1claw platform connected-apps                  # List apps connected to your account
 ```
 
 ### Approvals
@@ -406,8 +415,17 @@ Human-in-the-loop approval workflow for agent actions.
 1claw approval list                            # List pending approval requests
 1claw approval list --status approved          # Filter by status
 1claw approval get <id>                        # Get approval request details
-1claw approval approve <id>                    # Approve a pending request
-1claw approval deny <id> --reason "Not needed" # Deny with a reason
+1claw approval decide <id> approve             # Approve a pending request
+1claw approval decide <id> reject --reason "Not needed"  # Reject with a reason
+```
+
+### Devices
+
+Manage registered mobile companion app devices.
+
+```bash
+1claw device list                              # List registered devices
+1claw device revoke <device-id>                # Revoke a device
 ```
 
 ### Configuration

@@ -270,6 +270,7 @@ treasuryCommand
     .requiredOption("--to <address>", "Recipient address")
     .requiredOption("--amount <value>", "Amount to send")
     .option("--token <contract>", "ERC-20 contract address (omit for native)")
+    .option("--gasless", "Submit as gasless (sponsored) transaction via ERC-4337 paymaster")
     .option("--password <password>", "Account password for re-authentication")
     .option("--json", "Output as JSON")
     .action(async (chain: string, opts) => {
@@ -292,17 +293,20 @@ treasuryCommand
                 console.error(chalk.red("Password is required for send."));
                 process.exit(1);
             }
-            const body: Record<string, string> = {
+            const body: Record<string, unknown> = {
                 to: opts.to,
                 amount: opts.amount,
             };
             if (opts.token) body.token_contract = opts.token;
+            if (opts.gasless) body.gasless = true;
             const result = await api<{
                 tx_hash: string;
                 from: string;
                 to: string;
                 amount: string;
                 chain: string;
+                status: string;
+                user_op_hash?: string;
             }>(`/treasury/wallets/${chain.toLowerCase()}/send`, {
                 method: "POST",
                 body,
@@ -313,13 +317,18 @@ treasuryCommand
                 return;
             }
             printSuccess("Transaction sent");
-            printKeyValue([
+            const kv: [string, string][] = [
                 ["Tx Hash", result.tx_hash],
                 ["From", result.from],
                 ["To", result.to],
                 ["Amount", result.amount],
                 ["Chain", result.chain],
-            ]);
+                ["Status", result.status],
+            ];
+            if (result.user_op_hash) {
+                kv.push(["UserOp Hash", result.user_op_hash]);
+            }
+            printKeyValue(kv);
         } catch (e) {
             handleError(e);
         }
