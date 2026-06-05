@@ -1215,7 +1215,7 @@ const bankrCommand = agentCommand
 bankrCommand
     .command("lease <agent-id>")
     .description("Lease a short-lived Bankr wallet API key for an agent")
-    .option("--ttl <seconds>", "Lease TTL in seconds (default: 3600)", "3600")
+    .option("--ttl <seconds>", "Lease TTL in seconds (default: 900; max: 86400)", "900")
     .option("--wallet <id>", "Bankr wallet ID (wlt_...). Uses org default if omitted")
     .option("--json", "Output as JSON")
     .action(async (agentId: string, opts: { ttl: string; wallet?: string; json?: boolean }) => {
@@ -1228,7 +1228,7 @@ bankrCommand
 
             const result = await api<{
                 lease_id: string;
-                api_key: string;
+                api_key?: string;
                 wallet_id: string;
                 expires_at: string;
             }>(`/agents/${agentId}/bankr-keys/lease`, { method: "POST", body });
@@ -1239,12 +1239,15 @@ bankrCommand
             }
 
             printSuccess("Bankr key leased");
-            printKeyValue([
+            const rows: [string, string][] = [
                 ["Lease ID", result.lease_id],
-                ["API key", result.api_key],
                 ["Wallet", result.wallet_id],
                 ["Expires", formatDate(result.expires_at)],
-            ]);
+            ];
+            if (result.api_key) {
+                rows.splice(1, 0, ["API key", result.api_key]);
+            }
+            printKeyValue(rows);
         } catch (err) {
             handleError(err);
         }
