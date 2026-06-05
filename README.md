@@ -1,4 +1,4 @@
-# @1claw/cli (v0.32.0)
+# @1claw/cli (v0.32.1)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -152,11 +152,11 @@ All agents automatically receive an Ed25519 SSH keypair for future A2A messaging
 
 ### Bankr dynamic key vending
 
-Lease short-lived Bankr wallet API keys from your org's partner key (`BANKR_PARTNER_KEY` on Vault):
+Lease short-lived Bankr wallet API keys from your org's partner key (`BANKR_PARTNER_KEY` on Vault). **Privileged** — agents need explicit policy on `agents/{id}/bankr/*` in `__agent-keys`. Human callers receive `api_key` once; agent tokens omit it.
 
 ```bash
-1claw agent bankr-key lease <agent-id>         # Default 1h TTL
-1claw agent bankr-key lease <agent-id> --ttl 7200 --wallet wlt_abc123
+1claw agent bankr-key lease <agent-id>         # Default 15 min TTL
+1claw agent bankr-key lease <agent-id> --ttl 600 --wallet wlt_abc123
 1claw agent bankr-key list <agent-id>          # Active leases (no secrets)
 1claw agent bankr-key revoke <agent-id> <lease-id>
 ```
