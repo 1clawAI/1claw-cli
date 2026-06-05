@@ -1,4 +1,4 @@
-# @1claw/cli (v0.31.0)
+# @1claw/cli (v0.32.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -149,6 +149,17 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 The CLI's `agent create` always uses `auth_method=api_key` (default; returns an `ocv_` API key). To register an `mtls` or `oidc_client_credentials` agent, use the SDK or `POST /v1/agents` directly — those auth methods don't generate an API key.
 
 All agents automatically receive an Ed25519 SSH keypair for future A2A messaging. The public key is shown in `agent get` output.
+
+### Bankr dynamic key vending
+
+Lease short-lived Bankr wallet API keys from your org's partner key (`BANKR_PARTNER_KEY` on Vault):
+
+```bash
+1claw agent bankr-key lease <agent-id>         # Default 1h TTL
+1claw agent bankr-key lease <agent-id> --ttl 7200 --wallet wlt_abc123
+1claw agent bankr-key list <agent-id>          # Active leases (no secrets)
+1claw agent bankr-key revoke <agent-id> <lease-id>
+```
 
 ### Transactions (Intents API)
 

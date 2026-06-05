@@ -1206,3 +1206,105 @@ agentCommand
             handleError(err);
         }
     });
+
+// ── Bankr key vending subcommand ──
+const bankrCommand = agentCommand
+    .command("bankr-key")
+    .description("Bankr dynamic key vending commands");
+
+bankrCommand
+    .command("lease <agent-id>")
+    .description("Lease a short-lived Bankr wallet API key for an agent")
+    .option("--ttl <seconds>", "Lease TTL in seconds (default: 3600)", "3600")
+    .option("--wallet <id>", "Bankr wallet ID (wlt_...). Uses org default if omitted")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts: { ttl: string; wallet?: string; json?: boolean }) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {
+                ttl_seconds: parseInt(opts.ttl, 10),
+            };
+            if (opts.wallet) body.wallet_id = opts.wallet;
+
+            const result = await api<{
+                lease_id: string;
+                api_key: string;
+                wallet_id: string;
+                expires_at: string;
+            }>(`/agents/${agentId}/bankr-keys/lease`, { method: "POST", body });
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess("Bankr key leased");
+            printKeyValue([
+                ["Lease ID", result.lease_id],
+                ["API key", result.api_key],
+                ["Wallet", result.wallet_id],
+                ["Expires", formatDate(result.expires_at)],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+bankrCommand
+    .command("list <agent-id>")
+    .description("List active Bankr key leases for an agent")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts: { json?: boolean }) => {
+        try {
+            requireToken();
+            const result = await api<{
+                leases: Array<{
+                    id: string;
+                    wallet_id: string;
+                    bankr_key_id: string;
+                    expires_at: string;
+                    created_at: string;
+                }>;
+            }>(`/agents/${agentId}/bankr-keys`);
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            if (result.leases.length === 0) {
+                console.log(chalk.dim("No active Bankr key leases."));
+                return;
+            }
+
+            printTable(
+                result.leases.map((l) => ({
+                    id: l.id.slice(0, 8),
+                    wallet: l.wallet_id,
+                    key_id: l.bankr_key_id,
+                    expires: formatDate(l.expires_at),
+                })),
+                [
+                    { key: "id", header: "ID" },
+                    { key: "wallet", header: "Wallet" },
+                    { key: "key_id", header: "Key ID" },
+                    { key: "expires", header: "Expires" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+bankrCommand
+    .command("revoke <agent-id> <lease-id>")
+    .description("Revoke an active Bankr key lease")
+    .action(async (agentId: string, leaseId: string) => {
+        try {
+            requireToken();
+            await api(`/agents/${agentId}/bankr-keys/${leaseId}`, { method: "DELETE" });
+            printSuccess("Bankr key lease revoked");
+        } catch (err) {
+            handleError(err);
+        }
+    });

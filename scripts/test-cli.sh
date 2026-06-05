@@ -82,6 +82,10 @@ run env push --help
 run env run --help
 run agent --help
 run agent list --help
+run agent bankr-key --help
+run agent bankr-key lease --help
+run agent bankr-key list --help
+run agent bankr-key revoke --help
 run policy --help
 run policy list --help
 run share --help
