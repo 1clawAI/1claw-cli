@@ -202,7 +202,6 @@ envCommand
             const child = spawn(cmd, args, {
                 stdio: "inherit",
                 env: { ...process.env, ...envVars },
-                shell: true,
             });
 
             child.on("exit", (code) => {
