@@ -1,4 +1,5 @@
 import { getApiUrl, getToken } from "./config.js";
+import { isDPoPEnabled, generateDPoPProof, getPublicJwk } from "./auth/dpop.js";
 
 export class ApiError extends Error {
     constructor(
@@ -45,6 +46,7 @@ export async function api<T = unknown>(
         }
     }
 
+    const method = options.method ?? "GET";
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "User-Agent": "@1claw/cli",
@@ -52,8 +54,12 @@ export async function api<T = unknown>(
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
+    if (isDPoPEnabled()) {
+        headers["DPoP"] = await generateDPoPProof(method, url.toString());
+    }
+
     const res = await fetch(url.toString(), {
-        method: options.method ?? "GET",
+        method,
         headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
     });

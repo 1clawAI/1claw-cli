@@ -1,4 +1,4 @@
-# @1claw/cli (v0.32.1)
+# @1claw/cli (v0.34.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -465,6 +465,23 @@ Config is stored in `~/.config/1claw/config.json`. Keys:
 | `api-url`       | `https://api.1claw.xyz` | API base URL                                |
 | `output-format` | `table`                 | Default output: `table`, `json`, or `plain` |
 | `default-vault` | (none)                  | Default vault ID for commands               |
+
+## DPoP (Proof-of-Possession)
+
+Enable [DPoP (RFC 9449)](https://datatracker.ietf.org/doc/html/rfc9449) to bind agent tokens to a persistent P-256 keypair. Stolen tokens are unusable without the matching private key.
+
+```bash
+export ONECLAW_DPOP=true
+1claw agent token <id>     # Token exchange includes DPoP proof + public JWK
+```
+
+When `ONECLAW_DPOP=true` is set, the CLI:
+
+1. Generates a P-256 ECDSA keypair on first use and persists it at `~/.config/1claw/dpop-key.json` (mode `0600`).
+2. Sends the public JWK during token exchange (`POST /v1/auth/agent-token`).
+3. Attaches a `DPoP` proof JWT header to every API request.
+
+The keypair is reused across sessions. To rotate it, delete `~/.config/1claw/dpop-key.json` — a new keypair is generated on the next request. Any tokens bound to the old key become invalid.
 
 ## CI/CD examples
 
