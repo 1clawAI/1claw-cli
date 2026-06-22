@@ -2,7 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import ora from "ora";
-import { getAuth, getToken } from "../config.js";
+import { getToken } from "../config.js";
 import { loginWithDevice } from "../auth.js";
 import {
     detectAiClients,
@@ -66,7 +66,7 @@ async function runSetup(opts: {
         return;
     }
 
-    // Step 1: Ensure authentication
+    // Step 1: Ensure authentication and provision agent + vault + policy
     let agentApiKey = opts.agentKey || "";
 
     if (!agentApiKey && !opts.skipAuth) {
@@ -97,7 +97,9 @@ async function runSetup(opts: {
         }
 
         if (!agentApiKey) {
-            agentApiKey = await resolveAgentKey();
+            const result = await provisionAgent();
+            if (!result) return;
+            agentApiKey = result.apiKey;
         }
     }
 
@@ -205,14 +207,20 @@ async function runSetup(opts: {
     console.log();
 }
 
-async function resolveAgentKey(): Promise<string> {
+interface ProvisionResult {
+    apiKey: string;
+    agentId: string;
+    vaultId: string;
+}
+
+async function provisionAgent(): Promise<ProvisionResult | null> {
     const { source } = await inquirer.prompt([
         {
             type: "list",
             name: "source",
             message: "How would you like to provide an agent API key?",
             choices: [
-                { name: "Create a new agent now", value: "create" },
+                { name: "Create a new agent now (recommended)", value: "create" },
                 { name: "Enter an existing agent API key", value: "enter" },
                 { name: "Use from environment (ONECLAW_AGENT_API_KEY)", value: "env" },
             ],
@@ -225,7 +233,7 @@ async function resolveAgentKey(): Promise<string> {
             printError("ONECLAW_AGENT_API_KEY is not set in the environment.");
             process.exit(1);
         }
-        return key;
+        return { apiKey: key, agentId: "", vaultId: "" };
     }
 
     if (source === "enter") {
@@ -239,10 +247,10 @@ async function resolveAgentKey(): Promise<string> {
                     v.startsWith("ocv_") ? true : "Agent API keys start with ocv_",
             },
         ]);
-        return key;
+        return { apiKey: key, agentId: "", vaultId: "" };
     }
 
-    // Create a new agent
+    // --- Create a new agent with Shroud + Intents enabled ---
     const { agentName } = await inquirer.prompt([
         {
             type: "input",
@@ -254,34 +262,136 @@ async function resolveAgentKey(): Promise<string> {
         },
     ]);
 
-    const spinner = ora("Creating agent...").start();
+    const agentSpinner = ora("Creating agent...").start();
+    let agentId: string;
+    let apiKey: string;
     try {
-        const result = await api<{ id: string; api_key?: string }>(
+        const result = await api<{ agent: { id: string }; api_key?: string }>(
             "/agents",
             {
                 method: "POST",
                 body: {
                     name: agentName.trim(),
                     description: "Auto-created by 1claw setup for MCP integration",
+                    shroud_enabled: true,
+                    intents_api_enabled: true,
                 },
             },
         );
+        agentId = result.agent.id;
 
-        spinner.succeed(`Agent "${agentName}" created`);
-
-        if (result.api_key) {
-            printInfo(
-                `Agent API key: ${chalk.cyan(result.api_key)} ${chalk.dim("(save this — shown only once)")}`,
-            );
-            return result.api_key;
+        if (!result.api_key) {
+            agentSpinner.fail("Agent created but no API key returned");
+            printError("Use `1claw agent create` manually.");
+            process.exit(1);
         }
+        apiKey = result.api_key;
+        agentSpinner.succeed(`Agent "${agentName}" created`);
 
-        printError("Agent created but no API key returned. Use `1claw agent create` manually.");
-        process.exit(1);
+        printInfo(
+            `Agent API key: ${chalk.cyan(apiKey)} ${chalk.dim("(save this — shown only once)")}`,
+        );
+        printInfo("Shroud LLM proxy: enabled");
+        printInfo("Intents API (tx signing): enabled");
     } catch (err) {
-        spinner.fail("Failed to create agent");
+        agentSpinner.fail("Failed to create agent");
         throw err;
     }
+
+    // --- Vault selection or creation ---
+    let vaultId: string;
+    let vaultName: string;
+
+    const vaultSpinner = ora("Checking vaults...").start();
+    try {
+        const vaultsRes = await api<{ vaults: { id: string; name: string }[] } | { id: string; name: string }[]>("/vaults");
+        const vaults = Array.isArray(vaultsRes) ? vaultsRes : vaultsRes.vaults ?? [];
+        vaultSpinner.stop();
+
+        if (vaults.length === 0) {
+            const createSpinner = ora('Creating vault "default"...').start();
+            const newVault = await api<{ id: string; name: string }>("/vaults", {
+                method: "POST",
+                body: { name: "default", description: "Default vault created by 1claw setup" },
+            });
+            vaultId = newVault.id;
+            vaultName = newVault.name;
+            createSpinner.succeed(`Vault "${vaultName}" created`);
+        } else {
+            const CREATE_NEW = "__create_new__";
+            const { selectedVault } = await inquirer.prompt([
+                {
+                    type: "list",
+                    name: "selectedVault",
+                    message: "Which vault should this agent access?",
+                    choices: [
+                        ...vaults.map((v) => ({
+                            name: `${v.name} (${v.id.slice(0, 8)}...)`,
+                            value: v.id,
+                        })),
+                        new inquirer.Separator(),
+                        { name: "Create a new vault", value: CREATE_NEW },
+                    ],
+                },
+            ]);
+
+            if (selectedVault === CREATE_NEW) {
+                const { newVaultName } = await inquirer.prompt([
+                    {
+                        type: "input",
+                        name: "newVaultName",
+                        message: "Name for the new vault:",
+                        default: "default",
+                        validate: (v: string) =>
+                            v.trim().length > 0 ? true : "Vault name is required",
+                    },
+                ]);
+                const createSpinner = ora(`Creating vault "${newVaultName}"...`).start();
+                const newVault = await api<{ id: string; name: string }>("/vaults", {
+                    method: "POST",
+                    body: { name: newVaultName.trim(), description: "Created by 1claw setup" },
+                });
+                vaultId = newVault.id;
+                vaultName = newVault.name;
+                createSpinner.succeed(`Vault "${vaultName}" created`);
+            } else {
+                vaultId = selectedVault;
+                vaultName = vaults.find((v) => v.id === selectedVault)?.name ?? selectedVault;
+                printSuccess(`Using vault "${vaultName}"`);
+            }
+        }
+    } catch (err) {
+        vaultSpinner.stop();
+        printWarning(`Could not set up vault: ${(err as Error).message}`);
+        printInfo("You can create a vault later in the dashboard.");
+        return { apiKey, agentId, vaultId: "" };
+    }
+
+    // --- Create access policy and bind agent to vault ---
+    const policySpinner = ora("Granting agent access...").start();
+    try {
+        await api(`/vaults/${vaultId}/policies`, {
+            method: "POST",
+            body: {
+                principal_type: "agent",
+                principal_id: agentId,
+                secret_path_pattern: "secrets/*",
+                permissions: ["read", "write"],
+            },
+        });
+
+        await api(`/agents/${agentId}`, {
+            method: "PATCH",
+            body: { vault_ids: [vaultId] },
+        });
+
+        policySpinner.succeed("Access policy granted: read + write on secrets/*");
+    } catch (err) {
+        policySpinner.fail(`Could not create policy: ${(err as Error).message}`);
+        printInfo("You can grant access later in the dashboard.");
+    }
+
+    return { apiKey, agentId, vaultId };
 }
 
 async function runLocalSetup(opts: {

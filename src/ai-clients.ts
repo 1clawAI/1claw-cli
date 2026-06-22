@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
@@ -210,7 +210,6 @@ export function configureClient(
     const tmpPath = configPath + ".1claw-tmp";
     writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
 
-    const { renameSync } = require("node:fs");
     renameSync(tmpPath, configPath);
 
     return {
@@ -225,11 +224,21 @@ function configureClaudeCode(
     const envArgs = Object.entries(entry.env)
         .flatMap(([k, v]) => ["-e", `${k}=${v}`]);
 
+    // Remove existing entry first (ignore errors if it doesn't exist)
+    try {
+        execSync("claude mcp remove 1claw -s user", {
+            encoding: "utf-8",
+            stdio: "pipe",
+        });
+    } catch {
+        // fine — entry didn't exist
+    }
+
     const cmdParts = [
         "claude", "mcp", "add",
+        "1claw",
         "-s", "user",
         ...envArgs,
-        "1claw",
         "--",
         entry.command,
         ...entry.args,

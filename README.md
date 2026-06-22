@@ -1,4 +1,4 @@
-# @1claw/cli (v0.34.2)
+# @1claw/cli (v0.34.5)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -66,17 +66,26 @@ export ONECLAW_API_KEY="1ck_..."
 
 ### Setup (AI Client Auto-Configuration)
 
-Auto-detect and configure AI clients (Claude Desktop, Cursor, VS Code, Zed, Windsurf, Claude Code) to use the 1Claw MCP server for runtime secret access.
+Auto-detect and configure AI clients (Claude Desktop, Cursor, VS Code, Zed, Windsurf, Claude Code, Continue.dev) to use the 1Claw MCP server for runtime secret access.
 
 ```bash
-1claw setup                            # Interactive: detect clients, select, configure
+1claw setup                            # Interactive: login, create agent + vault + policy, configure clients
 1claw setup --client cursor            # Configure only Cursor
-1claw setup --agent-key ocv_...        # Use a specific agent API key
+1claw setup --agent-key ocv_...        # Use a specific agent API key (skips provisioning)
 1claw setup --project                  # Write MCP config to current project instead of global
 1claw setup --skip-auth                # Skip authentication check
+1claw setup --local                    # Configure for local daemon mode (no cloud)
 ```
 
-The command detects installed AI clients, prompts you to select which ones to configure, and writes the appropriate MCP server entry to each client's config file. It uses `npx @1claw/mcp` by default, or a globally installed `1claw-mcp` binary if available.
+When you choose "Create a new agent", `setup` provisions everything end-to-end:
+
+1. Creates an agent with **Shroud LLM proxy** and **Intents API** (transaction signing) enabled
+2. Lists your existing vaults or auto-creates a "default" vault
+3. Creates a read + write access policy on `secrets/*` for the agent
+4. Binds the agent to the vault via `vault_ids`
+5. Configures each selected AI client's MCP config
+
+If you provide an existing key (`--agent-key` or "Enter an existing key"), provisioning is skipped — the assumption is those resources already exist.
 
 ### Import (.env File)
 
