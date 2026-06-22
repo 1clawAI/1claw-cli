@@ -211,7 +211,7 @@ async function runImport(
                     method: "PUT",
                     body: {
                         value: entry.value,
-                        secret_type: opts.type ?? "api_key",
+                        type: opts.type ?? "api_key",
                     },
                 },
             );

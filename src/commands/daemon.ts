@@ -5,7 +5,7 @@ import {
     type IncomingMessage,
     type ServerResponse,
 } from "node:http";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import chalk from "chalk";
@@ -119,17 +119,30 @@ daemonCommand
             const secretCount = Object.keys(vault.secrets).length;
             const policyCount = Object.keys(policy.secrets).length;
 
+            // Detach stdin so a closed pipe (e.g. from automation) doesn't
+            // tear down the event loop once the server is listening.
+            try { process.stdin.pause(); } catch { /* ok */ }
+            try { process.stdin.unref(); } catch { /* ok */ }
+
             const server = createDaemonServer(vault, policy);
+
+            server.on("error", (err) => {
+                printError(`Daemon server error: ${err.message}`);
+                process.exit(1);
+            });
 
             server.listen(socketPath, () => {
                 try {
-                    const { chmodSync } = require("node:fs");
                     chmodSync(socketPath, 0o600);
                 } catch {
                     // best-effort
                 }
 
                 writeFileSync(PID_FILE, String(process.pid));
+
+                // Keep the event loop alive — without this, Node may exit when
+                // stdin closes (piped passphrase) and imported modules drain.
+                setInterval(() => {}, 1_000);
 
                 console.log();
                 printSuccess(
