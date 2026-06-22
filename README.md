@@ -1,4 +1,4 @@
-# @1claw/cli (v0.34.1)
+# @1claw/cli (v0.34.2)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -504,6 +504,68 @@ Manage registered mobile companion app devices.
 1claw config list                              # Show all config
 1claw config get api-url                       # Get a value
 1claw config set output-format json            # Set default output
+```
+
+## Local Vault (Offline, Encrypted)
+
+Store secrets locally in an encrypted vault — no cloud required. Secrets are encrypted at rest with AES-256-GCM using a passphrase-derived key (PBKDF2, 100k iterations).
+
+```bash
+1claw local init                   # Create local vault with passphrase
+1claw local add STRIPE_KEY         # Add secret (prompted, masked)
+1claw local list                   # List secret names (never values)
+1claw local get STRIPE_KEY         # Retrieve a value
+1claw local rm STRIPE_KEY          # Remove a secret
+1claw local import .env            # Import .env file into local vault
+1claw local export -o .env         # Export as .env format
+1claw local sync -v <vault-id>     # Push local secrets to cloud vault
+1claw local sync --pull -v <id>    # Pull cloud secrets into local vault
+1claw local status                 # Show vault info (count, sync status)
+1claw local destroy                # Permanently delete local vault
+```
+
+Vault file: `~/.config/1claw/local-vault.enc` (0600 permissions, safe to back up).
+
+## Local Daemon (Secret Proxy)
+
+The daemon serves secrets over a Unix socket and injects them into HTTP requests without exposing values to the AI model. This provides a trust boundary: the model knows *which* secret to use and *where* to send it, but never sees the raw value.
+
+```bash
+# Start the daemon (unlocks vault, listens on socket)
+1claw daemon start
+
+# Manage per-secret policies (which hosts can receive each secret)
+1claw daemon policy add STRIPE_KEY --hosts api.stripe.com
+1claw daemon policy add OPENAI_KEY --hosts api.openai.com,*.openai.com
+1claw daemon policy list
+1claw daemon policy remove STRIPE_KEY
+
+# Check daemon status
+1claw daemon status
+
+# Stop the daemon
+1claw daemon stop
+```
+
+### Setup for Local Mode
+
+Configure AI clients to use the daemon instead of the cloud API:
+
+```bash
+1claw setup --local
+```
+
+This sets `ONECLAW_LOCAL_VAULT=true` and `ONECLAW_DAEMON_SOCKET` in the MCP config, so the MCP server connects to the local daemon instead of `api.1claw.xyz`. The model uses `proxy_request` to make API calls with secrets injected — the secret value never enters the model's context.
+
+### Architecture
+
+```
+AI Client (Claude, Cursor, etc.)
+    └─ MCP Server (@1claw/mcp, local mode)
+         └─ Unix Socket (/~/.config/1claw/daemon.sock)
+              └─ 1claw Daemon (holds decrypted vault in memory)
+                   ├─ Policy Engine (per-secret host allowlist)
+                   └─ Secret Proxy (injects credentials into HTTP requests)
 ```
 
 ## Global options

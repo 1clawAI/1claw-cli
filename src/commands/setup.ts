@@ -27,6 +27,7 @@ export const setupCommand = new Command("setup")
     .option("--client <name>", "Configure only a specific client (e.g. cursor, claude-desktop)")
     .option("--agent-key <key>", "Use a specific agent API key instead of prompting")
     .option("--skip-auth", "Skip authentication check (use existing credentials)")
+    .option("--local", "Configure MCP to use the local daemon instead of cloud API")
     .action(async (opts) => {
         try {
             await runSetup(opts);
@@ -46,11 +47,24 @@ async function runSetup(opts: {
     client?: string;
     agentKey?: string;
     skipAuth?: boolean;
+    local?: boolean;
 }): Promise<void> {
     console.log();
     console.log(chalk.bold("  1Claw Setup"));
-    console.log(chalk.dim("  Auto-configure your AI clients for secret management"));
+    console.log(
+        chalk.dim(
+            opts.local
+                ? "  Configure AI clients for local daemon mode (offline, secrets never leave machine)"
+                : "  Auto-configure your AI clients for secret management",
+        ),
+    );
     console.log();
+
+    // Local daemon mode — no auth needed, just configure MCP to point at daemon socket
+    if (opts.local) {
+        await runLocalSetup(opts);
+        return;
+    }
 
     // Step 1: Ensure authentication
     let agentApiKey = opts.agentKey || "";
@@ -268,4 +282,104 @@ async function resolveAgentKey(): Promise<string> {
         spinner.fail("Failed to create agent");
         throw err;
     }
+}
+
+async function runLocalSetup(opts: {
+    client?: string;
+}): Promise<void> {
+    const { vaultExists } = await import("../local-vault.js");
+    const { homedir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    if (!vaultExists()) {
+        printWarning("No local vault found.");
+        printInfo("Run `1claw local init` to create one, then try `1claw setup --local` again.");
+        return;
+    }
+
+    const configDir =
+        process.env.ONECLAW_CONFIG_DIR || join(homedir(), ".config", "1claw");
+    const socketPath =
+        process.env.ONECLAW_DAEMON_SOCKET || join(configDir, "daemon.sock");
+
+    // Detect AI clients
+    const spinner = ora("Detecting installed AI clients...").start();
+    const allClients = detectAiClients();
+    spinner.stop();
+
+    let candidates: AiClient[];
+
+    if (opts.client) {
+        const match = allClients.find(
+            (c) => c.slug === opts.client || c.name.toLowerCase() === opts.client!.toLowerCase(),
+        );
+        if (!match) {
+            printError(
+                `Unknown client: ${opts.client}. Available: ${allClients.map((c) => c.slug).join(", ")}`,
+            );
+            return;
+        }
+        candidates = [match];
+    } else {
+        const detected = allClients.filter((c) => c.detected);
+        if (detected.length === 0) {
+            printWarning("No AI clients detected.");
+            return;
+        }
+
+        console.log(chalk.bold("  Detected AI clients:"));
+        for (const c of detected) {
+            console.log(`    ${chalk.green("●")} ${c.name}`);
+        }
+        console.log();
+
+        const { selected } = await inquirer.prompt([
+            {
+                type: "checkbox",
+                name: "selected",
+                message: "Which clients to configure for local daemon mode?",
+                choices: detected.map((c) => ({
+                    name: c.name,
+                    value: c.slug,
+                    checked: true,
+                })),
+            },
+        ]);
+
+        candidates = detected.filter((c) => selected.includes(c.slug));
+    }
+
+    if (candidates.length === 0) {
+        printInfo("No clients selected.");
+        return;
+    }
+
+    const envVars: Record<string, string> = {
+        ONECLAW_DAEMON_SOCKET: socketPath,
+        ONECLAW_LOCAL_VAULT: "true",
+    };
+    const entry = buildMcpEntry(envVars);
+
+    console.log();
+    let successCount = 0;
+    for (const client of candidates) {
+        const result = configureClient(client, entry);
+        if (result.success) {
+            printSuccess(result.message);
+            successCount++;
+        } else {
+            printError(result.message);
+        }
+    }
+
+    console.log();
+    if (successCount > 0) {
+        printSuccess(
+            `Configured ${successCount} client${successCount > 1 ? "s" : ""} for local daemon mode.`,
+        );
+        console.log();
+        printInfo("Start the daemon: `1claw daemon start`");
+        printInfo("Then restart your AI client to activate local MCP.");
+    }
+    console.log();
 }
