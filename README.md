@@ -1,4 +1,4 @@
-# @1claw/cli (v0.34.0)
+# @1claw/cli (v0.34.1)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -7,6 +7,14 @@ Designed for CI/CD pipelines, DevOps workflows, and server environments.
 **HTTP surface:** Commands call the Vault REST API. The authoritative contract is [@1claw/openapi-spec](https://www.npmjs.com/package/@1claw/openapi-spec) (`openapi.yaml` / `openapi.json`).
 
 ## Installation
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew install 1clawAI/tap/1claw
+```
+
+### npm
 
 ```bash
 npm install -g @1claw/cli
@@ -46,7 +54,44 @@ export ONECLAW_TOKEN="your-jwt"
 export ONECLAW_API_KEY="1ck_..."
 ```
 
+## Quick Start
+
+```bash
+1claw login                # Authenticate via browser
+1claw setup                # Auto-configure Claude, Cursor, VS Code, etc.
+1claw import .env          # Import secrets from a .env file into your vault
+```
+
 ## Commands
+
+### Setup (AI Client Auto-Configuration)
+
+Auto-detect and configure AI clients (Claude Desktop, Cursor, VS Code, Zed, Windsurf, Claude Code) to use the 1Claw MCP server for runtime secret access.
+
+```bash
+1claw setup                            # Interactive: detect clients, select, configure
+1claw setup --client cursor            # Configure only Cursor
+1claw setup --agent-key ocv_...        # Use a specific agent API key
+1claw setup --project                  # Write MCP config to current project instead of global
+1claw setup --skip-auth                # Skip authentication check
+```
+
+The command detects installed AI clients, prompts you to select which ones to configure, and writes the appropriate MCP server entry to each client's config file. It uses `npx @1claw/mcp` by default, or a globally installed `1claw-mcp` binary if available.
+
+### Import (.env File)
+
+Import secrets from a local `.env` file into a 1Claw vault.
+
+```bash
+1claw import .env                      # Import all keys from .env
+1claw import .env.production \
+  --prefix prod/                       # Add a path prefix to all keys
+1claw import .env --dry-run            # Preview what would be imported
+1claw import .env --force              # Overwrite existing secrets
+1claw import .env --vault <id>         # Import to a specific vault
+```
+
+Handles standard `.env` syntax: `KEY=value`, single/double-quoted values, `export` prefix, comments, and multiline values.
 
 ### Auth
 
@@ -117,7 +162,21 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 1claw env push .env                            # Push .env file to vault
 1claw env run -- npm start                     # Run with secrets injected
 1claw env run --prefix config/ -- ./deploy.sh  # Only inject matching secrets
+1claw env run --no-cache -- npm start          # Skip local cache, always fetch from API
 ```
+
+### Environment Cache (Offline Mode)
+
+Cache secrets locally in an AES-256-GCM encrypted file for offline `env run`. The encryption key is derived from your authentication token.
+
+```bash
+1claw env cache                                # Download and cache secrets locally
+1claw env cache --ttl 3600                     # Cache with 1-hour TTL (default: 300s)
+1claw env cache-status                         # Show cache age, vault ID, secret count
+1claw env cache-clear                          # Delete the local cache
+```
+
+When a valid cache exists, `env run` uses it automatically instead of calling the API. Use `--no-cache` on `env run` to bypass. Cache is stored at `~/.config/1claw/env-cache.enc` (mode `0600`).
 
 ### Agents
 

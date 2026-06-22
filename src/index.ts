@@ -26,6 +26,8 @@ import { billingCommand } from "./commands/billing.js";
 import { auditCommand } from "./commands/audit.js";
 import { mfaCommand } from "./commands/mfa.js";
 import { configCommand } from "./commands/config.js";
+import { setupCommand } from "./commands/setup.js";
+import { importCommand } from "./commands/import.js";
 import { proxyCommand } from "./commands/proxy.js";
 import { treasuryCommand } from "./commands/treasury.js";
 import { webhookCommand } from "./commands/webhook.js";
@@ -77,6 +79,10 @@ export function createProgram(): Command {
     // Security
     program.addCommand(auditCommand);
     program.addCommand(mfaCommand);
+
+    // Setup & import
+    program.addCommand(setupCommand);
+    program.addCommand(importCommand);
 
     // Config
     program.addCommand(configCommand);
