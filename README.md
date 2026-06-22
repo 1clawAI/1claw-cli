@@ -1,4 +1,4 @@
-# @1claw/cli (v0.34.5)
+# @1claw/cli (v0.34.7)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -11,7 +11,7 @@ Designed for CI/CD pipelines, DevOps workflows, and server environments.
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install 1clawAI/tap/1claw
+brew install 1clawAI/tap/oneclaw
 ```
 
 ### npm
@@ -544,8 +544,8 @@ The daemon serves secrets over a Unix socket and injects them into HTTP requests
 1claw daemon start
 
 # Manage per-secret policies (which hosts can receive each secret)
-1claw daemon policy add STRIPE_KEY --hosts api.stripe.com
-1claw daemon policy add OPENAI_KEY --hosts api.openai.com,*.openai.com
+1claw daemon policy add STRIPE_KEY --hosts api.stripe.com --inject-as bearer
+1claw daemon policy add OPENAI_KEY --hosts api.openai.com,*.openai.com --inject-as bearer
 1claw daemon policy list
 1claw daemon policy remove STRIPE_KEY
 
