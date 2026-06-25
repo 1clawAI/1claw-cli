@@ -1,0 +1,28 @@
+name: onchain
+version: 1.0.0
+description: >
+  Multi-chain signing and Intents API tooling. Adds transaction submission,
+  signing-key management, and on-chain intent helpers.
+author: 1Claw
+homepage: https://1claw.xyz
+
+docker:
+  packages:
+    - "@1claw/sdk@latest"
+  apk: []
+  copy:
+    - src: startup.sh
+      dest: /app/modules/onchain/startup.sh
+  env:
+    ONCHAIN_SIGNING_ENABLED: "true"
+  ports: []
+
+required_secrets: []
+
+tools:
+  - submit_transaction
+  - sign_transaction
+  - list_signing_keys
+
+conflicts: []
+depends: []

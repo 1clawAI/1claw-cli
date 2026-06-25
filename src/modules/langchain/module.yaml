@@ -1,0 +1,30 @@
+name: langchain
+version: 1.0.0
+description: >
+  LangChain / LangGraph agent runtime with Shroud-routed LLM calls. Adds the
+  core LangChain packages for building tool-using agents.
+author: 1Claw
+homepage: https://1claw.xyz
+
+docker:
+  packages:
+    - "langchain@latest"
+    - "@langchain/core@latest"
+    - "@langchain/langgraph@latest"
+  apk: []
+  copy:
+    - src: startup.sh
+      dest: /app/modules/langchain/startup.sh
+  env:
+    LANGCHAIN_ENABLED: "true"
+  ports: []
+
+required_secrets:
+  - path: integrations/llm/api-key
+    description: "LLM provider API key (routed through Shroud)"
+    optional: true
+
+tools: []
+
+conflicts: []
+depends: []

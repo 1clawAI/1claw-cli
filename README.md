@@ -577,6 +577,63 @@ AI Client (Claude, Cursor, etc.)
                    └─ Secret Proxy (injects credentials into HTTP requests)
 ```
 
+## Containerized Agent Runtime (`init --docker`)
+
+`1claw init --docker` provisions a secure agent runtime inside a Docker container in one command. The container ships with the 1Claw MCP server and a lightweight chat UI. Crucially, the container **never receives the agent API key** — the host daemon injects credentials over a read-only Unix-socket mount, preserving the same trust boundary as local daemon mode.
+
+```bash
+1claw init --docker                          # Basic secure agent
+1claw init --docker --module=ampersend       # With x402 payments
+1claw init --docker --module=ampersend,onchain --port 8080
+1claw init --docker --local                  # Fully offline — no cloud account
+1claw init --docker --list-modules           # List available modules
+```
+
+When the cloud is reachable, `init` provisions an agent + vault + read policy and stores the agent key in your local vault (the daemon injects it toward `*.1claw.xyz`). With `--local`, nothing touches the cloud. The base image is built from bundled assets if it isn't already present, so the flow works offline.
+
+### Modules
+
+Composable container extensions defined by `module.yaml` manifests bundled with the CLI:
+
+| Module | Description |
+| --- | --- |
+| `ampersend` | x402 payment control layer (session keys, Base USDC) |
+| `onchain` | Multi-chain signing + Intents API tools |
+| `langchain` | LangChain / LangGraph agent runtime (Shroud-routed) |
+| `elizaos` | ElizaOS character runtime with vault-backed secrets |
+| `scaffold-agent` | Scaffold-ETH 2 dApp agent (depends on `onchain`) |
+
+Modules resolve dependencies, detect conflicts, and are topologically sorted. When modules are present, the CLI builds a custom image (`FROM 1claw/agent:stable` + module layers).
+
+### Managing containers
+
+```bash
+1claw containers list                  # List managed agent containers
+1claw containers info <name>           # Show details
+1claw containers logs <name>           # Tail logs
+1claw containers stop <name>           # Stop a container
+1claw containers rm <name> [--force]   # Remove container + local state
+```
+
+### Publish & eject
+
+```bash
+1claw publish --name my-agent --tag <user>/my-agent:v1   # Rebuild + push
+1claw publish --tag <user>/custom:latest                 # From ./Dockerfile
+1claw publish --name my-agent --commit --tag <user>/m:c  # Snapshot a running container
+1claw eject --name my-agent --output ./out               # Export Dockerfile + compose + module configs
+```
+
+### Cloud deploy (Google Cloud Run)
+
+```bash
+1claw publish --name my-agent --tag <user>/my-agent:v1   # Image must be in a registry first
+1claw deploy --google-cloud --name my-agent              # Generate Terraform
+1claw deploy --google-cloud --name my-agent --apply      # Generate + apply (needs TF_VAR_agent_api_key)
+```
+
+In cloud mode the container uses the agent key directly (injected from Secret Manager), not the host daemon.
+
 ## Global options
 
 ```bash

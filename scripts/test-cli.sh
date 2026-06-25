@@ -98,6 +98,14 @@ run mfa --help
 run mfa status --help
 run config --help
 run config list --help
+run init --help
+run publish --help
+run eject --help
+run containers --help
+run containers list --help
+run deploy --help
+run_contains "ampersend" init --list-modules
+run_contains "onchain" init --list-modules
 
 echo ""
 echo "=== 2. Unauthenticated (expect clear errors) ==="
@@ -159,6 +167,17 @@ if [[ -n "$ONECLAW_TOKEN" || -n "$ONECLAW_API_KEY" ]]; then
 else
   echo "=== 6. Live API ==="
   echo "  SKIP (set ONECLAW_TOKEN or ONECLAW_API_KEY and optionally ONECLAW_VAULT_ID for integration tests)"
+fi
+
+echo ""
+echo "=== 7. Docker feature unit tests ==="
+if node --test scripts/test-docker.mjs > /tmp/cli_unit 2>&1; then
+  echo "  OK   node --test scripts/test-docker.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test scripts/test-docker.mjs"
+  ((FAILED++)) || true
+  tail -20 /tmp/cli_unit
 fi
 
 echo ""

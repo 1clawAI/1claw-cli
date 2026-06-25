@@ -36,6 +36,11 @@ import { webhookCommand } from "./commands/webhook.js";
 import { platformCommand } from "./commands/platform.js";
 import { deviceCommand } from "./commands/device.js";
 import { approvalCommand } from "./commands/approval.js";
+import { initCommand } from "./commands/init.js";
+import { publishCommand } from "./commands/publish.js";
+import { ejectCommand } from "./commands/eject.js";
+import { containersCommand } from "./commands/containers.js";
+import { deployCommand } from "./commands/deploy.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -87,6 +92,13 @@ export function createProgram(): Command {
     program.addCommand(importCommand);
     program.addCommand(localCommand);
     program.addCommand(daemonCommand);
+
+    // Containerized agent runtime
+    program.addCommand(initCommand);
+    program.addCommand(publishCommand);
+    program.addCommand(ejectCommand);
+    program.addCommand(containersCommand);
+    program.addCommand(deployCommand);
 
     // Config
     program.addCommand(configCommand);

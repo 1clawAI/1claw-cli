@@ -1,0 +1,32 @@
+name: ampersend
+version: 1.0.0
+description: >
+  x402 payment control layer via Ampersend. Adds session-key management and
+  smart-account USDC payments on Base.
+author: Edge & Node
+homepage: https://ampersend.ai
+
+docker:
+  packages:
+    - "@ampersend/sdk@latest"
+  apk: []
+  copy:
+    - src: config.json
+      dest: /app/modules/ampersend/config.json
+    - src: startup.sh
+      dest: /app/modules/ampersend/startup.sh
+  env:
+    AMPERSEND_ENABLED: "true"
+  ports: []
+
+required_secrets:
+  - path: integrations/ampersend/api-key
+    description: "Ampersend API key for x402 payments"
+    optional: true
+
+tools:
+  - create_x402_payment
+  - get_session_key
+
+conflicts: []
+depends: []

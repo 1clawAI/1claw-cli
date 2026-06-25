@@ -96,16 +96,23 @@ daemonCommand
             }
 
             console.log();
-            printInfo("Unlocking local vault to start daemon...");
 
-            const { passphrase } = await inquirer.prompt([
-                {
-                    type: "password",
-                    name: "passphrase",
-                    message: "Vault passphrase:",
-                    mask: "*",
-                },
-            ]);
+            // Non-interactive unlock for automation (e.g. `1claw init` starting
+            // the daemon as a detached child). Falls back to a prompt otherwise.
+            let passphrase: string;
+            if (process.env.ONECLAW_VAULT_PASSPHRASE) {
+                passphrase = process.env.ONECLAW_VAULT_PASSPHRASE;
+            } else {
+                printInfo("Unlocking local vault to start daemon...");
+                ({ passphrase } = await inquirer.prompt([
+                    {
+                        type: "password",
+                        name: "passphrase",
+                        message: "Vault passphrase:",
+                        mask: "*",
+                    },
+                ]));
+            }
 
             let vault: LocalVaultData;
             try {

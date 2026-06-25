@@ -1,0 +1,8 @@
+{
+  "module": "ampersend",
+  "x402": {
+    "chain": "base",
+    "asset": "USDC",
+    "session_key_ttl_seconds": 900
+  }
+}

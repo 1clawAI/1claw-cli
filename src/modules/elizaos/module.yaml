@@ -1,0 +1,30 @@
+name: elizaos
+version: 1.0.0
+description: >
+  ElizaOS character runtime with vault-backed secrets. Adds the ElizaOS core
+  so character agents can run with 1Claw-managed credentials.
+author: 1Claw
+homepage: https://1claw.xyz
+
+docker:
+  packages:
+    - "@elizaos/core@latest"
+  apk: []
+  copy:
+    - src: config.json
+      dest: /app/modules/elizaos/config.json
+    - src: startup.sh
+      dest: /app/modules/elizaos/startup.sh
+  env:
+    ELIZAOS_ENABLED: "true"
+  ports: []
+
+required_secrets:
+  - path: integrations/llm/api-key
+    description: "Model provider API key for the character runtime"
+    optional: true
+
+tools: []
+
+conflicts: []
+depends: []

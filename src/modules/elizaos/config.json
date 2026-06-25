@@ -1,0 +1,7 @@
+{
+  "module": "elizaos",
+  "character": {
+    "name": "1Claw Agent",
+    "secrets_source": "1claw-daemon"
+  }
+}
