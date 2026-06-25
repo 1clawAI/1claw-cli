@@ -24,6 +24,7 @@ import {
     loadPolicy,
     savePolicy,
     setSecretPolicy,
+    type SecretPolicy,
 } from "../local-policy.js";
 import {
     dockerAvailable,
@@ -56,6 +57,7 @@ import {
     daemonSocketPath,
     daemonHealthy,
     startDaemonDetached,
+    stopDaemon,
 } from "../lib/daemon-control.js";
 
 interface InitOptions {
@@ -67,6 +69,8 @@ interface InitOptions {
     local?: boolean;
     agentKey?: string;
     detach?: boolean;
+    llmProvider?: string;
+    llmModel?: string;
 }
 
 export const initCommand = new Command("init")
@@ -82,6 +86,15 @@ export const initCommand = new Command("init")
     .option("--local", "Fully offline — no cloud provisioning")
     .option("--agent-key <key>", "Use an existing agent key (skip provisioning)")
     .option("--detach", "Run the container in the background")
+    .option(
+        "--llm-provider <provider>",
+        "LLM provider for the chat UI via Shroud (openai, anthropic, google, ...)",
+        "openai",
+    )
+    .option(
+        "--llm-model <model>",
+        "LLM model for the chat UI via Shroud (e.g. gpt-4o-mini, claude-3-5-haiku-latest)",
+    )
     .action(async (opts: InitOptions) => {
         try {
             await initAction(opts);
@@ -90,6 +103,21 @@ export const initCommand = new Command("init")
             process.exit(1);
         }
     });
+
+function defaultModelForProvider(provider: string): string {
+    switch (provider.toLowerCase()) {
+        case "anthropic":
+            return "claude-3-5-haiku-latest";
+        case "google":
+        case "gemini":
+            return "gemini-2.5-flash";
+        case "mistral":
+            return "mistral-small-latest";
+        case "openai":
+        default:
+            return "gpt-4o-mini";
+    }
+}
 
 function parseModuleNames(input: string[] | undefined): string[] {
     if (!input) return [];
@@ -248,21 +276,35 @@ async function resolvePassphrase(confirm: boolean): Promise<string> {
     return passphrase;
 }
 
+interface StoreKeySpec {
+    /** Vault path / secret name. */
+    path: string;
+    /** Secret value to store. */
+    value: string;
+    /** Secret type label. */
+    type?: string;
+    /** Daemon injection policy for this secret. */
+    policy: SecretPolicy;
+}
+
 /**
- * Ensure a local vault exists, optionally store the agent key + daemon policy,
- * and make sure the daemon is running so the container can reach it.
+ * Ensure a local vault exists, optionally store one or more secrets (each with
+ * its daemon injection policy), and make sure the daemon is running so the
+ * container can reach it. If the daemon is already running and we wrote new
+ * secrets, it is reloaded (the daemon loads the vault into memory at startup).
  */
 async function ensureDaemonRunning(opts: {
-    storeKey?: { localVaultPath: string; apiKey: string };
+    storeKeys?: StoreKeySpec[];
 }): Promise<string> {
     const socketPath = daemonSocketPath();
     const alreadyRunning = await daemonHealthy(socketPath);
 
-    // We need the passphrase to create/unlock the vault for key storage and/or
-    // to start the daemon. If the daemon is already running and we have nothing
-    // to store, we can skip vault work entirely.
-    const needVaultWrite = !!opts.storeKey;
+    const storeKeys = opts.storeKeys ?? [];
+    const needVaultWrite = storeKeys.length > 0;
     const needStart = !alreadyRunning;
+    // If we're writing secrets but the daemon is already up, it must be
+    // reloaded — otherwise the container can't reach the freshly stored keys.
+    const needReload = needVaultWrite && alreadyRunning;
 
     if (!needVaultWrite && !needStart) {
         return socketPath;
@@ -271,25 +313,23 @@ async function ensureDaemonRunning(opts: {
     const creatingVault = !vaultExists();
     let passphrase: string | undefined;
 
-    if (needVaultWrite || needStart) {
-        if (creatingVault) {
-            printInfo("No local vault found — creating one for the daemon.");
-            passphrase = await resolvePassphrase(true);
-            createVault(passphrase);
-        } else {
-            passphrase = await resolvePassphrase(false);
-            // Verify the passphrase up front so we fail with a clear message
-            // instead of an opaque "daemon did not become ready in time".
-            try {
-                loadVault(passphrase);
-            } catch {
-                throw new Error(
-                    "Wrong passphrase for the existing local vault.\n" +
-                        "  • If you mistyped it, re-run and enter the correct passphrase.\n" +
-                        "  • If you've forgotten it, reset the vault with: 1claw local destroy --force\n" +
-                        "    (this permanently deletes the old local vault and its secrets), then re-run.",
-                );
-            }
+    if (creatingVault) {
+        printInfo("No local vault found — creating one for the daemon.");
+        passphrase = await resolvePassphrase(true);
+        createVault(passphrase);
+    } else {
+        passphrase = await resolvePassphrase(false);
+        // Verify the passphrase up front so we fail with a clear message
+        // instead of an opaque "daemon did not become ready in time".
+        try {
+            loadVault(passphrase);
+        } catch {
+            throw new Error(
+                "Wrong passphrase for the existing local vault.\n" +
+                    "  • If you mistyped it, re-run and enter the correct passphrase.\n" +
+                    "  • If you've forgotten it, reset the vault with: 1claw local destroy --force\n" +
+                    "    (this permanently deletes the old local vault and its secrets), then re-run.",
+            );
         }
     }
 
@@ -300,24 +340,29 @@ async function ensureDaemonRunning(opts: {
         } catch {
             throw new Error("Wrong passphrase or corrupted local vault.");
         }
-        addSecret(
-            vault,
-            opts.storeKey!.localVaultPath,
-            opts.storeKey!.apiKey,
-            "api_key",
-        );
-        saveVault(vault, passphrase);
-
-        // Allow the daemon to inject this key toward the 1Claw API only.
         const policy = loadPolicy();
-        setSecretPolicy(policy, opts.storeKey!.localVaultPath, {
-            allowed_hosts: ["api.1claw.xyz", "*.1claw.xyz"],
-            inject_as: "bearer",
-        });
+        for (const spec of storeKeys) {
+            addSecret(vault, spec.path, spec.value, spec.type ?? "api_key");
+            setSecretPolicy(policy, spec.path, spec.policy);
+        }
+        saveVault(vault, passphrase);
         savePolicy(policy);
     }
 
-    if (needStart) {
+    if (needReload) {
+        const spinner = ora("Reloading daemon to pick up new secrets...").start();
+        await stopDaemon(socketPath);
+        const ok = await startDaemonDetached(passphrase!, socketPath);
+        if (!ok) {
+            spinner.fail("Daemon did not come back up.");
+            throw new Error(
+                "Failed to reload the daemon.\n" +
+                    "  • Check status:  1claw daemon status\n" +
+                    "  • Start it manually (shows errors):  1claw daemon start",
+            );
+        }
+        spinner.succeed(`Daemon reloaded on ${socketPath}`);
+    } else if (needStart) {
         if (!passphrase) passphrase = await resolvePassphrase(false);
         const spinner = ora("Starting local daemon...").start();
         const ok = await startDaemonDetached(passphrase, socketPath);
@@ -442,19 +487,52 @@ async function initAction(opts: InitOptions): Promise<void> {
         agentApiKey = result.apiKey;
     }
 
-    // ── Step 4/5: Store key + start daemon ───────────────────────────────
-    if (agentApiKey && !opts.local) {
-        localVaultPath = `__docker/${sanitizeName(containerName)}/agent-key`;
-    } else if (agentApiKey && opts.local) {
-        // Even in local mode, an explicitly provided key is stored for the daemon.
-        localVaultPath = `__docker/${sanitizeName(containerName)}/agent-key`;
+    // ── Step 4/5: Store key(s) + start daemon ────────────────────────────
+    // Shroud authenticates via the X-Shroud-Agent-Key header in `agent_id:key`
+    // form. We have a clean id+key only on the provisioned path; for --agent-key
+    // the user can pass `agent_id:key` directly.
+    const sid = sanitizeName(containerName);
+    const storeKeys: StoreKeySpec[] = [];
+
+    let shroudAgentKey: string | null = null;
+    if (agentId && agentApiKey) {
+        shroudAgentKey = `${agentId}:${agentApiKey}`;
+    } else if (agentApiKey && agentApiKey.includes(":")) {
+        shroudAgentKey = agentApiKey;
+    }
+
+    if (agentApiKey) {
+        // Generic bearer key toward the 1Claw API (used by /proxy demos).
+        localVaultPath = `__docker/${sid}/agent-key`;
+        storeKeys.push({
+            path: localVaultPath,
+            value: agentApiKey,
+            type: "api_key",
+            policy: {
+                allowed_hosts: ["api.1claw.xyz", "*.1claw.xyz"],
+                inject_as: "bearer",
+            },
+        });
+    }
+
+    // Shroud LLM key: injected as the X-Shroud-Agent-Key header toward Shroud.
+    let shroudSecretPath: string | null = null;
+    if (shroudAgentKey && !opts.local) {
+        shroudSecretPath = `__docker/${sid}/shroud-key`;
+        storeKeys.push({
+            path: shroudSecretPath,
+            value: shroudAgentKey,
+            type: "api_key",
+            policy: {
+                allowed_hosts: ["shroud.1claw.xyz", "*.1claw.xyz"],
+                inject_as: "header",
+                header_name: "X-Shroud-Agent-Key",
+            },
+        });
     }
 
     const socketPath = await ensureDaemonRunning({
-        storeKey:
-            agentApiKey && localVaultPath
-                ? { localVaultPath, apiKey: agentApiKey }
-                : undefined,
+        storeKeys: storeKeys.length ? storeKeys : undefined,
     });
 
     // ── Step 6/7: Build or pull image ────────────────────────────────────
@@ -506,12 +584,27 @@ async function initAction(opts: InitOptions): Promise<void> {
         printWarning(`Port ${requestedPort} busy — using ${port}.`);
     }
 
+    const containerMode = opts.local ? "local" : "cloud";
     const env: Record<string, string> = {
-        ONECLAW_LOCAL_VAULT: "true",
+        ONECLAW_MODE: containerMode,
         ONECLAW_DAEMON_SOCKET: "/run/1claw/daemon.sock",
         ONECLAW_CONTAINER_MODULES: modules.map((m) => m.name).join(","),
     };
+    if (opts.local) env.ONECLAW_LOCAL_VAULT = "true";
     if (agentId) env.ONECLAW_AGENT_ID = agentId;
+
+    // Wire the chat UI to an LLM through Shroud (key stays in the host daemon).
+    const llmWired = !!shroudSecretPath;
+    if (llmWired) {
+        const provider = opts.llmProvider || "openai";
+        const model = opts.llmModel || defaultModelForProvider(provider);
+        env.ONECLAW_LLM_VIA_SHROUD = "true";
+        env.ONECLAW_SHROUD_URL =
+            process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.xyz";
+        env.ONECLAW_SHROUD_SECRET = shroudSecretPath!;
+        env.ONECLAW_SHROUD_PROVIDER = provider;
+        env.ONECLAW_SHROUD_MODEL = model;
+    }
 
     const runSpinner = ora(`Starting container ${containerName}...`).start();
     let containerId: string;
@@ -554,7 +647,7 @@ async function initAction(opts: InitOptions): Promise<void> {
         createdAt: new Date().toISOString(),
         localVaultPath,
         customImage: null,
-        mode: "local",
+        mode: containerMode,
     };
     saveContainerState(state);
 
@@ -568,9 +661,32 @@ async function initAction(opts: InitOptions): Promise<void> {
         ["Modules", modules.map((m) => m.name).join(", ") || chalk.dim("none")],
         ["Image", imageToRun],
         ["Shroud", agentId ? "enabled" : chalk.dim("n/a")],
+        [
+            "Chat LLM",
+            llmWired
+                ? chalk.green(
+                      `via Shroud (${env.ONECLAW_SHROUD_PROVIDER}/${env.ONECLAW_SHROUD_MODEL})`,
+                  )
+                : chalk.dim("none — slash commands only"),
+        ],
         ["Key injection", chalk.green("daemon (container never sees the key)")],
     ]);
     console.log();
+
+    if (llmWired) {
+        printInfo(
+            "Chat replies route through Shroud. To bill model usage to 1Claw " +
+                "(no provider key needed), enable LLM Token Billing for your org:",
+        );
+        console.log(
+            chalk.dim(
+                "  Dashboard → Billing → LLM Token Billing, or\n" +
+                    "  POST /v1/billing/llm-token-billing/subscribe\n" +
+                    "  (otherwise Shroud needs a provider key configured for the org).",
+            ),
+        );
+        console.log();
+    }
 
     if (modules.some((m) => m.required_secrets.length)) {
         printInfo("Some modules expect secrets in your vault:");

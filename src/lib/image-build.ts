@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import {
     dockerImageExists,
+    dockerImageLabel,
     dockerPull,
     dockerBuild,
 } from "./docker-client.js";
@@ -21,6 +22,14 @@ import {
 
 export const DEFAULT_BASE_IMAGE = "1claw/agent:stable";
 
+/**
+ * Revision of the bundled base assets (chat UI, entrypoint, Dockerfile). Bump
+ * this whenever those change so an existing `1claw/agent:stable` is rebuilt
+ * instead of silently reused. Stamped into the image as a label.
+ */
+export const BASE_IMAGE_VERSION = "2";
+const BASE_VERSION_LABEL = "org.1claw.base-version";
+
 /** Build the base image from the bundled Docker context. */
 export async function buildBaseImage(
     tag = DEFAULT_BASE_IMAGE,
@@ -31,22 +40,36 @@ export async function buildBaseImage(
     if (!existsSync(dockerfile)) {
         throw new Error(`Base Dockerfile not found at ${dockerfile}`);
     }
-    return dockerBuild({ context, dockerfile, tag, onProgress });
+    return dockerBuild({
+        context,
+        dockerfile,
+        tag,
+        buildArgs: { ONECLAW_BASE_VERSION: BASE_IMAGE_VERSION },
+        onProgress,
+    });
 }
 
 /**
  * Ensure the base image is available locally. If it's the default 1Claw image
- * and missing, build it from bundled assets (works offline). Otherwise pull it.
+ * and missing (or stale — built from an older bundled-asset revision), build it
+ * from bundled assets (works offline). Otherwise pull it.
  */
 export async function ensureBaseImage(
     baseImage: string,
     onProgress?: (line: string) => void,
 ): Promise<void> {
-    if (await dockerImageExists(baseImage)) return;
+    const exists = await dockerImageExists(baseImage);
     if (baseImage === DEFAULT_BASE_IMAGE) {
+        if (exists) {
+            const ver = await dockerImageLabel(baseImage, BASE_VERSION_LABEL);
+            if (ver === BASE_IMAGE_VERSION) return;
+            // Missing/old label → rebuild from current bundled assets.
+            onProgress?.("base image is stale — rebuilding");
+        }
         await buildBaseImage(baseImage, onProgress);
         return;
     }
+    if (exists) return;
     await dockerPull(baseImage, onProgress);
 }
 

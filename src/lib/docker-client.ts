@@ -149,6 +149,26 @@ export async function dockerImageExists(image: string): Promise<boolean> {
     }
 }
 
+/** Read a single image label, or null if the image/label is absent. */
+export async function dockerImageLabel(
+    image: string,
+    label: string,
+): Promise<string | null> {
+    try {
+        const { stdout } = await run([
+            "image",
+            "inspect",
+            image,
+            "--format",
+            `{{ index .Config.Labels "${label}" }}`,
+        ]);
+        const v = stdout.trim();
+        return v && v !== "<no value>" ? v : null;
+    } catch {
+        return null;
+    }
+}
+
 export async function dockerPull(
     image: string,
     onProgress?: (line: string) => void,

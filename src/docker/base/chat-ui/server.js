@@ -18,7 +18,30 @@ const MODULES = (process.env.ONECLAW_CONTAINER_MODULES || "")
     .split(",")
     .map((m) => m.trim())
     .filter(Boolean);
-const MODE = process.env.ONECLAW_LOCAL_VAULT === "true" ? "local" : "cloud";
+const MODE = process.env.ONECLAW_MODE
+    ? process.env.ONECLAW_MODE
+    : process.env.ONECLAW_LOCAL_VAULT === "true"
+      ? "local"
+      : "cloud";
+
+// ── LLM via Shroud (trust-preserving) ───────────────────────────────────────
+// The container NEVER holds the agent key. When configured, chat messages are
+// POSTed to the host daemon's /proxy, which injects the X-Shroud-Agent-Key
+// header toward Shroud and returns only the model's response. The raw key never
+// enters this process.
+const LLM_VIA_SHROUD = process.env.ONECLAW_LLM_VIA_SHROUD === "true";
+const SHROUD_URL = (process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.xyz").replace(/\/+$/, "");
+const SHROUD_SECRET = process.env.ONECLAW_SHROUD_SECRET || "";
+const SHROUD_PROVIDER = process.env.ONECLAW_SHROUD_PROVIDER || "openai";
+const SHROUD_MODEL = process.env.ONECLAW_SHROUD_MODEL || "gpt-4o-mini";
+const SYSTEM_PROMPT =
+    process.env.ONECLAW_SHROUD_SYSTEM_PROMPT ||
+    "You are a helpful AI agent running inside a 1Claw secure container. Your credentials are held by the host daemon and never exposed to you.";
+
+// Short in-memory conversation history (newest last), capped to keep prompts small.
+const HISTORY_MAX = 20;
+/** @type {{role: string, content: string}[]} */
+const conversation = [];
 
 let INDEX_HTML = "<h1>1Claw Agent Running</h1>";
 try {
@@ -94,7 +117,6 @@ function readBody(req) {
 }
 
 async function daemonReachable() {
-    if (MODE !== "local") return false;
     try {
         const r = await daemonRequest("GET", "/health");
         return r.status === 200;
@@ -103,15 +125,78 @@ async function daemonReachable() {
     }
 }
 
-// A minimal, LLM-optional assistant. Demonstrates the daemon trust boundary
-// with slash commands; if an LLM provider is wired in later it replaces this.
+/**
+ * Send the conversation to Shroud via the host daemon's /proxy. The daemon
+ * injects the X-Shroud-Agent-Key header; Shroud inspects, applies policy, and
+ * (when 1Claw LLM token billing is enabled for the org) routes through the
+ * Stripe AI Gateway. Returns the assistant's text or an error string.
+ */
+async function shroudChat(userText) {
+    const messages = [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...conversation,
+        { role: "user", content: userText },
+    ];
+    const r = await daemonRequest("POST", "/proxy", {
+        secretName: SHROUD_SECRET,
+        url: `${SHROUD_URL}/v1/chat/completions`,
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Shroud-Provider": SHROUD_PROVIDER,
+        },
+        body: JSON.stringify({ model: SHROUD_MODEL, messages }),
+    });
+
+    if (r.status !== 200) {
+        const detail = r.body && (r.body.error || JSON.stringify(r.body));
+        return { ok: false, reply: `Daemon refused the LLM call (${r.status}): ${detail}` };
+    }
+
+    // The daemon returns the upstream response: { status, headers, body }.
+    const upstreamStatus = r.body.status;
+    let upstream;
+    try {
+        upstream = typeof r.body.body === "string" ? JSON.parse(r.body.body) : r.body.body;
+    } catch {
+        upstream = { raw: r.body.body };
+    }
+
+    if (upstreamStatus !== 200) {
+        const msg =
+            (upstream && upstream.error && (upstream.error.message || upstream.error)) ||
+            (upstream && upstream.raw) ||
+            JSON.stringify(upstream);
+        return { ok: false, reply: `Shroud/upstream returned ${upstreamStatus}: ${msg}` };
+    }
+
+    const content =
+        upstream &&
+        upstream.choices &&
+        upstream.choices[0] &&
+        upstream.choices[0].message &&
+        upstream.choices[0].message.content;
+
+    if (!content) {
+        return { ok: false, reply: `No content in model response: ${JSON.stringify(upstream).slice(0, 400)}` };
+    }
+    return { ok: true, reply: String(content) };
+}
+
+// A minimal assistant. Slash commands demonstrate the daemon trust boundary;
+// free-text messages are answered by an LLM via Shroud when configured.
 async function handleChat(message) {
     const text = (message || "").trim();
 
     if (text === "/help" || text === "") {
+        const llmLine = LLM_VIA_SHROUD
+            ? `LLM is wired via Shroud (${SHROUD_PROVIDER}/${SHROUD_MODEL}) — just type a message to chat.\n`
+            : "No LLM is wired — only the commands below work in this container.\n";
         return {
             reply:
-                "1Claw agent ready. Commands:\n" +
+                "1Claw agent ready.\n" +
+                llmLine +
+                "Commands:\n" +
                 "  /secrets        — list secret names available via the daemon\n" +
                 "  /info           — show this agent's runtime info\n" +
                 "  /proxy <name> <url> — make a request with the secret injected by the daemon\n" +
@@ -121,8 +206,11 @@ async function handleChat(message) {
     }
 
     if (text === "/info") {
+        const llm = LLM_VIA_SHROUD
+            ? ` · llm=shroud:${SHROUD_PROVIDER}/${SHROUD_MODEL}`
+            : " · llm=none";
         return {
-            reply: `Agent ${AGENT_ID || "(local)"} · mode=${MODE} · modules=${MODULES.join(", ") || "none"}`,
+            reply: `Agent ${AGENT_ID || "(local)"} · mode=${MODE} · modules=${MODULES.join(", ") || "none"}${llm}`,
             tool: "info",
         };
     }
@@ -170,11 +258,27 @@ async function handleChat(message) {
         }
     }
 
+    // Free-text → LLM via Shroud (if wired). The container never sees the key.
+    if (LLM_VIA_SHROUD && SHROUD_SECRET) {
+        try {
+            const out = await shroudChat(text);
+            if (out.ok) {
+                conversation.push({ role: "user", content: text });
+                conversation.push({ role: "assistant", content: out.reply });
+                while (conversation.length > HISTORY_MAX) conversation.shift();
+                return { reply: out.reply, tool: "shroud_llm" };
+            }
+            return { reply: out.reply, tool: "shroud_llm" };
+        } catch (err) {
+            return { reply: `Could not reach the daemon for LLM call: ${err.message}`, tool: "shroud_llm" };
+        }
+    }
+
     return {
         reply:
             "No LLM provider is configured in this container yet. " +
             "Try /help, /secrets, /info, or /proxy. " +
-            "Wire a model via a module to enable conversational replies.",
+            "Run with a cloud agent (Shroud) or wire a model via a module to enable conversational replies.",
         tool: null,
     };
 }
@@ -192,6 +296,9 @@ const server = http.createServer(async (req, res) => {
             agentId: AGENT_ID || null,
             modules: MODULES,
             mode: MODE,
+            llm: LLM_VIA_SHROUD
+                ? { via: "shroud", provider: SHROUD_PROVIDER, model: SHROUD_MODEL }
+                : null,
             daemonReachable: await daemonReachable(),
         });
     }

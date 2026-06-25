@@ -1,4 +1,4 @@
-# @1claw/cli (v0.35.0)
+# @1claw/cli (v0.36.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -586,14 +586,23 @@ AI Client (Claude, Cursor, etc.)
 `1claw init --docker` provisions a secure agent runtime inside a Docker container in one command. The container ships with the 1Claw MCP server and a lightweight chat UI. Crucially, the container **never receives the agent API key** — the host daemon injects credentials over a read-only Unix-socket mount, preserving the same trust boundary as local daemon mode.
 
 ```bash
-1claw init --docker                          # Basic secure agent
+1claw init --docker                          # Basic secure agent (chat LLM via Shroud)
 1claw init --docker --module=ampersend       # With x402 payments
 1claw init --docker --module=ampersend,onchain --port 8080
-1claw init --docker --local                  # Fully offline — no cloud account
+1claw init --docker --llm-provider anthropic --llm-model claude-3-5-haiku-latest
+1claw init --docker --local                  # Fully offline — no cloud account, no LLM
 1claw init --docker --list-modules           # List available modules
 ```
 
 When the cloud is reachable, `init` provisions an agent + vault + read policy and stores the agent key in your local vault (the daemon injects it toward `*.1claw.xyz`). With `--local`, nothing touches the cloud. The base image is built from bundled assets if it isn't already present, so the flow works offline.
+
+### Chat with an LLM through Shroud
+
+In cloud mode (not `--local`), the embedded chat UI is wired to an LLM **through Shroud** — type a message and it routes via the host daemon, which injects the `X-Shroud-Agent-Key` header (the container never sees the key). Shroud inspects the prompt (redaction, PII, injection detection) and forwards to the provider.
+
+- Pick the model with `--llm-provider` (default `openai`) and `--llm-model` (default per provider, e.g. `gpt-4o-mini`).
+- **1Claw LLM Token Billing (no provider key needed):** enable it for your org and Shroud routes through the Stripe AI Gateway and bills model usage to 1Claw — you don't configure any provider API key. Enable via **Dashboard → Billing → LLM Token Billing** or `POST /v1/billing/llm-token-billing/subscribe`. Without it, Shroud needs a provider key configured for the org.
+- `--local` mode has **no LLM** (no cloud agent → no Shroud credential); only the `/help`, `/secrets`, `/info`, and `/proxy` slash commands work.
 
 ### Modules
 

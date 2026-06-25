@@ -1,5 +1,10 @@
 FROM node:20-alpine AS base
 
+# Bumped by the CLI when bundled assets (chat UI, entrypoint) change, so an
+# existing `1claw/agent:stable` is rebuilt instead of silently reused.
+ARG ONECLAW_BASE_VERSION=dev
+LABEL org.1claw.base-version=$ONECLAW_BASE_VERSION
+
 RUN apk add --no-cache curl tini
 
 WORKDIR /app
@@ -20,8 +25,9 @@ RUN chmod +x /app/entrypoint.sh /app/healthcheck.sh
 # Module extension point: modules drop assets under /app/modules
 RUN mkdir -p /app/modules /run/1claw
 
+# NOTE: mode (local vs cloud) and LLM wiring are passed at `docker run` time via
+# -e flags by `1claw init`; nothing about the vault is baked into the image.
 ENV NODE_ENV=production
-ENV ONECLAW_LOCAL_VAULT=true
 ENV ONECLAW_DAEMON_SOCKET=/run/1claw/daemon.sock
 ENV CHAT_UI_PORT=3000
 

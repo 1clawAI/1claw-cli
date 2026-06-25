@@ -1,6 +1,6 @@
 import { request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +9,42 @@ const CONFIG_DIR =
 
 export function daemonSocketPath(): string {
     return process.env.ONECLAW_DAEMON_SOCKET || join(CONFIG_DIR, "daemon.sock");
+}
+
+/**
+ * Stop a running daemon (via its PID file) and wait for the socket to clear.
+ * Best-effort — used to reload the daemon after writing new secrets/policies,
+ * since the daemon loads the vault into memory once at startup.
+ */
+export async function stopDaemon(
+    socketPath = daemonSocketPath(),
+    timeoutMs = 5000,
+): Promise<void> {
+    const pidFile = join(CONFIG_DIR, "daemon.pid");
+    if (existsSync(pidFile)) {
+        try {
+            const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+            if (pid) {
+                try {
+                    process.kill(pid, "SIGTERM");
+                } catch {
+                    /* already gone */
+                }
+            }
+        } catch {
+            /* unreadable */
+        }
+    }
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (!(await daemonHealthy(socketPath))) break;
+        await sleep(150);
+    }
+    try {
+        if (existsSync(socketPath)) unlinkSync(socketPath);
+    } catch {
+        /* ok */
+    }
 }
 
 /** Ping the daemon's /health over its Unix socket. */
