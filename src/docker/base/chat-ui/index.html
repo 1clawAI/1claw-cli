@@ -69,7 +69,10 @@
             const r = await fetch("/api/info");
             const info = await r.json();
             const parts = [];
-            parts.push("mode=" + info.mode);
+            parts.push("runtime=" + (info.runtime || "docker"));
+            // "vault" is where this agent's identity + secrets live: a 1Claw
+            // cloud account (cloud) or an offline local CLI vault (local).
+            parts.push("vault=" + info.mode);
             if (info.agentId) parts.push("agent=" + info.agentId.slice(0, 8) + "…");
             if (info.modules && info.modules.length) parts.push("modules=" + info.modules.join(","));
             parts.push(info.daemonReachable ? "daemon ✓" : "daemon —");

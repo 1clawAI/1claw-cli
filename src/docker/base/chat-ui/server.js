@@ -217,8 +217,10 @@ async function handleChat(message) {
         const llm = LLM_VIA_SHROUD
             ? ` · llm=shroud:${SHROUD_PROVIDER}/${SHROUD_MODEL}`
             : " · llm=none";
+        // runtime is always docker here; vault=cloud|local is where the agent's
+        // identity + secrets live (1Claw cloud account vs offline local vault).
         return {
-            reply: `Agent ${AGENT_ID || "(local)"} · mode=${MODE} · modules=${MODULES.join(", ") || "none"}${llm}`,
+            reply: `Agent ${AGENT_ID || "(local)"} · runtime=docker · vault=${MODE} · modules=${MODULES.join(", ") || "none"}${llm}`,
             tool: "info",
         };
     }
@@ -296,13 +298,15 @@ const server = http.createServer(async (req, res) => {
     const method = req.method || "GET";
 
     if (url === "/health") {
-        return json(res, 200, { status: "ok", agent: AGENT_ID || null, mode: MODE });
+        return json(res, 200, { status: "ok", agent: AGENT_ID || null, runtime: "docker", mode: MODE });
     }
 
     if (url === "/api/info" && method === "GET") {
         return json(res, 200, {
             agentId: AGENT_ID || null,
             modules: MODULES,
+            // Always a Docker container; `mode` (cloud|local) is the vault/identity backend.
+            runtime: "docker",
             mode: MODE,
             llm: LLM_VIA_SHROUD
                 ? {

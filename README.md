@@ -1,4 +1,4 @@
-# @1claw/cli (v0.36.0)
+# @1claw/cli (v0.36.2)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -645,6 +645,8 @@ Modules resolve dependencies, detect conflicts, and are topologically sorted. Wh
 1claw containers list                  # List managed agent containers
 1claw containers info <name>           # Show details
 1claw containers logs <name>           # Tail logs
+1claw containers start <name>          # Start a stopped container (recreates if removed)
+1claw containers restart <name>        # Restart a container (recreates if removed)
 1claw containers stop <name>           # Stop a container
 1claw containers rm <name> [--force]   # Remove container + local state
 ```

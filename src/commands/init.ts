@@ -668,7 +668,7 @@ async function initAction(opts: InitOptions): Promise<void> {
 
     // ── Step 8: Run container ────────────────────────────────────────────
     const requestedPort = parseInt(opts.port, 10) || 3000;
-    const port = await findAvailablePort(requestedPort);
+    let port = await findAvailablePort(requestedPort);
     if (port !== requestedPort) {
         printWarning(`Port ${requestedPort} busy — using ${port}.`);
     }
@@ -705,23 +705,51 @@ async function initAction(opts: InitOptions): Promise<void> {
     }
 
     const runSpinner = ora(`Starting container ${containerName}...`).start();
-    let containerId: string;
-    try {
-        containerId = await dockerRun({
-            image: imageToRun,
-            name: containerName,
-            ports: { [String(port)]: "3000" },
-            volumes: { [socketPath]: "/run/1claw/daemon.sock:ro" },
-            env,
-            detach: true,
-            restart: "unless-stopped",
-            labels: { [MANAGED_LABEL]: "true", "1claw.name": containerName },
-        });
-        runSpinner.succeed(`Container started (${containerId.slice(0, 12)})`);
-    } catch (err) {
-        runSpinner.fail("Failed to start container.");
-        throw err;
+    const userPinnedPort = opts.port !== undefined && opts.port !== "3000";
+    const MAX_PORT_RETRIES = 5;
+    let containerId: string | undefined;
+    for (let attempt = 0; ; attempt++) {
+        try {
+            containerId = await dockerRun({
+                image: imageToRun,
+                name: containerName,
+                ports: { [String(port)]: "3000" },
+                volumes: { [socketPath]: "/run/1claw/daemon.sock:ro" },
+                env,
+                detach: true,
+                restart: "unless-stopped",
+                labels: { [MANAGED_LABEL]: "true", "1claw.name": containerName },
+            });
+            runSpinner.succeed(`Container started (${containerId.slice(0, 12)})`);
+            break;
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const portConflict =
+                /port is already allocated|address already in use|Bind for [^ ]+ failed/i.test(
+                    msg,
+                );
+            // The bind pre-check can miss ports held only inside the Docker VM,
+            // and a race can let another process grab the port first. Auto-retry
+            // on the next free port unless the user explicitly pinned --port.
+            if (portConflict && !userPinnedPort && attempt < MAX_PORT_RETRIES) {
+                const nextPort = await findAvailablePort(port + 1);
+                runSpinner.text = `Port ${port} already allocated — retrying on ${nextPort}...`;
+                port = nextPort;
+                continue;
+            }
+            runSpinner.fail("Failed to start container.");
+            if (portConflict) {
+                printError(`Port ${port} is already in use by another process or container.`);
+                printInfo("Fix it with one of:");
+                printInfo(`  • Pick a free port:   1claw init --docker --port <port>`);
+                printInfo(`  • See what's running: 1claw containers list`);
+                printInfo(`  • Stop a 1claw agent: 1claw containers stop <name>`);
+                printInfo(`  • Find the holder:    docker ps --filter publish=${port}`);
+            }
+            throw err;
+        }
     }
+    if (!containerId) throw new Error("Failed to start container.");
 
     // ── Step 9: Wait healthy + summary ───────────────────────────────────
     const healthSpinner = ora("Waiting for the agent to become healthy...").start();
@@ -746,6 +774,14 @@ async function initAction(opts: InitOptions): Promise<void> {
         localVaultPath,
         customImage: null,
         mode: containerMode,
+        runSpec: {
+            image: imageToRun,
+            containerPort: "3000",
+            env,
+            volumes: { [socketPath]: "/run/1claw/daemon.sock:ro" },
+            restart: "unless-stopped",
+            labels: { [MANAGED_LABEL]: "true", "1claw.name": containerName },
+        },
     };
     saveContainerState(state);
 

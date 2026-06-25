@@ -33,6 +33,21 @@ export interface ContainerState {
     publishedAt?: string;
     /** "local" (daemon socket) or "cloud" (agent API key direct). */
     mode: "local" | "cloud";
+    /**
+     * Persisted `docker run` spec so `1claw containers start` can recreate the
+     * container if it was removed (only env var names/secret paths are stored —
+     * never secret values; the state file is chmod 600).
+     */
+    runSpec?: {
+        image: string;
+        /** Container-side port the chat UI listens on (host port is `port`). */
+        containerPort: string;
+        env: Record<string, string>;
+        /** Host path → container mount spec. */
+        volumes: Record<string, string>;
+        restart?: string;
+        labels?: Record<string, string>;
+    };
     /** Deployment info, populated by `1claw deploy`. */
     deployment?: {
         provider: string;
@@ -118,7 +133,16 @@ export function listContainerStates(): ContainerState[] {
     return states.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** Check whether a TCP port is free to bind on localhost. */
+/**
+ * Check whether a TCP port is free to publish a container on.
+ *
+ * Binds `0.0.0.0` (all interfaces) to match how Docker publishes ports
+ * (`-p host:container` binds `0.0.0.0` by default). Binding `127.0.0.1`
+ * here is NOT sufficient: on macOS a loopback-only listen can succeed even
+ * while Docker already holds `0.0.0.0:<port>`, which let `findAvailablePort`
+ * hand back a port that `docker run` then rejected with
+ * "Bind for 0.0.0.0:<port> failed: port is already allocated".
+ */
 export function isPortAvailable(port: number): Promise<boolean> {
     return new Promise((resolve) => {
         const server = createServer();
@@ -126,7 +150,7 @@ export function isPortAvailable(port: number): Promise<boolean> {
         server.once("listening", () => {
             server.close(() => resolve(true));
         });
-        server.listen(port, "127.0.0.1");
+        server.listen(port, "0.0.0.0");
     });
 }
 

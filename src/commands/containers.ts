@@ -9,8 +9,12 @@ import {
     printKeyValue,
     formatDate,
 } from "../output.js";
+import { existsSync } from "node:fs";
 import {
     dockerStop,
+    dockerStart,
+    dockerRestart,
+    dockerRun,
     dockerRm,
     dockerContainerStatus,
     dockerLogs,
@@ -18,8 +22,57 @@ import {
 import {
     listContainerStates,
     loadContainerState,
+    saveContainerState,
     deleteContainerState,
+    isPortAvailable,
+    findAvailablePort,
+    type ContainerState,
 } from "../lib/container-config.js";
+
+/**
+ * Recreate a container that no longer exists in Docker (status "absent") from
+ * its saved run spec. Re-checks the host port and updates persisted state.
+ */
+async function recreateFromSpec(state: ContainerState): Promise<void> {
+    if (!state.runSpec) {
+        printError(
+            `Cannot recreate "${state.containerName}" — no saved run spec ` +
+                `(it was created by an older CLI).`,
+        );
+        printInfo("Re-create it with:  1claw init --docker");
+        process.exit(1);
+    }
+    const socketHost = Object.keys(state.runSpec.volumes).find((h) =>
+        h.endsWith(".sock"),
+    );
+    if (socketHost && !existsSync(socketHost)) {
+        printWarning(
+            `Daemon socket not found at ${socketHost}. The container needs it for ` +
+                `credentials — start it first:  1claw daemon start`,
+        );
+    }
+    let port = state.port;
+    if (!(await isPortAvailable(port))) {
+        const next = await findAvailablePort(port + 1);
+        printWarning(`Port ${port} busy — using ${next}.`);
+        port = next;
+    }
+    const id = await dockerRun({
+        image: state.runSpec.image,
+        name: state.containerName,
+        ports: { [String(port)]: state.runSpec.containerPort },
+        volumes: state.runSpec.volumes,
+        env: state.runSpec.env,
+        detach: true,
+        restart: state.runSpec.restart,
+        labels: state.runSpec.labels,
+    });
+    state.containerId = id;
+    state.port = port;
+    saveContainerState(state);
+    printSuccess(`Recreated and started ${state.containerName} (${id.slice(0, 12)}).`);
+    printInfo(`Chat UI: http://localhost:${port}`);
+}
 
 export const containersCommand = new Command("containers").description(
     "Manage agent containers created by `1claw init`",
@@ -97,6 +150,60 @@ containersCommand
         try {
             await dockerStop(state.containerName);
             printSuccess(`Stopped ${name}.`);
+        } catch (err) {
+            printError(err instanceof Error ? err.message : String(err));
+            process.exit(1);
+        }
+    });
+
+containersCommand
+    .command("start <name>")
+    .description("Start a stopped container (recreates it if it was removed)")
+    .action(async (name: string) => {
+        const state = loadContainerState(name);
+        if (!state) {
+            printError(`No container state for "${name}".`);
+            process.exit(1);
+        }
+        const status = await dockerContainerStatus(state.containerName);
+        try {
+            if (status.running) {
+                printInfo(`${name} is already running.`);
+                printInfo(`Chat UI: http://localhost:${state.port}`);
+                return;
+            }
+            if (status.exists) {
+                await dockerStart(state.containerName);
+                printSuccess(`Started ${name}.`);
+                printInfo(`Chat UI: http://localhost:${state.port}`);
+                return;
+            }
+            // Absent — recreate from the saved run spec.
+            await recreateFromSpec(state);
+        } catch (err) {
+            printError(err instanceof Error ? err.message : String(err));
+            process.exit(1);
+        }
+    });
+
+containersCommand
+    .command("restart <name>")
+    .description("Restart a container (recreates it if it was removed)")
+    .action(async (name: string) => {
+        const state = loadContainerState(name);
+        if (!state) {
+            printError(`No container state for "${name}".`);
+            process.exit(1);
+        }
+        const status = await dockerContainerStatus(state.containerName);
+        try {
+            if (status.exists) {
+                await dockerRestart(state.containerName);
+                printSuccess(`Restarted ${name}.`);
+                printInfo(`Chat UI: http://localhost:${state.port}`);
+                return;
+            }
+            await recreateFromSpec(state);
         } catch (err) {
             printError(err instanceof Error ? err.message : String(err));
             process.exit(1);

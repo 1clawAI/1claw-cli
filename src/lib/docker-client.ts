@@ -215,6 +215,16 @@ export async function dockerStop(nameOrId: string): Promise<void> {
     await run(["stop", nameOrId]);
 }
 
+/** Start an existing (stopped) container. */
+export async function dockerStart(nameOrId: string): Promise<void> {
+    await run(["start", nameOrId]);
+}
+
+/** Restart an existing container. */
+export async function dockerRestart(nameOrId: string): Promise<void> {
+    await run(["restart", nameOrId]);
+}
+
 export async function dockerRm(nameOrId: string, force = false): Promise<void> {
     const args = ["rm"];
     if (force) args.push("-f");
