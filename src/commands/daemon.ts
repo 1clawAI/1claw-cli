@@ -119,6 +119,9 @@ daemonCommand
                 vault = loadVault(passphrase);
             } catch {
                 printError("Wrong passphrase or corrupted vault file.");
+                printInfo(
+                    "Forgot your passphrase? Reset the local vault with `1claw local destroy --force`, then `1claw local init`.",
+                );
                 process.exit(1);
             }
 

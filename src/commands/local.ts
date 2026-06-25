@@ -1,5 +1,7 @@
 import { Command } from "commander";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import ora from "ora";
@@ -554,32 +556,79 @@ localCommand
 
 // ── destroy ──────────────────────────────────────────────
 
+/**
+ * Best-effort: stop a running local daemon and clean up its socket/PID so a
+ * stale process isn't left holding the vault we're about to delete. Does NOT
+ * require the passphrase — this is the recovery path for a forgotten one.
+ */
+function stopDaemonForReset(): void {
+    const configDir =
+        process.env.ONECLAW_CONFIG_DIR || join(homedir(), ".config", "1claw");
+    const pidFile = join(configDir, "daemon.pid");
+    const socketPath =
+        process.env.ONECLAW_DAEMON_SOCKET || join(configDir, "daemon.sock");
+
+    if (existsSync(pidFile)) {
+        try {
+            const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+            if (pid) {
+                try {
+                    process.kill(pid, "SIGTERM");
+                    printInfo(`Stopped running daemon (PID ${pid}).`);
+                } catch {
+                    /* already gone */
+                }
+            }
+        } catch {
+            /* unreadable pid file */
+        }
+        try { unlinkSync(pidFile); } catch { /* ok */ }
+    }
+    try { if (existsSync(socketPath)) unlinkSync(socketPath); } catch { /* ok */ }
+}
+
 localCommand
     .command("destroy")
-    .description("Permanently delete the local vault")
-    .action(async () => {
+    .alias("reset")
+    .description(
+        "Permanently delete the local vault (recovery for a forgotten passphrase — no passphrase required)",
+    )
+    .option("-f, --force", "Skip the confirmation prompt")
+    .action(async (opts) => {
         try {
             if (!vaultExists()) {
                 printInfo("No local vault to destroy.");
+                // Still clean up any stale daemon socket/PID.
+                stopDaemonForReset();
                 return;
             }
 
-            const { confirm } = await inquirer.prompt([
-                {
-                    type: "confirm",
-                    name: "confirm",
-                    message: chalk.red("This will permanently delete your local vault and all secrets. Continue?"),
-                    default: false,
-                },
-            ]);
+            if (!opts.force) {
+                const { confirm } = await inquirer.prompt([
+                    {
+                        type: "confirm",
+                        name: "confirm",
+                        message: chalk.red(
+                            "This will permanently delete your local vault and ALL secrets in it. This cannot be undone. Continue?",
+                        ),
+                        default: false,
+                    },
+                ]);
 
-            if (!confirm) {
-                printInfo("Cancelled.");
-                return;
+                if (!confirm) {
+                    printInfo("Cancelled.");
+                    return;
+                }
             }
+
+            // Stop any daemon holding the old vault before deleting it.
+            stopDaemonForReset();
 
             deleteVault();
             printSuccess("Local vault destroyed.");
+            printInfo(
+                "Create a fresh one with `1claw local init`, or just re-run `1claw init --docker --local`.",
+            );
         } catch (err) {
             if (err instanceof Error) printError(err.message);
             else printError(String(err));

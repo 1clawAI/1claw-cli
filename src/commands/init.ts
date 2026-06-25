@@ -278,6 +278,18 @@ async function ensureDaemonRunning(opts: {
             createVault(passphrase);
         } else {
             passphrase = await resolvePassphrase(false);
+            // Verify the passphrase up front so we fail with a clear message
+            // instead of an opaque "daemon did not become ready in time".
+            try {
+                loadVault(passphrase);
+            } catch {
+                throw new Error(
+                    "Wrong passphrase for the existing local vault.\n" +
+                        "  • If you mistyped it, re-run and enter the correct passphrase.\n" +
+                        "  • If you've forgotten it, reset the vault with: 1claw local destroy --force\n" +
+                        "    (this permanently deletes the old local vault and its secrets), then re-run.",
+                );
+            }
         }
     }
 
@@ -312,7 +324,11 @@ async function ensureDaemonRunning(opts: {
         if (!ok) {
             spinner.fail("Daemon did not become ready in time.");
             throw new Error(
-                "Failed to start the daemon. Try `1claw daemon start` manually.",
+                "Failed to start the daemon.\n" +
+                    "  • Check status:  1claw daemon status\n" +
+                    "  • Start it manually (shows errors):  1claw daemon start\n" +
+                    "  • Stop a stuck daemon:  1claw daemon stop\n" +
+                    "  • Forgot the vault passphrase? Reset it:  1claw local destroy --force",
             );
         }
         spinner.succeed(`Daemon running on ${socketPath}`);

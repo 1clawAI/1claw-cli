@@ -530,10 +530,14 @@ Store secrets locally in an encrypted vault — no cloud required. Secrets are e
 1claw local sync -v <vault-id>     # Push local secrets to cloud vault
 1claw local sync --pull -v <id>    # Pull cloud secrets into local vault
 1claw local status                 # Show vault info (count, sync status)
-1claw local destroy                # Permanently delete local vault
+1claw local destroy                # Permanently delete local vault (prompts)
+1claw local destroy --force        # Delete without the confirm prompt
+1claw local reset                  # Alias for destroy
 ```
 
 Vault file: `~/.config/1claw/local-vault.enc` (0600 permissions, safe to back up).
+
+**Forgot your passphrase?** The vault is encrypted with a passphrase-derived key, so there is no recovery of the contents. To start over, run `1claw local destroy --force` (no passphrase required — it also stops any running daemon holding the old vault), then `1claw local init`.
 
 ## Local Daemon (Secret Proxy)
 
