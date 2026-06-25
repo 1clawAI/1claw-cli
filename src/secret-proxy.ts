@@ -14,6 +14,13 @@ export interface ProxyRequest {
     method?: string;
     headers?: Record<string, string>;
     body?: string;
+    /**
+     * Additional secrets to inject into the same request (each resolved and
+     * host-checked against its own policy, then merged). Enables e.g. injecting
+     * both an auth header and a provider API-key header without exposing either
+     * value to the caller.
+     */
+    injectSecrets?: string[];
 }
 
 export interface ProxyResponse {
@@ -39,30 +46,36 @@ export async function proxyRequest(
     vault: LocalVaultData,
     policy: PolicyFile,
 ): Promise<ProxyResult> {
-    const secret = vault.secrets[req.secretName];
-    if (!secret) {
-        return {
-            success: false,
-            error: `Secret "${req.secretName}" not found in local vault.`,
-        };
-    }
-
-    const hostCheck = isHostAllowed(policy, req.secretName, req.url);
-    if (!hostCheck.allowed) {
-        return { success: false, error: hostCheck.reason };
-    }
-
-    const injection = resolveInjection(policy, req.secretName, secret.value);
-
+    // Resolve every secret to inject: the primary plus any additional ones.
+    // Each is independently host-checked against its own policy and merged.
+    const names = [req.secretName, ...(req.injectSecrets ?? [])];
+    const seen = new Set<string>();
     const url = new URL(req.url);
-    for (const [k, v] of Object.entries(injection.queryParams)) {
-        url.searchParams.set(k, v);
-    }
+    const mergedHeaders: Record<string, string> = { ...(req.headers ?? {}) };
 
-    const mergedHeaders: Record<string, string> = {
-        ...(req.headers ?? {}),
-        ...injection.headers,
-    };
+    for (const name of names) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+
+        const secret = vault.secrets[name];
+        if (!secret) {
+            return {
+                success: false,
+                error: `Secret "${name}" not found in local vault.`,
+            };
+        }
+
+        const hostCheck = isHostAllowed(policy, name, req.url);
+        if (!hostCheck.allowed) {
+            return { success: false, error: hostCheck.reason };
+        }
+
+        const injection = resolveInjection(policy, name, secret.value);
+        for (const [k, v] of Object.entries(injection.queryParams)) {
+            url.searchParams.set(k, v);
+        }
+        Object.assign(mergedHeaders, injection.headers);
+    }
 
     const method = req.method ?? "GET";
 

@@ -32,6 +32,9 @@ const MODE = process.env.ONECLAW_MODE
 const LLM_VIA_SHROUD = process.env.ONECLAW_LLM_VIA_SHROUD === "true";
 const SHROUD_URL = (process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.xyz").replace(/\/+$/, "");
 const SHROUD_SECRET = process.env.ONECLAW_SHROUD_SECRET || "";
+// Optional BYOK provider key secret. When set, the daemon also injects it as
+// the X-Shroud-Api-Key header (the container never sees the value).
+const SHROUD_API_KEY_SECRET = process.env.ONECLAW_SHROUD_API_KEY_SECRET || "";
 const SHROUD_PROVIDER = process.env.ONECLAW_SHROUD_PROVIDER || "openai";
 const SHROUD_MODEL = process.env.ONECLAW_SHROUD_MODEL || "gpt-4o-mini";
 const SYSTEM_PROMPT =
@@ -137,7 +140,7 @@ async function shroudChat(userText) {
         ...conversation,
         { role: "user", content: userText },
     ];
-    const r = await daemonRequest("POST", "/proxy", {
+    const proxyBody = {
         secretName: SHROUD_SECRET,
         url: `${SHROUD_URL}/v1/chat/completions`,
         method: "POST",
@@ -146,7 +149,12 @@ async function shroudChat(userText) {
             "X-Shroud-Provider": SHROUD_PROVIDER,
         },
         body: JSON.stringify({ model: SHROUD_MODEL, messages }),
-    });
+    };
+    // BYOK: have the daemon also inject the provider key as X-Shroud-Api-Key.
+    if (SHROUD_API_KEY_SECRET) {
+        proxyBody.injectSecrets = [SHROUD_API_KEY_SECRET];
+    }
+    const r = await daemonRequest("POST", "/proxy", proxyBody);
 
     if (r.status !== 200) {
         const detail = r.body && (r.body.error || JSON.stringify(r.body));
@@ -297,7 +305,12 @@ const server = http.createServer(async (req, res) => {
             modules: MODULES,
             mode: MODE,
             llm: LLM_VIA_SHROUD
-                ? { via: "shroud", provider: SHROUD_PROVIDER, model: SHROUD_MODEL }
+                ? {
+                      via: "shroud",
+                      provider: SHROUD_PROVIDER,
+                      model: SHROUD_MODEL,
+                      keySource: SHROUD_API_KEY_SECRET ? "byok-local" : "cloud-or-billing",
+                  }
                 : null,
             daemonReachable: await daemonReachable(),
         });

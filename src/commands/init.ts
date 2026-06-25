@@ -19,6 +19,7 @@ import {
     loadVault,
     saveVault,
     addSecret,
+    getSecret,
 } from "../local-vault.js";
 import {
     loadPolicy,
@@ -71,6 +72,9 @@ interface InitOptions {
     detach?: boolean;
     llmProvider?: string;
     llmModel?: string;
+    llmApiKey?: string;
+    llmKeyStore?: string;
+    llmApiKeySecret?: string;
 }
 
 export const initCommand = new Command("init")
@@ -94,6 +98,19 @@ export const initCommand = new Command("init")
     .option(
         "--llm-model <model>",
         "LLM model for the chat UI via Shroud (e.g. gpt-4o-mini, claude-3-5-haiku-latest)",
+    )
+    .option(
+        "--llm-api-key <key>",
+        "Provider API key for the chat LLM (stored, never passed to the container)",
+    )
+    .option(
+        "--llm-key-store <where>",
+        "Where to store --llm-api-key: 'cloud' (1Claw vault, Shroud auto-fetches) or 'local' (CLI vault, daemon injects)",
+        "cloud",
+    )
+    .option(
+        "--llm-api-key-secret <name>",
+        "Use an existing LOCAL vault secret as the provider key (daemon injects it as X-Shroud-Api-Key)",
     )
     .action(async (opts: InitOptions) => {
         try {
@@ -237,7 +254,18 @@ async function provisionCloudResources(
                 permissions: ["read"],
             },
         });
-        policySpinner.succeed("Vault bound; read policy on secrets/* granted.");
+        // Allow the agent to read LLM provider keys it stores in 1Claw, so
+        // Shroud can auto-fetch `providers/{provider}/api-key` for chat.
+        await api(`/vaults/${vaultId}/policies`, {
+            method: "POST",
+            body: {
+                principal_type: "agent",
+                principal_id: agentId,
+                secret_path_pattern: "providers/*",
+                permissions: ["read"],
+            },
+        });
+        policySpinner.succeed("Vault bound; read policies on secrets/* and providers/* granted.");
     } catch (err) {
         policySpinner.fail("Failed to bind vault / create policy.");
         throw err;
@@ -279,8 +307,9 @@ async function resolvePassphrase(confirm: boolean): Promise<string> {
 interface StoreKeySpec {
     /** Vault path / secret name. */
     path: string;
-    /** Secret value to store. */
-    value: string;
+    /** Secret value to store. When omitted, the secret must already exist and
+     *  only its injection policy is (re)applied. */
+    value?: string;
     /** Secret type label. */
     type?: string;
     /** Daemon injection policy for this secret. */
@@ -342,7 +371,14 @@ async function ensureDaemonRunning(opts: {
         }
         const policy = loadPolicy();
         for (const spec of storeKeys) {
-            addSecret(vault, spec.path, spec.value, spec.type ?? "api_key");
+            if (spec.value !== undefined) {
+                addSecret(vault, spec.path, spec.value, spec.type ?? "api_key");
+            } else if (!getSecret(vault, spec.path)) {
+                throw new Error(
+                    `Provider key secret "${spec.path}" not found in the local vault.\n` +
+                        `  Add it first:  1claw local add ${spec.path}`,
+                );
+            }
             setSecretPolicy(policy, spec.path, spec.policy);
         }
         saveVault(vault, passphrase);
@@ -531,9 +567,62 @@ async function initAction(opts: InitOptions): Promise<void> {
         });
     }
 
+    // ── LLM provider key (BYOK) — three storage options ──────────────────
+    // 1) Cloud (1Claw vault): Shroud auto-fetches providers/{provider}/api-key.
+    // 2) Local (CLI vault): the daemon injects it as X-Shroud-Api-Key.
+    // 3) Existing local secret by name: same as (2) but reuse a stored secret.
+    const llmProvider = opts.llmProvider || "openai";
+    const keyStore = (opts.llmKeyStore || "cloud").toLowerCase();
+    const byokPolicy: SecretPolicy = {
+        allowed_hosts: ["shroud.1claw.xyz", "*.1claw.xyz"],
+        inject_as: "header",
+        header_name: "X-Shroud-Api-Key",
+    };
+    let shroudApiKeySecretPath: string | null = null;
+    let cloudKeyToStore: string | null = null;
+
+    if (opts.llmApiKeySecret) {
+        // Reference an existing LOCAL vault secret as the provider key. No value
+        // → ensureDaemonRunning only sets the policy and verifies it exists.
+        shroudApiKeySecretPath = opts.llmApiKeySecret;
+        storeKeys.push({ path: shroudApiKeySecretPath, policy: byokPolicy });
+    } else if (opts.llmApiKey) {
+        if (keyStore === "local" || opts.local) {
+            shroudApiKeySecretPath = `__docker/${sid}/llm-api-key`;
+            storeKeys.push({
+                path: shroudApiKeySecretPath,
+                value: opts.llmApiKey,
+                type: "api_key",
+                policy: byokPolicy,
+            });
+        } else {
+            // cloud (default): stored in the 1Claw vault after provisioning.
+            cloudKeyToStore = opts.llmApiKey;
+        }
+    }
+
     const socketPath = await ensureDaemonRunning({
         storeKeys: storeKeys.length ? storeKeys : undefined,
     });
+
+    // Store the provider key in the 1Claw cloud vault (Shroud auto-fetches it).
+    if (cloudKeyToStore && vaultId && !opts.local) {
+        const keySpinner = ora(
+            `Storing ${llmProvider} key in 1Claw vault...`,
+        ).start();
+        try {
+            await api(
+                `/vaults/${vaultId}/secrets/${encodeURIComponent(`providers/${llmProvider}/api-key`)}`,
+                { method: "PUT", body: { type: "api_key", value: cloudKeyToStore } },
+            );
+            keySpinner.succeed(
+                `Provider key stored at providers/${llmProvider}/api-key (1Claw vault).`,
+            );
+        } catch (err) {
+            keySpinner.fail("Failed to store provider key in the vault.");
+            throw err;
+        }
+    }
 
     // ── Step 6/7: Build or pull image ────────────────────────────────────
     const baseImage =
@@ -596,14 +685,23 @@ async function initAction(opts: InitOptions): Promise<void> {
     // Wire the chat UI to an LLM through Shroud (key stays in the host daemon).
     const llmWired = !!shroudSecretPath;
     if (llmWired) {
-        const provider = opts.llmProvider || "openai";
-        const model = opts.llmModel || defaultModelForProvider(provider);
+        const model = opts.llmModel || defaultModelForProvider(llmProvider);
         env.ONECLAW_LLM_VIA_SHROUD = "true";
         env.ONECLAW_SHROUD_URL =
             process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.xyz";
         env.ONECLAW_SHROUD_SECRET = shroudSecretPath!;
-        env.ONECLAW_SHROUD_PROVIDER = provider;
+        env.ONECLAW_SHROUD_PROVIDER = llmProvider;
         env.ONECLAW_SHROUD_MODEL = model;
+        // BYOK: the daemon also injects this secret as the X-Shroud-Api-Key
+        // header so the container never sees the provider key.
+        if (shroudApiKeySecretPath) {
+            env.ONECLAW_SHROUD_API_KEY_SECRET = shroudApiKeySecretPath;
+        }
+    } else if (shroudApiKeySecretPath || cloudKeyToStore) {
+        printWarning(
+            "An LLM provider key was supplied but there's no cloud agent to authenticate to Shroud " +
+                "(this is --local or no provisioning). The chat UI can't reach Shroud without an agent key.",
+        );
     }
 
     const runSpinner = ora(`Starting container ${containerName}...`).start();
@@ -669,20 +767,32 @@ async function initAction(opts: InitOptions): Promise<void> {
                   )
                 : chalk.dim("none — slash commands only"),
         ],
+        [
+            "LLM key source",
+            !llmWired
+                ? chalk.dim("n/a")
+                : shroudApiKeySecretPath
+                  ? chalk.green("local vault (daemon → X-Shroud-Api-Key)")
+                  : cloudKeyToStore
+                    ? chalk.green(`1Claw vault (providers/${llmProvider}/api-key)`)
+                    : chalk.cyan("1Claw vault or token billing (Shroud resolves)"),
+        ],
         ["Key injection", chalk.green("daemon (container never sees the key)")],
     ]);
     console.log();
 
-    if (llmWired) {
+    if (llmWired && !shroudApiKeySecretPath && !cloudKeyToStore) {
         printInfo(
-            "Chat replies route through Shroud. To bill model usage to 1Claw " +
-                "(no provider key needed), enable LLM Token Billing for your org:",
+            "No provider key was supplied. Shroud will use, in order: a key in your " +
+                "1Claw vault at providers/<provider>/api-key, or 1Claw LLM Token Billing.",
         );
         console.log(
             chalk.dim(
-                "  Dashboard → Billing → LLM Token Billing, or\n" +
-                    "  POST /v1/billing/llm-token-billing/subscribe\n" +
-                    "  (otherwise Shroud needs a provider key configured for the org).",
+                "  Store one in 1Claw:   1claw secret put providers/" +
+                    llmProvider +
+                    "/api-key -v <vault>\n" +
+                    "  Or store it locally:  re-run with --llm-api-key <key> --llm-key-store local\n" +
+                    "  Or bill to 1Claw:     enable LLM Token Billing (Dashboard → Billing).",
             ),
         );
         console.log();

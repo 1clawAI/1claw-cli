@@ -601,8 +601,29 @@ When the cloud is reachable, `init` provisions an agent + vault + read policy an
 In cloud mode (not `--local`), the embedded chat UI is wired to an LLM **through Shroud** — type a message and it routes via the host daemon, which injects the `X-Shroud-Agent-Key` header (the container never sees the key). Shroud inspects the prompt (redaction, PII, injection detection) and forwards to the provider.
 
 - Pick the model with `--llm-provider` (default `openai`) and `--llm-model` (default per provider, e.g. `gpt-4o-mini`).
-- **1Claw LLM Token Billing (no provider key needed):** enable it for your org and Shroud routes through the Stripe AI Gateway and bills model usage to 1Claw — you don't configure any provider API key. Enable via **Dashboard → Billing → LLM Token Billing** or `POST /v1/billing/llm-token-billing/subscribe`. Without it, Shroud needs a provider key configured for the org.
 - `--local` mode has **no LLM** (no cloud agent → no Shroud credential); only the `/help`, `/secrets`, `/info`, and `/proxy` slash commands work.
+
+**Where does the provider key come from?** Shroud resolves it in this order — pick whichever you prefer:
+
+| Option | How | Where the key lives |
+| --- | --- | --- |
+| **1Claw Token Billing** | Enable LLM Token Billing for the org (Dashboard → Billing, or `POST /v1/billing/llm-token-billing/subscribe`). Shroud routes through the Stripe AI Gateway. | No provider key — billed to 1Claw |
+| **1Claw vault** | `--llm-api-key <key>` (default `--llm-key-store cloud`) stores it at `providers/<provider>/api-key`; or store it yourself with `1claw secret put`. Shroud auto-fetches it with the agent JWT. | Your 1Claw cloud vault |
+| **Local CLI vault (BYOK)** | `--llm-api-key <key> --llm-key-store local`, or `--llm-api-key-secret <name>` to reuse an existing local secret. The daemon injects it as the `X-Shroud-Api-Key` header. | Your local CLI vault (`~/.config/1claw`) |
+
+```bash
+# Bill model usage to 1Claw (no provider key):
+1claw init --docker                                   # then enable LLM Token Billing
+
+# Provider key stored in your 1Claw vault (Shroud auto-fetches):
+1claw init --docker --llm-api-key sk-...               # --llm-key-store cloud (default)
+
+# Provider key stored in the local CLI vault (daemon injects, container never sees it):
+1claw init --docker --llm-api-key sk-... --llm-key-store local
+1claw init --docker --llm-api-key-secret openai-key    # reuse an existing local secret
+```
+
+In every case the container **never receives the provider key** — it's resolved server-side by Shroud (cloud vault / token billing) or injected by the host daemon (local BYOK).
 
 ### Modules
 
