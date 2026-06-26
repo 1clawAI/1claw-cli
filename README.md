@@ -625,19 +625,102 @@ In cloud mode (not `--local`), the embedded chat UI is wired to an LLM **through
 
 In every case the container **never receives the provider key** — it's resolved server-side by Shroud (cloud vault / token billing) or injected by the host daemon (local BYOK).
 
-### Modules
+### How the container is built (architecture)
 
-Composable container extensions defined by `module.yaml` manifests bundled with the CLI:
+Every runtime is layered on the bundled base image `1claw/agent:stable`:
 
-| Module | Description |
-| --- | --- |
-| `ampersend` | x402 payment control layer (session keys, Base USDC) |
-| `onchain` | Multi-chain signing + Intents API tools |
-| `langchain` | LangChain / LangGraph agent runtime (Shroud-routed) |
-| `elizaos` | ElizaOS character runtime with vault-backed secrets |
-| `scaffold-agent` | Scaffold-ETH 2 dApp agent (depends on `onchain`) |
+```
+1claw/agent:stable           ← base image (bundled with the CLI)
+ ├── node + the 1Claw MCP server (1claw-mcp)
+ ├── chat UI (zero-dependency Node server on :3000)
+ ├── entrypoint.sh            ← decides how credentials are brokered
+ └── healthcheck.sh           ← drives the container's health status
+        │
+        ▼  (only when --module is used)
+1claw-custom-<hash>:latest    ← FROM 1claw/agent:stable + one RUN/COPY/ENV block per module
+```
 
-Modules resolve dependencies, detect conflicts, and are topologically sorted. When modules are present, the CLI builds a custom image (`FROM 1claw/agent:stable` + module layers).
+- **Base image is built from bundled assets** (it works offline) and stamped with an `org.1claw.base-version` label. When the CLI ships new base assets, `init` notices the stale label and rebuilds `1claw/agent:stable` automatically.
+- **Entrypoint is credential-aware, not mode-aware.** It keys off the mounted daemon socket:
+  - **Daemon socket present** (the default for `init --docker`, cloud *and* `--local`) → the host daemon brokers every credential over the read-only socket mount; the key never enters the container.
+  - **No socket** (a standalone deploy, e.g. Cloud Run via `1claw deploy`) → it requires `ONECLAW_AGENT_API_KEY` directly (from a Secret Manager mount).
+- **Module startup hooks.** After the credential check, the entrypoint runs every executable `/app/modules/*/startup.sh`, then launches the chat UI (the container's health anchor) in the foreground. Modules drop their `startup.sh` via a `copy` entry (see below).
+- **Run-time wiring.** `init` sets `ONECLAW_MODE`, `ONECLAW_DAEMON_SOCKET`, `ONECLAW_CONTAINER_MODULES`, and (when an LLM is wired) the `ONECLAW_SHROUD_*` vars, and bind-mounts `~/.config/1claw/daemon.sock → /run/1claw/daemon.sock:ro`.
+
+### Modules & the template system
+
+A **module** is a composable container extension declared by a `module.yaml` manifest. Each bundled module lives in its own directory inside the CLI (`src/modules/<name>/`) alongside any assets it copies in. When you pass `--module=<name>`, the CLI reads the manifest(s), resolves them into an ordered set, and **generates a Dockerfile** of the form `FROM 1claw/agent:stable` followed by one layer block per module.
+
+**Manifest schema (`module.yaml`):**
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `name` | string (required) | Module name; the directory name is canonical. |
+| `version` | string (required) | Used in the image content hash and layer comment. |
+| `description` | string (required) | Shown by `--list-modules`. |
+| `author`, `homepage` | string | Metadata. |
+| `docker.apk` | string[] | Alpine packages → `RUN apk add --no-cache ...`. |
+| `docker.packages` | string[] | npm packages → `RUN npm install -g ...`. |
+| `docker.copy` | `{src,dest}[]` | Files copied from the module dir → `COPY modules/<name>/<src> <dest>` (`.sh` files are auto-`chmod +x`). |
+| `docker.env` | map | `ENV KEY=value` lines (values with spaces are quoted). |
+| `docker.ports` | string[] | Documented additional ports. |
+| `required_secrets` | `{path,description,optional}[]` | Secrets the module expects (surfaced to the user). |
+| `tools` | string[] | MCP tools the module advertises. |
+| `depends` | string[] | Other modules pulled in automatically. |
+| `conflicts` | string[] | Modules that cannot be combined. |
+
+**Resolution rules** (`resolveModules`): requested names are loaded, then `depends` are pulled in recursively; the full set is checked for mutual `conflicts` (hard error); finally the set is **topologically sorted** (dependencies precede dependents) with **cycle detection**. The ordered `name@version` list is hashed (FNV-1a) to name the custom image `1claw-custom-<hash>:latest`, so identical module sets reuse the same reproducible image.
+
+**Bundled modules:**
+
+| Module | Description | Depends |
+| --- | --- | --- |
+| `ampersend` | x402 payment control layer (session keys, Base USDC) | — |
+| `onchain` | Multi-chain signing + Intents API tools | — |
+| `langchain` | LangChain / LangGraph agent runtime (Shroud-routed) | — |
+| `elizaos` | ElizaOS character runtime with vault-backed secrets | — |
+| `scaffold-agent` | Scaffold-ETH 2 dApp agent | `onchain` |
+
+```bash
+1claw init --docker --list-modules                 # Print the catalog
+1claw init --docker --module=ampersend,onchain     # Compose two (deps + order auto-resolved)
+```
+
+### Authoring a module (extending)
+
+Modules are bundled with the CLI, so adding one means dropping a directory into `src/modules/` (then rebuilding/publishing the CLI):
+
+1. **Create the directory and manifest** — `src/modules/my-tool/module.yaml`:
+
+```yaml
+name: my-tool
+version: 1.0.0
+description: My custom agent capability.
+author: you
+docker:
+  apk: [ripgrep]                 # optional Alpine packages
+  packages: ["my-agent-sdk@latest"]  # optional global npm installs
+  copy:
+    - src: startup.sh            # files live next to module.yaml
+      dest: /app/modules/my-tool/startup.sh
+  env:
+    MY_TOOL_ENABLED: "true"
+required_secrets:
+  - path: integrations/my-tool/api-key
+    description: API key for my-tool (injected by the daemon)
+    optional: true
+depends: []                      # e.g. [onchain] to require another module
+conflicts: []                    # e.g. [other-tool] to forbid combining
+```
+
+2. **Add any assets** referenced by `copy` (e.g. a `startup.sh`) in the same directory. A `startup.sh` is executed once at container boot — use it for one-time setup; keep secrets out of it (resolve them through the daemon at runtime).
+3. **Build/run** — `1claw init --docker --module=my-tool`. The CLI stages `modules/my-tool/*` into the build context and emits the `RUN`/`COPY`/`ENV` layers.
+
+**Don't want to modify the CLI?** Use **`1claw eject`** to export the generated `Dockerfile`, the module asset tree, and a `docker-compose.yaml` (daemon socket pre-wired), then edit the Dockerfile freely and build/publish it yourself with `1claw publish --context ./out --tag <user>/<image>:tag`. This is the supported path for fully custom images.
+
+### Container state & lifecycle
+
+Each container's state lives at `~/.config/1claw/containers/{name}.json` (mode `0600`) and is the source of truth for `info`, `start`, `restart`, `publish`, `eject`, and `deploy`. It records the agent/vault IDs, modules, port, image, and a persisted **run spec** (image, env var *names*, mounts, labels — never secret values) so `start`/`restart` can recreate a container that was removed.
 
 ### Managing containers
 
