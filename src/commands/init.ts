@@ -11,6 +11,7 @@ import {
     printWarning,
     printInfo,
     printKeyValue,
+    printSummaryBox,
     printTable,
 } from "../output.js";
 import {
@@ -33,6 +34,7 @@ import {
     dockerRun,
     dockerContainerStatus,
     dockerLogs,
+    dockerLogsFiltered,
 } from "../lib/docker-client.js";
 import {
     ensureBaseImage,
@@ -498,6 +500,22 @@ async function initAction(opts: InitOptions): Promise<void> {
         printInfo("Local mode — no cloud account or provisioning.");
     } else if (agentApiKey) {
         printInfo("Using provided --agent-key (skipping provisioning).");
+        // Resolve agent ID + vault via token exchange (key-only auth).
+        try {
+            const exchangeRes = await api<{
+                token: string;
+                agent_id?: string;
+                vault_ids?: string[];
+            }>("/auth/agent-token", {
+                method: "POST",
+                body: { api_key: agentApiKey },
+                token: "",
+            });
+            if (exchangeRes.agent_id) agentId = exchangeRes.agent_id;
+            if (exchangeRes.vault_ids?.length) vaultId = exchangeRes.vault_ids[0];
+        } catch {
+            // Non-fatal — continue with local-only mode if exchange fails.
+        }
     } else {
         if (!getToken()) {
             printInfo("You need to log in to provision cloud resources.");
@@ -678,6 +696,7 @@ async function initAction(opts: InitOptions): Promise<void> {
         ONECLAW_MODE: containerMode,
         ONECLAW_DAEMON_SOCKET: "/run/1claw/daemon.sock",
         ONECLAW_CONTAINER_MODULES: modules.map((m) => m.name).join(","),
+        ONECLAW_SECRET_PREFIX: `__docker/${sid}/`,
     };
     if (opts.local) env.ONECLAW_LOCAL_VAULT = "true";
     if (agentId) env.ONECLAW_AGENT_ID = agentId;
@@ -786,69 +805,58 @@ async function initAction(opts: InitOptions): Promise<void> {
     saveContainerState(state);
 
     console.log();
-    printSuccess("Agent runtime is up.");
-    printKeyValue([
-        ["Chat UI", chalk.cyan(`http://localhost:${port}`)],
+    printSuccess(`Agent runtime is up → ${chalk.cyan(`http://localhost:${port}`)}`);
+    console.log();
+
+    const llmLabel = llmWired
+        ? chalk.green(`${env.ONECLAW_SHROUD_PROVIDER}/${env.ONECLAW_SHROUD_MODEL}`)
+        : undefined;
+
+    const keySourceLabel = !llmWired
+        ? undefined
+        : shroudApiKeySecretPath
+          ? chalk.green("local vault (daemon)")
+          : cloudKeyToStore
+            ? chalk.green(`1Claw vault`)
+            : chalk.cyan("1Claw vault or token billing");
+
+    printSummaryBox([
         ["Container", containerName],
-        ["Agent ID", agentId ?? chalk.dim("none (local)")],
-        ["Vault", vaultId ?? chalk.dim("none (local)")],
-        ["Modules", modules.map((m) => m.name).join(", ") || chalk.dim("none")],
-        ["Image", imageToRun],
-        ["Shroud", agentId ? "enabled" : chalk.dim("n/a")],
-        [
-            "Chat LLM",
-            llmWired
-                ? chalk.green(
-                      `via Shroud (${env.ONECLAW_SHROUD_PROVIDER}/${env.ONECLAW_SHROUD_MODEL})`,
-                  )
-                : chalk.dim("none — slash commands only"),
-        ],
-        [
-            "LLM key source",
-            !llmWired
-                ? chalk.dim("n/a")
-                : shroudApiKeySecretPath
-                  ? chalk.green("local vault (daemon → X-Shroud-Api-Key)")
-                  : cloudKeyToStore
-                    ? chalk.green(`1Claw vault (providers/${llmProvider}/api-key)`)
-                    : chalk.cyan("1Claw vault or token billing (Shroud resolves)"),
-        ],
-        ["Key injection", chalk.green("daemon (container never sees the key)")],
+        ["Agent", agentId ?? chalk.dim("local")],
+        ["Vault", vaultId ?? undefined],
+        ["Modules", modules.length ? modules.map((m) => m.name).join(", ") : undefined],
+        ["Shroud", agentId ? chalk.green("enabled") : undefined],
+        ["LLM", llmLabel],
+        ["Key source", keySourceLabel],
+        ["Security", chalk.green("daemon injection (container never sees keys)")],
     ]);
     console.log();
 
     if (llmWired && !shroudApiKeySecretPath && !cloudKeyToStore) {
-        printInfo(
-            "No provider key was supplied. Shroud will use, in order: a key in your " +
-                "1Claw vault at providers/<provider>/api-key, or 1Claw LLM Token Billing.",
-        );
         console.log(
             chalk.dim(
-                "  Store one in 1Claw:   1claw secret put providers/" +
-                    llmProvider +
-                    "/api-key -v <vault>\n" +
-                    "  Or store it locally:  re-run with --llm-api-key <key> --llm-key-store local\n" +
-                    "  Or bill to 1Claw:     enable LLM Token Billing (Dashboard → Billing).",
+                "  No provider key supplied — Shroud will resolve from:\n" +
+                    `  • 1Claw vault (providers/${llmProvider}/api-key)\n` +
+                    "  • LLM Token Billing (Dashboard → Billing)",
             ),
         );
         console.log();
     }
 
     if (modules.some((m) => m.required_secrets.length)) {
-        printInfo("Some modules expect secrets in your vault:");
+        console.log(chalk.dim("  Module secrets needed:"));
         for (const m of modules) {
             for (const s of m.required_secrets) {
                 console.log(
-                    `  ${chalk.dim("•")} ${s.path} ${chalk.dim(
-                        s.optional ? "(optional)" : "(required)",
-                    )} — ${s.description}`,
+                    chalk.dim(`  • ${s.path} ${s.optional ? "(optional)" : "(required)"} — ${s.description}`),
                 );
             }
         }
         console.log();
     }
 
-    printInfo(`Manage it: 1claw containers logs ${containerName}  |  1claw containers stop ${containerName}`);
+    console.log(chalk.dim(`  logs:  1claw containers logs ${containerName}`));
+    console.log(chalk.dim(`  stop:  1claw containers stop ${containerName}`));
     console.log();
 
     // Open the browser (best-effort) unless detached/headless.
@@ -860,9 +868,9 @@ async function initAction(opts: InitOptions): Promise<void> {
     }
 
     if (!opts.detach) {
-        printInfo("Streaming container logs (Ctrl+C to detach; container keeps running).");
+        printInfo("Streaming logs (Ctrl+C to detach)…");
         console.log();
-        const logs = dockerLogs(containerName, true);
+        const logs = dockerLogsFiltered(containerName);
         await new Promise<void>((resolve) => {
             const stop = () => {
                 logs.kill();

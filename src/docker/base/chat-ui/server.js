@@ -14,6 +14,7 @@ const { join } = require("node:path");
 const PORT = parseInt(process.env.CHAT_UI_PORT || "3000", 10);
 const SOCKET = process.env.ONECLAW_DAEMON_SOCKET || "/run/1claw/daemon.sock";
 const AGENT_ID = process.env.ONECLAW_AGENT_ID || "";
+const SECRET_PREFIX = process.env.ONECLAW_SECRET_PREFIX || "";
 const MODULES = (process.env.ONECLAW_CONTAINER_MODULES || "")
     .split(",")
     .map((m) => m.trim())
@@ -64,6 +65,7 @@ function daemonRequest(method, path, body) {
                 method,
                 headers: {
                     "Content-Type": "application/json",
+                    ...(SECRET_PREFIX ? { "X-Secret-Prefix": SECRET_PREFIX } : {}),
                     ...(payload
                         ? { "Content-Length": Buffer.byteLength(payload) }
                         : {}),
@@ -227,7 +229,10 @@ async function handleChat(message) {
 
     if (text === "/secrets") {
         try {
-            const r = await daemonRequest("GET", "/secrets");
+            const secretsPath = SECRET_PREFIX
+                ? `/secrets?prefix=${encodeURIComponent(SECRET_PREFIX)}`
+                : "/secrets";
+            const r = await daemonRequest("GET", secretsPath);
             if (r.status !== 200) {
                 return { reply: `Daemon returned ${r.status}`, tool: "list_secrets" };
             }
@@ -322,7 +327,10 @@ const server = http.createServer(async (req, res) => {
 
     if (url === "/api/secrets" && method === "GET") {
         try {
-            const r = await daemonRequest("GET", "/secrets");
+            const secretsPath = SECRET_PREFIX
+                ? `/secrets?prefix=${encodeURIComponent(SECRET_PREFIX)}`
+                : "/secrets";
+            const r = await daemonRequest("GET", secretsPath);
             return json(res, r.status, r.body || { secrets: [] });
         } catch (err) {
             return json(res, 502, { error: `daemon unreachable: ${err.message}` });

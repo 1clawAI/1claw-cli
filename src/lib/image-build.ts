@@ -27,7 +27,7 @@ export const DEFAULT_BASE_IMAGE = "1claw/agent:stable";
  * this whenever those change so an existing `1claw/agent:stable` is rebuilt
  * instead of silently reused. Stamped into the image as a label.
  */
-export const BASE_IMAGE_VERSION = "5";
+export const BASE_IMAGE_VERSION = "6";
 const BASE_VERSION_LABEL = "org.1claw.base-version";
 
 /** Build the base image from the bundled Docker context. */

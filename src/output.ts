@@ -69,6 +69,19 @@ export function printKeyValue(pairs: [string, string | undefined][]): void {
     }
 }
 
+/**
+ * Always renders as aligned key-value (never JSON), for interactive summaries
+ * where raw JSON with ANSI codes would be unreadable.
+ */
+export function printSummaryBox(pairs: [string, string | undefined][]): void {
+    const filtered = pairs.filter(([, v]) => v !== undefined);
+    if (filtered.length === 0) return;
+    const maxKey = Math.max(...filtered.map(([k]) => k.length));
+    for (const [key, value] of filtered) {
+        console.log(`  ${chalk.bold(key.padEnd(maxKey))}  ${value}`);
+    }
+}
+
 export function printSuccess(msg: string): void {
     console.log(chalk.green("✓") + " " + msg);
 }

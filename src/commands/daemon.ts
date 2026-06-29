@@ -365,13 +365,19 @@ function createDaemonServer(
             return;
         }
 
-        // List secret names (never values)
-        if (path === "/secrets" && method === "GET") {
-            const secrets = listSecrets(vault).map((s) => ({
-                name: s.name,
-                type: s.type,
-                synced: s.synced,
-            }));
+        // List secret names (never values).
+        // When ?prefix= is provided, only return secrets under that path.
+        // Docker containers MUST pass their agent prefix to enforce isolation.
+        if ((path === "/secrets" || path.startsWith("/secrets?")) && method === "GET") {
+            const url = new URL(path, "http://localhost");
+            const prefix = url.searchParams.get("prefix") || "";
+            const secrets = listSecrets(vault)
+                .filter((s) => !prefix || s.name.startsWith(prefix))
+                .map((s) => ({
+                    name: s.name,
+                    type: s.type,
+                    synced: s.synced,
+                }));
             jsonResponse(res, 200, { secrets });
             return;
         }
@@ -395,7 +401,9 @@ function createDaemonServer(
             return;
         }
 
-        // Proxy request — inject secret without exposing value
+        // Proxy request — inject secret without exposing value.
+        // When X-Secret-Prefix header is set, the requested secret must fall
+        // under that prefix (container isolation for Docker agents).
         if (path === "/proxy" && method === "POST") {
             let body: string;
             try {
@@ -418,6 +426,18 @@ function createDaemonServer(
                     error: "Missing required fields: secretName, url",
                 });
                 return;
+            }
+
+            const callerPrefix = req.headers["x-secret-prefix"] as string | undefined;
+            if (callerPrefix) {
+                const allNames = [proxyReq.secretName, ...(proxyReq.injectSecrets ?? [])];
+                const denied = allNames.find((n) => !n.startsWith(callerPrefix));
+                if (denied) {
+                    jsonResponse(res, 403, {
+                        error: `Access denied: secret "${denied}" is outside your namespace`,
+                    });
+                    return;
+                }
             }
 
             const result = await proxyRequest(proxyReq, vault, policy);

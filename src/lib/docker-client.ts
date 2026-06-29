@@ -294,6 +294,36 @@ export function dockerLogs(nameOrId: string, follow: boolean): ChildProcess {
     return spawn("docker", args, { stdio: ["ignore", "inherit", "inherit"] });
 }
 
+/**
+ * Spawn `docker logs -f` but suppress the container startup banner
+ * (everything between the first ─── line and the "Ready:" line).
+ * Only passes through meaningful runtime output.
+ */
+export function dockerLogsFiltered(nameOrId: string): ChildProcess {
+    const child = spawn("docker", ["logs", "-f", nameOrId], {
+        stdio: ["ignore", "pipe", "pipe"],
+    });
+    let suppressing = false;
+    const filter = (chunk: Buffer) => {
+        const lines = chunk.toString().split("\n");
+        for (const line of lines) {
+            if (line.startsWith("─────") || line.startsWith(" 1Claw agent container")) {
+                suppressing = true;
+                continue;
+            }
+            if (suppressing && (line.startsWith("Ready:") || line.startsWith("[chat-ui]"))) {
+                suppressing = false;
+                continue;
+            }
+            if (suppressing) continue;
+            if (line.trim()) process.stdout.write(line + "\n");
+        }
+    };
+    child.stdout?.on("data", filter);
+    child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
+    return child;
+}
+
 /** True if the local docker client is authenticated to the given registry. */
 export async function dockerLoggedIn(registry = "https://index.docker.io/v1/"): Promise<boolean> {
     try {
