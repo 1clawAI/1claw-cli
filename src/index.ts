@@ -37,6 +37,7 @@ import { platformCommand } from "./commands/platform.js";
 import { deviceCommand } from "./commands/device.js";
 import { approvalCommand } from "./commands/approval.js";
 import { initCommand } from "./commands/init.js";
+import { spawnCommand } from "./commands/spawn.js";
 import { publishCommand } from "./commands/publish.js";
 import { ejectCommand } from "./commands/eject.js";
 import { containersCommand } from "./commands/containers.js";
@@ -95,6 +96,7 @@ export function createProgram(): Command {
 
     // Containerized agent runtime
     program.addCommand(initCommand);
+    program.addCommand(spawnCommand);
     program.addCommand(publishCommand);
     program.addCommand(ejectCommand);
     program.addCommand(containersCommand);

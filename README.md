@@ -718,6 +718,71 @@ conflicts: []                    # e.g. [other-tool] to forbid combining
 
 **Don't want to modify the CLI?** Use **`1claw eject`** to export the generated `Dockerfile`, the module asset tree, and a `docker-compose.yaml` (daemon socket pre-wired), then edit the Dockerfile freely and build/publish it yourself with `1claw publish --context ./out --tag <user>/<image>:tag`. This is the supported path for fully custom images.
 
+## Agent Templates (`spawn`)
+
+`1claw spawn` creates a framework-specific AI agent from a pre-built template. Each template ships a Dockerfile, starter code, and entrypoint pre-wired with 1Claw MCP and Shroud. The container follows the same daemon-socket security model as `init --docker` — **the container never sees raw API keys.**
+
+```bash
+1claw spawn langchain                        # LangChain agent with Shroud LLM routing
+1claw spawn crewai --llm-api-key sk-...      # CrewAI multi-agent crew with your API key
+1claw spawn openai-agents --local            # OpenAI Agents SDK, fully offline
+1claw spawn --list                           # List all available templates
+1claw spawn --refresh                        # Force-refresh templates from GitHub
+```
+
+### Available templates
+
+**Python:**
+
+| Template | Framework |
+|----------|-----------|
+| `langchain` | LangChain / LangGraph |
+| `crewai` | CrewAI |
+| `openai-agents` | OpenAI Agents SDK |
+| `agentkit` | Coinbase AgentKit |
+| `smolagents` | HuggingFace smolagents |
+| `llamaindex` | LlamaIndex |
+| `pydantic-ai` | Pydantic AI |
+| `agno` | Agno |
+| `coder` | Coder |
+
+**TypeScript:**
+
+| Template | Framework |
+|----------|-----------|
+| `typescript-sdk` | @1claw/sdk + Vercel AI SDK |
+| `mastra` | Mastra |
+| `elizaos` | ElizaOS |
+
+### LLM authentication
+
+Templates support the same three LLM authentication methods as `init --docker`:
+
+```bash
+# BYOK — provider key stored in 1Claw vault (Shroud auto-fetches):
+1claw spawn langchain --llm-api-key sk-...
+
+# BYOK — provider key stored in local vault (daemon injects):
+1claw spawn langchain --llm-api-key sk-... --llm-key-store local
+
+# Token Billing — enable in Dashboard, no provider key needed:
+1claw spawn langchain
+
+# Anthropic WIF — OIDC federation (configure in Dashboard):
+1claw spawn langchain --llm-provider anthropic
+```
+
+### Templates vs modules
+
+- **Templates** (`1claw spawn <name>`) are complete project scaffolds — they include a Dockerfile, starter code (e.g. `agent.py`), and entrypoint. Use a template to bootstrap a new framework-specific agent.
+- **Modules** (`1claw init --docker --module=<name>`) are composable Docker layers added on top of the base `1claw/agent:stable` image. Use modules to add capabilities (payments, on-chain tools) to the base agent.
+
+You can combine both: spawn a template, then add modules with `init --docker --module=...` on the resulting container.
+
+### Community templates
+
+Templates live in the [`1clawAI/agent-templates`](https://github.com/1clawAI/agent-templates) repository. To contribute a new template, see the [CONTRIBUTING.md](https://github.com/1clawAI/agent-templates/blob/main/CONTRIBUTING.md) guide.
+
 ### Container state & lifecycle
 
 Each container's state lives at `~/.config/1claw/containers/{name}.json` (mode `0600`) and is the source of truth for `info`, `start`, `restart`, `publish`, `eject`, and `deploy`. It records the agent/vault IDs, modules, port, image, and a persisted **run spec** (image, env var *names*, mounts, labels — never secret values) so `start`/`restart` can recreate a container that was removed.

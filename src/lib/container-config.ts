@@ -33,6 +33,8 @@ export interface ContainerState {
     publishedAt?: string;
     /** "local" (daemon socket) or "cloud" (agent API key direct). */
     mode: "local" | "cloud";
+    /** Template name if created via `1claw spawn`. */
+    template?: string;
     /**
      * Persisted `docker run` spec so `1claw containers start` can recreate the
      * container if it was removed (only env var names/secret paths are stored —
@@ -73,8 +75,9 @@ export function shortId(): string {
 }
 
 /** Generate a default container name: docker-agent-<shortId>. */
-export function generateContainerName(): string {
-    return `docker-agent-${shortId()}`;
+export function generateContainerName(prefix?: string): string {
+    const base = prefix ? `1claw-${prefix}` : "docker-agent";
+    return `${base}-${shortId()}`;
 }
 
 /** Restrict names to docker-safe characters. */

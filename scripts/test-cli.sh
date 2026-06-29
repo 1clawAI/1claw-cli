@@ -99,6 +99,7 @@ run mfa status --help
 run config --help
 run config list --help
 run init --help
+run spawn --help
 run publish --help
 run eject --help
 run containers --help
@@ -106,6 +107,12 @@ run containers list --help
 run deploy --help
 run_contains "ampersend" init --list-modules
 run_contains "onchain" init --list-modules
+run_contains "langchain" spawn --list
+run_contains "crewai" spawn --list
+run_contains "openai-agents" spawn --list
+run_contains "typescript-sdk" spawn --list
+run_contains "mastra" spawn --list
+run_contains "elizaos" spawn --list
 
 echo ""
 echo "=== 2. Unauthenticated (expect clear errors) ==="

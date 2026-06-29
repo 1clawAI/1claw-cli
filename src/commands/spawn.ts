@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
+import { join } from "node:path";
 import { api } from "../client.js";
 import {
     printSuccess,
@@ -15,19 +16,9 @@ import {
     dockerDaemonError,
     dockerRun,
     dockerContainerStatus,
-    dockerLogs,
+    dockerBuild,
     dockerLogsFiltered,
 } from "../lib/docker-client.js";
-import {
-    ensureBaseImage,
-    buildModuleImage,
-    DEFAULT_BASE_IMAGE,
-} from "../lib/image-build.js";
-import {
-    listModules,
-    resolveModules,
-    type ModuleManifest,
-} from "../modules/registry.js";
 import {
     generateContainerName,
     isValidContainerName,
@@ -46,11 +37,17 @@ import {
     waitForHealthy,
     type StoreKeySpec,
 } from "../lib/provisioning.js";
+import {
+    listTemplates,
+    loadTemplate,
+    getTemplateDir,
+    type TemplateManifest,
+} from "../templates/registry.js";
+import { ensureTemplates } from "../templates/fetcher.js";
 
-interface InitOptions {
-    docker?: string | boolean;
-    module?: string[];
-    listModules?: boolean;
+interface SpawnOptions {
+    list?: boolean;
+    refresh?: boolean;
     port: string;
     name?: string;
     local?: boolean;
@@ -63,14 +60,13 @@ interface InitOptions {
     llmApiKeySecret?: string;
 }
 
-export const initCommand = new Command("init")
-    .description("Initialize a secure agent runtime in a Docker container")
-    .option("--docker [image]", "Run in Docker container (default: 1claw/agent:stable)")
-    .option(
-        "--module <names...>",
-        "Add modules (comma-separated or repeated): ampersend, onchain, langchain, elizaos, scaffold-agent",
+export const spawnCommand = new Command("spawn")
+    .description(
+        "Create and run a framework-specific AI agent from a template",
     )
-    .option("--list-modules", "List all available modules and exit")
+    .argument("[template]", "Template name (e.g. langchain, crewai, openai-agents)")
+    .option("--list", "List all available templates and exit")
+    .option("--refresh", "Force-refresh the template registry from GitHub")
     .option("--port <port>", "Chat UI port", "3000")
     .option("--name <name>", "Container name (default: auto-generated)")
     .option("--local", "Fully offline — no cloud provisioning")
@@ -78,89 +74,98 @@ export const initCommand = new Command("init")
     .option("--detach", "Run the container in the background")
     .option(
         "--llm-provider <provider>",
-        "LLM provider for the chat UI via Shroud (openai, anthropic, google, ...)",
+        "LLM provider via Shroud (openai, anthropic, google, ...)",
         "openai",
     )
     .option(
         "--llm-model <model>",
-        "LLM model for the chat UI via Shroud (e.g. gpt-4o-mini, claude-3-5-haiku-latest)",
+        "LLM model via Shroud (e.g. gpt-4o-mini, claude-3-5-haiku-latest)",
     )
     .option(
         "--llm-api-key <key>",
-        "Provider API key for the chat LLM (stored, never passed to the container)",
+        "Provider API key (stored in vault, never passed to the container)",
     )
     .option(
         "--llm-key-store <where>",
-        "Where to store --llm-api-key: 'cloud' (1Claw vault, Shroud auto-fetches) or 'local' (CLI vault, daemon injects)",
+        "'cloud' (1Claw vault) or 'local' (CLI vault, daemon injects)",
         "cloud",
     )
     .option(
         "--llm-api-key-secret <name>",
-        "Use an existing LOCAL vault secret as the provider key (daemon injects it as X-Shroud-Api-Key)",
+        "Use an existing LOCAL vault secret as the provider key",
     )
-    .action(async (opts: InitOptions) => {
+    .action(async (templateArg: string | undefined, opts: SpawnOptions) => {
         try {
-            await initAction(opts);
+            await spawnAction(templateArg, opts);
         } catch (err) {
             printError(err instanceof Error ? err.message : String(err));
             process.exit(1);
         }
     });
 
-function parseModuleNames(input: string[] | undefined): string[] {
-    if (!input) return [];
-    const names: string[] = [];
-    for (const entry of input) {
-        for (const part of entry.split(",")) {
-            const trimmed = part.trim();
-            if (trimmed) names.push(trimmed);
-        }
-    }
-    return [...new Set(names)];
-}
-
-function printModuleList(): void {
-    const modules = listModules();
+function printTemplateList(templates: TemplateManifest[]): void {
     console.log();
-    console.log(chalk.bold("  Available modules:"));
+    console.log(chalk.bold("  Available templates:"));
     console.log();
-    if (modules.length === 0) {
-        printInfo("No modules bundled.");
+    if (templates.length === 0) {
+        printInfo(
+            "No templates found. Run `1claw spawn --refresh` or initialize the submodule.",
+        );
         return;
     }
     printTable(
-        modules.map((m) => ({
-            name: m.name,
-            description: m.description.replace(/\s+/g, " ").slice(0, 60),
-            author: m.author,
+        templates.map((t) => ({
+            name: t.name,
+            display: t.display_name,
+            lang: t.language,
+            description: t.description.slice(0, 60),
         })),
         [
-            { key: "name", header: "Module", width: 16 },
-            { key: "description", header: "Description", width: 62 },
-            { key: "author", header: "Author" },
+            { key: "name", header: "Template", width: 18 },
+            { key: "display", header: "Framework", width: 26 },
+            { key: "lang", header: "Lang", width: 8 },
+            { key: "description", header: "Description", width: 60 },
         ],
     );
     console.log();
     console.log(
         chalk.dim(
-            "  Usage: 1claw init --docker --module=ampersend --module=onchain\n" +
-                "     or: 1claw init --docker --module=ampersend,onchain",
+            "  Usage: 1claw spawn <template>\n" +
+                "     eg: 1claw spawn langchain --llm-api-key sk-...\n" +
+                "     eg: 1claw spawn crewai --local",
         ),
     );
     console.log();
 }
 
-async function initAction(opts: InitOptions): Promise<void> {
-    if (opts.listModules) {
-        printModuleList();
+async function spawnAction(
+    templateArg: string | undefined,
+    opts: SpawnOptions,
+): Promise<void> {
+    // ── Ensure templates are available ────────────────────────────────
+    await ensureTemplates({
+        force: opts.refresh,
+        onProgress: (msg) => printInfo(msg),
+    });
+
+    if (opts.list || !templateArg) {
+        printTemplateList(listTemplates());
+        if (!templateArg && !opts.list) {
+            printWarning("Specify a template: 1claw spawn <template>");
+        }
         return;
     }
 
     console.log();
-    console.log(chalk.bold("  1Claw — Secure Agent Runtime"));
+    console.log(chalk.bold("  1Claw — Spawn Agent from Template"));
     console.log();
 
-    // ── Step 1: Preflight ────────────────────────────────────────────────
+    // ── Load template manifest ───────────────────────────────────────
+    const manifest = loadTemplate(templateArg);
+    const templateDir = getTemplateDir(templateArg);
+    printInfo(`Template: ${manifest.display_name} (${manifest.name} v${manifest.version})`);
+
+    // ── Preflight: Docker ────────────────────────────────────────────
     if (!(await dockerAvailable())) {
         const reason = await dockerDaemonError();
         throw new Error(
@@ -169,21 +174,8 @@ async function initAction(opts: InitOptions): Promise<void> {
         );
     }
 
-    // ── Modules ──────────────────────────────────────────────────────────
-    const moduleNames = parseModuleNames(opts.module);
-    let modules: ModuleManifest[] = [];
-    if (moduleNames.length) {
-        modules = resolveModules(moduleNames);
-        printInfo(
-            `Modules: ${modules.map((m) => m.name).join(", ")}` +
-                (modules.length > moduleNames.length
-                    ? chalk.dim("  (incl. dependencies)")
-                    : ""),
-        );
-    }
-
-    // ── Container identity ───────────────────────────────────────────────
-    const containerName = opts.name ?? generateContainerName();
+    // ── Container identity ───────────────────────────────────────────
+    const containerName = opts.name ?? generateContainerName(manifest.name);
     if (!isValidContainerName(containerName)) {
         throw new Error(
             `Invalid container name "${containerName}". Use letters, digits, _, ., -.`,
@@ -203,7 +195,7 @@ async function initAction(opts: InitOptions): Promise<void> {
         );
     }
 
-    // ── Step 2/3: Auth + provisioning ────────────────────────────────────
+    // ── Auth + provisioning ──────────────────────────────────────────
     let agentId: string | null = null;
     let vaultId: string | null = null;
     let agentApiKey: string | null = opts.agentKey ?? null;
@@ -213,7 +205,6 @@ async function initAction(opts: InitOptions): Promise<void> {
         printInfo("Local mode — no cloud account or provisioning.");
     } else if (agentApiKey) {
         printInfo("Using provided --agent-key (skipping provisioning).");
-        // Resolve agent ID + vault via token exchange (key-only auth).
         try {
             const exchangeRes = await api<{
                 token: string;
@@ -227,7 +218,7 @@ async function initAction(opts: InitOptions): Promise<void> {
             if (exchangeRes.agent_id) agentId = exchangeRes.agent_id;
             if (exchangeRes.vault_ids?.length) vaultId = exchangeRes.vault_ids[0];
         } catch {
-            // Non-fatal — continue with local-only mode if exchange fails.
+            // non-fatal
         }
     } else {
         const authed = await ensureAuth();
@@ -242,10 +233,7 @@ async function initAction(opts: InitOptions): Promise<void> {
         agentApiKey = result.apiKey;
     }
 
-    // ── Step 4/5: Store key(s) + start daemon ────────────────────────────
-    // Shroud authenticates via the X-Shroud-Agent-Key header in `agent_id:key`
-    // form. We have a clean id+key only on the provisioned path; for --agent-key
-    // the user can pass `agent_id:key` directly.
+    // ── Store keys + start daemon ────────────────────────────────────
     const sid = sanitizeName(containerName);
     const storeKeys: StoreKeySpec[] = [];
 
@@ -257,7 +245,6 @@ async function initAction(opts: InitOptions): Promise<void> {
     }
 
     if (agentApiKey) {
-        // Generic bearer key toward the 1Claw API (used by /proxy demos).
         localVaultPath = `__docker/${sid}/agent-key`;
         storeKeys.push({
             path: localVaultPath,
@@ -270,7 +257,6 @@ async function initAction(opts: InitOptions): Promise<void> {
         });
     }
 
-    // Shroud LLM key: injected as the X-Shroud-Agent-Key header toward Shroud.
     let shroudSecretPath: string | null = null;
     if (shroudAgentKey && !opts.local) {
         shroudSecretPath = `__docker/${sid}/shroud-key`;
@@ -286,10 +272,7 @@ async function initAction(opts: InitOptions): Promise<void> {
         });
     }
 
-    // ── LLM provider key (BYOK) — three storage options ──────────────────
-    // 1) Cloud (1Claw vault): Shroud auto-fetches providers/{provider}/api-key.
-    // 2) Local (CLI vault): the daemon injects it as X-Shroud-Api-Key.
-    // 3) Existing local secret by name: same as (2) but reuse a stored secret.
+    // LLM provider key (BYOK)
     const llmProvider = opts.llmProvider || "openai";
     const keyStore = (opts.llmKeyStore || "cloud").toLowerCase();
     const byokPolicy = {
@@ -301,8 +284,6 @@ async function initAction(opts: InitOptions): Promise<void> {
     let cloudKeyToStore: string | null = null;
 
     if (opts.llmApiKeySecret) {
-        // Reference an existing LOCAL vault secret as the provider key. No value
-        // → ensureDaemonRunning only sets the policy and verifies it exists.
         shroudApiKeySecretPath = opts.llmApiKeySecret;
         storeKeys.push({ path: shroudApiKeySecretPath, policy: byokPolicy });
     } else if (opts.llmApiKey) {
@@ -315,7 +296,6 @@ async function initAction(opts: InitOptions): Promise<void> {
                 policy: byokPolicy,
             });
         } else {
-            // cloud (default): stored in the 1Claw vault after provisioning.
             cloudKeyToStore = opts.llmApiKey;
         }
     }
@@ -324,7 +304,7 @@ async function initAction(opts: InitOptions): Promise<void> {
         storeKeys: storeKeys.length ? storeKeys : undefined,
     });
 
-    // Store the provider key in the 1Claw cloud vault (Shroud auto-fetches it).
+    // Store provider key in cloud vault if needed
     if (cloudKeyToStore && vaultId && !opts.local) {
         const keySpinner = ora(
             `Storing ${llmProvider} key in 1Claw vault...`,
@@ -332,7 +312,10 @@ async function initAction(opts: InitOptions): Promise<void> {
         try {
             await api(
                 `/vaults/${vaultId}/secrets/${encodeURIComponent(`providers/${llmProvider}/api-key`)}`,
-                { method: "PUT", body: { type: "api_key", value: cloudKeyToStore } },
+                {
+                    method: "PUT",
+                    body: { type: "api_key", value: cloudKeyToStore },
+                },
             );
             keySpinner.succeed(
                 `Provider key stored at providers/${llmProvider}/api-key (1Claw vault).`,
@@ -343,49 +326,29 @@ async function initAction(opts: InitOptions): Promise<void> {
         }
     }
 
-    // ── Step 6/7: Build or pull image ────────────────────────────────────
-    const baseImage =
-        typeof opts.docker === "string" && opts.docker.length
-            ? opts.docker
-            : DEFAULT_BASE_IMAGE;
+    // ── Build template image ─────────────────────────────────────────
+    const imageTag = `1claw/${manifest.name}:${manifest.version}`;
+    const dockerfilePath = join(templateDir, "Dockerfile");
 
-    let imageToRun = baseImage;
-    if (modules.length === 0) {
-        const spinner = ora(`Preparing image ${baseImage}...`).start();
-        try {
-            await ensureBaseImage(baseImage, (line) => {
-                spinner.text = chalk.dim(line.slice(0, 70));
-            });
-            spinner.succeed(`Image ready: ${baseImage}`);
-        } catch (err) {
-            spinner.fail("Failed to prepare image.");
-            throw err;
-        }
-    } else {
-        const baseSpinner = ora("Ensuring base image...").start();
-        try {
-            await ensureBaseImage(baseImage, (line) => {
-                baseSpinner.text = chalk.dim(line.slice(0, 70));
-            });
-            baseSpinner.succeed("Base image ready.");
-        } catch (err) {
-            baseSpinner.fail("Failed to prepare base image.");
-            throw err;
-        }
-        const buildSpinner = ora("Building module image...").start();
-        try {
-            const { tag } = await buildModuleImage(baseImage, modules, (line) => {
+    const buildSpinner = ora(
+        `Building ${manifest.display_name} image...`,
+    ).start();
+    try {
+        await dockerBuild({
+            context: templateDir,
+            dockerfile: dockerfilePath,
+            tag: imageTag,
+            onProgress: (line) => {
                 buildSpinner.text = chalk.dim(line.slice(0, 70));
-            });
-            imageToRun = tag;
-            buildSpinner.succeed(`Built ${tag}`);
-        } catch (err) {
-            buildSpinner.fail("Module image build failed.");
-            throw err;
-        }
+            },
+        });
+        buildSpinner.succeed(`Image built: ${imageTag}`);
+    } catch (err) {
+        buildSpinner.fail("Image build failed.");
+        throw err;
     }
 
-    // ── Step 8: Run container ────────────────────────────────────────────
+    // ── Run container ────────────────────────────────────────────────
     const requestedPort = parseInt(opts.port, 10) || 3000;
     let port = await findAvailablePort(requestedPort);
     if (port !== requestedPort) {
@@ -396,33 +359,32 @@ async function initAction(opts: InitOptions): Promise<void> {
     const env: Record<string, string> = {
         ONECLAW_MODE: containerMode,
         ONECLAW_DAEMON_SOCKET: "/run/1claw/daemon.sock",
-        ONECLAW_CONTAINER_MODULES: modules.map((m) => m.name).join(","),
         ONECLAW_SECRET_PREFIX: `__docker/${sid}/`,
+        ONECLAW_FRAMEWORK: manifest.name,
     };
+    if (manifest.docker.env) {
+        Object.assign(env, manifest.docker.env);
+    }
     if (opts.local) env.ONECLAW_LOCAL_VAULT = "true";
     if (agentId) env.ONECLAW_AGENT_ID = agentId;
 
-    // Wire the chat UI to an LLM through Shroud (key stays in the host daemon).
     const llmWired = !!shroudSecretPath;
     if (llmWired) {
-        const model = opts.llmModel || defaultModelForProvider(llmProvider);
+        const model =
+            opts.llmModel || defaultModelForProvider(llmProvider);
         env.ONECLAW_LLM_VIA_SHROUD = "true";
         env.ONECLAW_SHROUD_URL =
             process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.xyz";
         env.ONECLAW_SHROUD_SECRET = shroudSecretPath!;
         env.ONECLAW_SHROUD_PROVIDER = llmProvider;
         env.ONECLAW_SHROUD_MODEL = model;
-        // BYOK: the daemon also injects this secret as the X-Shroud-Api-Key
-        // header so the container never sees the provider key.
         if (shroudApiKeySecretPath) {
             env.ONECLAW_SHROUD_API_KEY_SECRET = shroudApiKeySecretPath;
         }
-    } else if (shroudApiKeySecretPath || cloudKeyToStore) {
-        printWarning(
-            "An LLM provider key was supplied but there's no cloud agent to authenticate to Shroud " +
-                "(this is --local or no provisioning). The chat UI can't reach Shroud without an agent key.",
-        );
     }
+
+    const healthPort = String(manifest.docker.health_port ?? 3000);
+    const containerPort = healthPort;
 
     const runSpinner = ora(`Starting container ${containerName}...`).start();
     const userPinnedPort = opts.port !== undefined && opts.port !== "3000";
@@ -431,16 +393,22 @@ async function initAction(opts: InitOptions): Promise<void> {
     for (let attempt = 0; ; attempt++) {
         try {
             containerId = await dockerRun({
-                image: imageToRun,
+                image: imageTag,
                 name: containerName,
-                ports: { [String(port)]: "3000" },
+                ports: { [String(port)]: containerPort },
                 volumes: { [socketPath]: "/run/1claw/daemon.sock:ro" },
                 env,
                 detach: true,
                 restart: "unless-stopped",
-                labels: { [MANAGED_LABEL]: "true", "1claw.name": containerName },
+                labels: {
+                    [MANAGED_LABEL]: "true",
+                    "1claw.name": containerName,
+                    "1claw.template": manifest.name,
+                },
             });
-            runSpinner.succeed(`Container started (${containerId.slice(0, 12)})`);
+            runSpinner.succeed(
+                `Container started (${containerId.slice(0, 12)})`,
+            );
             break;
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -448,32 +416,28 @@ async function initAction(opts: InitOptions): Promise<void> {
                 /port is already allocated|address already in use|Bind for [^ ]+ failed/i.test(
                     msg,
                 );
-            // The bind pre-check can miss ports held only inside the Docker VM,
-            // and a race can let another process grab the port first. Auto-retry
-            // on the next free port unless the user explicitly pinned --port.
-            if (portConflict && !userPinnedPort && attempt < MAX_PORT_RETRIES) {
+            if (
+                portConflict &&
+                !userPinnedPort &&
+                attempt < MAX_PORT_RETRIES
+            ) {
                 const nextPort = await findAvailablePort(port + 1);
                 runSpinner.text = `Port ${port} already allocated — retrying on ${nextPort}...`;
                 port = nextPort;
                 continue;
             }
             runSpinner.fail("Failed to start container.");
-            if (portConflict) {
-                printError(`Port ${port} is already in use by another process or container.`);
-                printInfo("Fix it with one of:");
-                printInfo(`  • Pick a free port:   1claw init --docker --port <port>`);
-                printInfo(`  • See what's running: 1claw containers list`);
-                printInfo(`  • Stop a 1claw agent: 1claw containers stop <name>`);
-                printInfo(`  • Find the holder:    docker ps --filter publish=${port}`);
-            }
             throw err;
         }
     }
     if (!containerId) throw new Error("Failed to start container.");
 
-    // ── Step 9: Wait healthy + summary ───────────────────────────────────
-    const healthSpinner = ora("Waiting for the agent to become healthy...").start();
-    const healthy = await waitForHealthy(port);
+    // ── Wait healthy + summary ───────────────────────────────────────
+    const healthEndpoint = manifest.docker.health_endpoint ?? "/health";
+    const healthSpinner = ora(
+        "Waiting for the agent to become healthy...",
+    ).start();
+    const healthy = await waitForHealthy(port, healthEndpoint);
     if (healthy) {
         healthSpinner.succeed("Agent is healthy.");
     } else {
@@ -487,30 +451,39 @@ async function initAction(opts: InitOptions): Promise<void> {
         containerId,
         agentId,
         vaultId,
-        image: baseImage,
-        modules: modules.map((m) => m.name),
+        image: imageTag,
+        modules: [],
         port,
         createdAt: new Date().toISOString(),
         localVaultPath,
         customImage: null,
         mode: containerMode,
+        template: manifest.name,
         runSpec: {
-            image: imageToRun,
-            containerPort: "3000",
+            image: imageTag,
+            containerPort,
             env,
             volumes: { [socketPath]: "/run/1claw/daemon.sock:ro" },
             restart: "unless-stopped",
-            labels: { [MANAGED_LABEL]: "true", "1claw.name": containerName },
+            labels: {
+                [MANAGED_LABEL]: "true",
+                "1claw.name": containerName,
+                "1claw.template": manifest.name,
+            },
         },
     };
     saveContainerState(state);
 
     console.log();
-    printSuccess(`Agent runtime is up → ${chalk.cyan(`http://localhost:${port}`)}`);
+    printSuccess(
+        `${manifest.display_name} agent is up → ${chalk.cyan(`http://localhost:${port}`)}`,
+    );
     console.log();
 
     const llmLabel = llmWired
-        ? chalk.green(`${env.ONECLAW_SHROUD_PROVIDER}/${env.ONECLAW_SHROUD_MODEL}`)
+        ? chalk.green(
+              `${env.ONECLAW_SHROUD_PROVIDER}/${env.ONECLAW_SHROUD_MODEL}`,
+          )
         : undefined;
 
     const keySourceLabel = !llmWired
@@ -518,58 +491,44 @@ async function initAction(opts: InitOptions): Promise<void> {
         : shroudApiKeySecretPath
           ? chalk.green("local vault (daemon)")
           : cloudKeyToStore
-            ? chalk.green(`1Claw vault`)
+            ? chalk.green("1Claw vault")
             : chalk.cyan("1Claw vault or token billing");
 
     printSummaryBox([
+        ["Template", `${manifest.display_name} (${manifest.name})`],
         ["Container", containerName],
         ["Agent", agentId ?? chalk.dim("local")],
         ["Vault", vaultId ?? undefined],
-        ["Modules", modules.length ? modules.map((m) => m.name).join(", ") : undefined],
         ["Shroud", agentId ? chalk.green("enabled") : undefined],
         ["LLM", llmLabel],
         ["Key source", keySourceLabel],
-        ["Security", chalk.green("daemon injection (container never sees keys)")],
+        [
+            "Security",
+            chalk.green("daemon injection (container never sees keys)"),
+        ],
     ]);
     console.log();
 
-    if (llmWired && !shroudApiKeySecretPath && !cloudKeyToStore) {
-        console.log(
-            chalk.dim(
-                "  No provider key supplied — Shroud will resolve from:\n" +
-                    `  • 1Claw vault (providers/${llmProvider}/api-key)\n` +
-                    "  • LLM Token Billing (Dashboard → Billing)",
-            ),
-        );
-        console.log();
-    }
-
-    if (modules.some((m) => m.required_secrets.length)) {
-        console.log(chalk.dim("  Module secrets needed:"));
-        for (const m of modules) {
-            for (const s of m.required_secrets) {
-                console.log(
-                    chalk.dim(`  • ${s.path} ${s.optional ? "(optional)" : "(required)"} — ${s.description}`),
-                );
-            }
-        }
+    if (manifest.post_spawn_message) {
+        console.log(chalk.dim(`  ${manifest.post_spawn_message}`));
         console.log();
     }
 
     console.log(chalk.dim(`  logs:  1claw containers logs ${containerName}`));
-    console.log(chalk.dim(`  stop:  1claw containers stop ${containerName}`));
+    console.log(
+        chalk.dim(`  stop:  1claw containers stop ${containerName}`),
+    );
     console.log();
 
-    // Open the browser (best-effort) unless detached/headless.
     try {
         const open = (await import("open")).default;
         await open(`http://localhost:${port}`);
     } catch {
-        // ignore — headless or no browser
+        // headless or no browser
     }
 
     if (!opts.detach) {
-        printInfo("Streaming logs (Ctrl+C to detach)…");
+        printInfo("Streaming logs (Ctrl+C to detach)...");
         console.log();
         const logs = dockerLogsFiltered(containerName);
         await new Promise<void>((resolve) => {
