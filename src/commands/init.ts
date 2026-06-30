@@ -173,6 +173,12 @@ async function initAction(opts: InitOptions): Promise<void> {
     const moduleNames = parseModuleNames(opts.module);
     let modules: ModuleManifest[] = [];
     if (moduleNames.length) {
+        const deprecated = moduleNames.filter((n) => ["langchain", "elizaos"].includes(n));
+        if (deprecated.length) {
+            printWarning(
+                `--module ${deprecated.join(", ")} is deprecated. Use \`1claw spawn ${deprecated[0]}\` instead.`,
+            );
+        }
         modules = resolveModules(moduleNames);
         printInfo(
             `Modules: ${modules.map((m) => m.name).join(", ")}` +
