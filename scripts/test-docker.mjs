@@ -121,61 +121,34 @@ test("findAvailablePort returns a bindable port", async () => {
     assert.ok(p >= 34567 && p < 34567 + 100);
 });
 
-// ── Template system tests ────────────────────────────────────────────
+// ── Template system (smoke — see test-spawn-templates.mjs for full coverage) ──
 
-test("listTemplateNames returns bundled templates", () => {
+test("listTemplateNames includes core bundled templates", () => {
     const names = templateRegistry.listTemplateNames();
-    assert.ok(names.length >= 3, `Expected >= 3 templates, got ${names.length}`);
-    assert.ok(names.includes("langchain"));
-    assert.ok(names.includes("crewai"));
-    assert.ok(names.includes("openai-agents"));
+    assert.ok(names.length >= 12, `Expected >= 12 templates, got ${names.length}`);
+    for (const name of [
+        "langchain",
+        "crewai",
+        "openai-agents",
+        "agentkit",
+        "smolagents",
+        "llamaindex",
+        "pydantic-ai",
+        "agno",
+        "coder",
+        "typescript-sdk",
+        "mastra",
+        "elizaos",
+    ]) {
+        assert.ok(names.includes(name), `Missing bundled template: ${name}`);
+    }
 });
 
-test("loadTemplate parses a manifest (langchain)", () => {
+test("loadTemplate parses a representative manifest", () => {
     const m = templateRegistry.loadTemplate("langchain");
     assert.equal(m.name, "langchain");
     assert.equal(m.language, "python");
-    assert.ok(m.display_name.includes("LangChain"));
-    assert.ok(m.docker.base_image.includes("python"));
-    assert.ok(m.docker.context_files.includes("Dockerfile"));
-    assert.ok(m.docker.context_files.includes("agent.py"));
     assert.equal(m.docker.health_endpoint, "/health");
-    assert.equal(m.docker.health_port, 3000);
-});
-
-test("loadTemplate parses a manifest (crewai)", () => {
-    const m = templateRegistry.loadTemplate("crewai");
-    assert.equal(m.name, "crewai");
-    assert.equal(m.language, "python");
-    assert.ok(m.display_name.includes("CrewAI"));
-});
-
-test("loadTemplate parses a manifest (openai-agents)", () => {
-    const m = templateRegistry.loadTemplate("openai-agents");
-    assert.equal(m.name, "openai-agents");
-    assert.equal(m.language, "python");
-    assert.ok(m.display_name.includes("OpenAI"));
-});
-
-test("loadTemplate parses a manifest (mastra — TypeScript)", () => {
-    const m = templateRegistry.loadTemplate("mastra");
-    assert.equal(m.name, "mastra");
-    assert.equal(m.language, "node");
-    assert.ok(m.display_name.includes("Mastra"));
-});
-
-test("loadTemplate parses a manifest (elizaos — TypeScript)", () => {
-    const m = templateRegistry.loadTemplate("elizaos");
-    assert.equal(m.name, "elizaos");
-    assert.equal(m.language, "node");
-    assert.ok(m.display_name.includes("ElizaOS"));
-});
-
-test("loadTemplate parses a manifest (typescript-sdk)", () => {
-    const m = templateRegistry.loadTemplate("typescript-sdk");
-    assert.equal(m.name, "typescript-sdk");
-    assert.equal(m.language, "node");
-    assert.ok(m.display_name.includes("TypeScript"));
 });
 
 test("loadTemplate throws on unknown template", () => {
@@ -185,58 +158,10 @@ test("loadTemplate throws on unknown template", () => {
     );
 });
 
-test("getTemplateDir returns a valid directory", () => {
-    const dir = templateRegistry.getTemplateDir("langchain");
-    assert.ok(dir.includes("langchain"));
-});
-
-test("getTemplateDir throws on unknown template", () => {
-    assert.throws(
-        () => templateRegistry.getTemplateDir("does-not-exist"),
-        /not found/,
-    );
-});
-
-test("findTemplateDir returns null for unknown template", () => {
-    const dir = templateRegistry.findTemplateDir("does-not-exist");
-    assert.equal(dir, null);
-});
-
-test("listTemplates returns full manifest objects", () => {
-    const templates = templateRegistry.listTemplates();
-    assert.ok(templates.length >= 3);
-    for (const t of templates) {
-        assert.ok(t.name);
-        assert.ok(t.display_name);
-        assert.ok(t.version);
-        assert.ok(t.description);
-        assert.ok(t.language === "python" || t.language === "node");
-        assert.ok(t.docker);
-        assert.ok(t.docker.base_image);
-    }
-});
-
-test("parseRegistryIndex parses valid YAML", () => {
-    const yaml = `
-version: 1
-templates:
-  - name: test-template
-    display_name: "Test"
-    version: 1.0.0
-    language: python
-    description: "A test template"
-`;
-    const idx = templateRegistry.parseRegistryIndex(yaml);
-    assert.equal(idx.version, 1);
-    assert.equal(idx.templates.length, 1);
-    assert.equal(idx.templates[0].name, "test-template");
-});
-
 test("loadBundledRegistry returns a valid registry", () => {
     const reg = templateRegistry.loadBundledRegistry();
     assert.ok(reg !== null, "Expected bundled registry to exist");
-    assert.ok(reg.templates.length >= 3);
-    assert.ok(reg.templates.some((t) => t.name === "langchain"));
+    assert.ok(reg.templates.length >= 12);
 });
 
 test("isCacheFresh returns false when no cache exists", () => {

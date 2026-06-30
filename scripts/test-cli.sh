@@ -110,9 +110,16 @@ run_contains "onchain" init --list-modules
 run_contains "langchain" spawn --list
 run_contains "crewai" spawn --list
 run_contains "openai-agents" spawn --list
+run_contains "agentkit" spawn --list
+run_contains "smolagents" spawn --list
+run_contains "llamaindex" spawn --list
+run_contains "pydantic-ai" spawn --list
+run_contains "agno" spawn --list
+run_contains "coder" spawn --list
 run_contains "typescript-sdk" spawn --list
 run_contains "mastra" spawn --list
 run_contains "elizaos" spawn --list
+run_fail_contains "Unknown template" spawn not-a-real-framework
 
 echo ""
 echo "=== 2. Unauthenticated (expect clear errors) ==="
@@ -185,6 +192,17 @@ else
   echo "  FAIL node --test scripts/test-docker.mjs"
   ((FAILED++)) || true
   tail -20 /tmp/cli_unit
+fi
+
+echo ""
+echo "=== 8. Spawn template unit tests ==="
+if node --test scripts/test-spawn-templates.mjs > /tmp/cli_spawn 2>&1; then
+  echo "  OK   node --test scripts/test-spawn-templates.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test scripts/test-spawn-templates.mjs"
+  ((FAILED++)) || true
+  tail -30 /tmp/cli_spawn
 fi
 
 echo ""

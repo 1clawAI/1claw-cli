@@ -24,6 +24,9 @@ import {
     DEFAULT_BASE_IMAGE,
 } from "../lib/image-build.js";
 import {
+    deprecatedSpawnModuleWarning,
+} from "../lib/module-deprecation.js";
+import {
     listModules,
     resolveModules,
     type ModuleManifest,
@@ -160,6 +163,12 @@ async function initAction(opts: InitOptions): Promise<void> {
     console.log(chalk.bold("  1Claw — Secure Agent Runtime"));
     console.log();
 
+    const moduleNames = parseModuleNames(opts.module);
+    const deprecationWarning = deprecatedSpawnModuleWarning(moduleNames);
+    if (deprecationWarning) {
+        printWarning(deprecationWarning);
+    }
+
     // ── Step 1: Preflight ────────────────────────────────────────────────
     if (!(await dockerAvailable())) {
         const reason = await dockerDaemonError();
@@ -170,15 +179,8 @@ async function initAction(opts: InitOptions): Promise<void> {
     }
 
     // ── Modules ──────────────────────────────────────────────────────────
-    const moduleNames = parseModuleNames(opts.module);
     let modules: ModuleManifest[] = [];
     if (moduleNames.length) {
-        const deprecated = moduleNames.filter((n) => ["langchain", "elizaos"].includes(n));
-        if (deprecated.length) {
-            printWarning(
-                `--module ${deprecated.join(", ")} is deprecated. Use \`1claw spawn ${deprecated[0]}\` instead.`,
-            );
-        }
         modules = resolveModules(moduleNames);
         printInfo(
             `Modules: ${modules.map((m) => m.name).join(", ")}` +
