@@ -27,3 +27,19 @@ for (const dir of assetDirs) {
     });
     console.log(`copied ${dir}/ → dist/src/${dir}/`);
 }
+
+// Agent templates submodule (monorepo: packages/agent-templates → dist/src/templates)
+const agentTemplatesRoot = join(root, "..", "agent-templates");
+const templatesFrom = join(agentTemplatesRoot, "templates");
+const templatesTo = join(distSrc, "templates");
+if (existsSync(templatesFrom)) {
+    mkdirSync(dirname(templatesTo), { recursive: true });
+    cpSync(templatesFrom, templatesTo, { recursive: true });
+    console.log(`copied agent-templates/templates/ → dist/src/templates/`);
+}
+const registryFrom = join(agentTemplatesRoot, "registry.yaml");
+const registryTo = join(distSrc, "registry.yaml");
+if (existsSync(registryFrom)) {
+    cpSync(registryFrom, registryTo);
+    console.log(`copied agent-templates/registry.yaml → dist/src/registry.yaml`);
+}

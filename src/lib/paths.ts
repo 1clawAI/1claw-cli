@@ -57,13 +57,12 @@ export function templatesCacheDir(): string {
  *   2. <srcRoot>/templates (copied assets in dist/)
  */
 export function bundledTemplatesDir(): string | null {
-    // srcRoot = dist/src/ (compiled) or src/ (dev). CLI root = srcRoot/../..
-    // Target: <monorepo>/packages/agent-templates/templates
-    // From dist/src/: ../.. = CLI root, then ../agent-templates/templates
+    // srcRoot = dist/src/ (compiled) or src/ (dev). CLI package root = srcRoot/../..
+    // Monorepo layout: packages/cli + packages/agent-templates (submodule)
     const monoRepo = join(srcRoot, "..", "..", "..", "agent-templates", "templates");
     if (existsSync(monoRepo)) return monoRepo;
 
-    // Copied into dist during build
+    // Copied into dist during build (npm publish / monorepo build)
     const dist = join(srcRoot, "templates");
     if (existsSync(dist)) return dist;
 
