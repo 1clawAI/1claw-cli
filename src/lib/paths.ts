@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 
 // Resolves bundled, non-TypeScript assets (Docker base context + module
@@ -50,23 +50,47 @@ export function templatesCacheDir(): string {
 
 /**
  * Directory containing bundled templates from the agent-templates submodule.
- * Returns null if the submodule is not initialized.
+ * Returns null if templates are not shipped with this CLI build.
  *
- * Searches two locations (dev source tree and monorepo root):
- *   1. <cliRoot>/../../packages/agent-templates/templates (monorepo)
- *   2. <srcRoot>/templates (copied assets in dist/)
+ * Search order:
+ *   1. dist/bundled-templates/templates (npm publish / monorepo build)
+ *   2. packages/agent-templates/templates (monorepo dev, submodule checkout)
+ *   3. dist/src/templates/ (legacy builds — only if template.yaml dirs exist)
  */
 export function bundledTemplatesDir(): string | null {
-    // srcRoot = dist/src/ (compiled) or src/ (dev). CLI package root = srcRoot/../..
-    // Monorepo layout: packages/cli + packages/agent-templates (submodule)
-    const monoRepo = join(srcRoot, "..", "..", "..", "agent-templates", "templates");
-    if (existsSync(monoRepo)) return monoRepo;
+    // dist/bundled-templates/templates (srcRoot = dist/src → .. = dist)
+    const fromDist = join(srcRoot, "..", "bundled-templates", "templates");
+    if (dirHasTemplateManifests(fromDist)) return fromDist;
 
-    // Copied into dist during build (npm publish / monorepo build)
-    const dist = join(srcRoot, "templates");
-    if (existsSync(dist)) return dist;
+    // Monorepo: packages/cli/dist/src/lib → ../../../agent-templates/templates
+    const monoRepo = join(
+        srcRoot,
+        "..",
+        "..",
+        "..",
+        "agent-templates",
+        "templates",
+    );
+    if (dirHasTemplateManifests(monoRepo)) return monoRepo;
+
+    // Legacy: templates copied into dist/src/templates/ (conflicts with compiled TS)
+    const legacy = join(srcRoot, "templates");
+    if (dirHasTemplateManifests(legacy)) return legacy;
 
     return null;
+}
+
+function dirHasTemplateManifests(root: string): boolean {
+    if (!existsSync(root)) return false;
+    try {
+        return readdirSync(root).some(
+            (d) =>
+                statSync(join(root, d)).isDirectory() &&
+                existsSync(join(root, d, "template.yaml")),
+        );
+    } catch {
+        return false;
+    }
 }
 
 export function assetExists(path: string): boolean {

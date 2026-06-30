@@ -56,7 +56,7 @@ function requiredFiles(language) {
 
 test("bundled templates directory exists after build", () => {
     const dir = paths.bundledTemplatesDir();
-    assert.ok(dir, "Expected dist/src/templates/ or monorepo agent-templates/");
+    assert.ok(dir, "Expected dist/bundled-templates/templates or monorepo agent-templates/");
     assert.ok(existsSync(dir));
 });
 

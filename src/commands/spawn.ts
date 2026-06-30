@@ -18,6 +18,7 @@ import {
     dockerContainerStatus,
     dockerBuild,
     dockerLogsFiltered,
+    DockerError,
 } from "../lib/docker-client.js";
 import {
     generateContainerName,
@@ -345,6 +346,10 @@ async function spawnAction(
         buildSpinner.succeed(`Image built: ${imageTag}`);
     } catch (err) {
         buildSpinner.fail("Image build failed.");
+        if (err instanceof DockerError && err.stderr?.trim()) {
+            const tail = err.stderr.trim().split("\n").slice(-20).join("\n");
+            console.error(chalk.dim("\n" + tail + "\n"));
+        }
         throw err;
     }
 

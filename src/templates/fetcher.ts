@@ -10,6 +10,19 @@ import {
 import { join } from "node:path";
 import { templatesCacheDir, bundledTemplatesDir } from "../lib/paths.js";
 
+function dirHasTemplateManifests(root: string): boolean {
+    if (!existsSync(root)) return false;
+    try {
+        return readdirSync(root).some(
+            (d) =>
+                statSync(join(root, d)).isDirectory() &&
+                existsSync(join(root, d, "template.yaml")),
+        );
+    } catch {
+        return false;
+    }
+}
+
 const REPO_OWNER = "1clawAI";
 const REPO_NAME = "agent-templates";
 const BRANCH = "main";
@@ -66,13 +79,7 @@ export async function ensureTemplates(opts?: {
     // Bundled templates always take priority (submodule is the source of truth)
     const bundled = bundledTemplatesDir();
     if (bundled && existsSync(bundled)) {
-        const hasTemplates = readdirSync(bundled).some(
-            (d) =>
-                statSync(join(bundled, d)).isDirectory() &&
-                existsSync(join(bundled, d, "template.yaml")),
-        );
-        if (hasTemplates) {
-            // Copy to cache so everything resolves from one place
+        if (dirHasTemplateManifests(bundled)) {
             syncBundledToCache(bundled);
             return bundled;
         }
@@ -80,7 +87,7 @@ export async function ensureTemplates(opts?: {
 
     const cacheDir = templatesCacheDir();
 
-    if (!force && isCacheFresh()) {
+    if (!force && isCacheFresh() && dirHasTemplateManifests(cacheDir)) {
         return cacheDir;
     }
 
@@ -144,6 +151,25 @@ async function fetchFromGitHub(
     });
 }
 
+/** Required files for every spawn template (build will fail without these). */
+const REQUIRED_TEMPLATE_FILES = [
+    "template.yaml",
+    "Dockerfile",
+    "entrypoint.sh",
+] as const;
+
+function assertTemplateComplete(templateDir: string, name: string): void {
+    const missing = REQUIRED_TEMPLATE_FILES.filter(
+        (f) => !existsSync(join(templateDir, f)),
+    );
+    if (missing.length > 0) {
+        throw new Error(
+            `Template "${name}" is incomplete (missing: ${missing.join(", ")}).\n` +
+                `  Run \`1claw spawn --refresh\` or initialize packages/agent-templates.`,
+        );
+    }
+}
+
 /** Fetch a single template's files from GitHub into the cache. */
 async function fetchTemplate(
     cacheDir: string,
@@ -156,7 +182,11 @@ async function fetchTemplate(
     const res = await fetch(contentsUrl, {
         headers: { Accept: "application/vnd.github.v3+json" },
     });
-    if (!res.ok) return; // skip if not found
+    if (!res.ok) {
+        throw new Error(
+            `Failed to fetch template "${name}" from GitHub: ${res.status} ${res.statusText}`,
+        );
+    }
 
     const files = (await res.json()) as {
         name: string;
@@ -166,18 +196,19 @@ async function fetchTemplate(
 
     for (const file of files) {
         if (file.type !== "file" || !file.download_url) continue;
-        try {
-            const fileRes = await fetch(file.download_url);
-            if (fileRes.ok) {
-                writeFileSync(
-                    join(templateDir, file.name),
-                    await fileRes.text(),
-                );
-            }
-        } catch {
-            // best-effort per file
+        const fileRes = await fetch(file.download_url);
+        if (!fileRes.ok) {
+            throw new Error(
+                `Failed to download ${name}/${file.name}: ${fileRes.status}`,
+            );
         }
+        writeFileSync(
+            join(templateDir, file.name),
+            await fileRes.text(),
+        );
     }
+
+    assertTemplateComplete(templateDir, name);
 }
 
 /** Copy bundled templates (from submodule) into the cache directory. */
