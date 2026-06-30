@@ -5,6 +5,25 @@ set -e
 CLI="${CLI:-node dist/bin/1claw.js}"
 FAILED=0
 PASSED=0
+TEST_TMP_DIRS=()
+
+cleanup_test_artifacts() {
+  # Docker containers/images from unit + integration tests
+  for name in test-agent test-template-agent 1claw-test-spawn-smoke; do
+    docker rm -f "$name" 2>/dev/null || true
+  done
+  docker rmi -f 1claw-test-spawn-smoke:ci 2>/dev/null || true
+  for t in langchain crewai openai-agents agentkit smolagents llamaindex pydantic-ai agno coder typescript-sdk mastra elizaos; do
+    docker rmi -f "test-$t" 2>/dev/null || true
+  done
+  # Isolated config dirs created during this run
+  for dir in "${TEST_TMP_DIRS[@]}"; do
+    [[ -n "$dir" && -d "$dir" ]] && rm -rf "$dir"
+  done
+}
+
+trap cleanup_test_artifacts EXIT
+cleanup_test_artifacts
 
 run() {
   if $CLI "$@" > /tmp/cli_out 2> /tmp/cli_err; then
@@ -126,7 +145,9 @@ echo "=== 2. Unauthenticated (expect clear errors) ==="
 # Use isolated config dir so whoami/vault list etc. see no stored token (env alone may not suffice — CLI reads ~/.config/1claw)
 SAVE_TOKEN="${ONECLAW_TOKEN:-}"; SAVE_KEY="${ONECLAW_API_KEY:-}"
 SAVE_CONFIG_DIR="${ONECLAW_CONFIG_DIR:-}"
-export ONECLAW_CONFIG_DIR="${ONECLAW_CONFIG_DIR:-$(mktemp -d 2>/dev/null || echo /tmp/1claw-test-$$)}"
+TEST_AUTH_DIR="$(mktemp -d 2>/dev/null || echo /tmp/1claw-test-$$)"
+TEST_TMP_DIRS+=("$TEST_AUTH_DIR")
+export ONECLAW_CONFIG_DIR="$TEST_AUTH_DIR"
 unset ONECLAW_TOKEN ONECLAW_API_KEY
 run_fail_contains "Not authenticated" whoami
 run_fail_contains "Not authenticated" vault list
@@ -154,9 +175,12 @@ echo "=== 5. JSON output flag ==="
 run --json config list
 # vault list with --json fails without auth; use isolated config so no stored token
 SAVE_T="${ONECLAW_TOKEN:-}"; SAVE_K="${ONECLAW_API_KEY:-}"; SAVE_CD="${ONECLAW_CONFIG_DIR:-}"
-export ONECLAW_CONFIG_DIR="${ONECLAW_CONFIG_DIR:-$(mktemp -d 2>/dev/null || echo /tmp/1claw-json-$$)}"
+TEST_JSON_DIR="$(mktemp -d 2>/dev/null || echo /tmp/1claw-json-$$)"
+TEST_TMP_DIRS+=("$TEST_JSON_DIR")
+export ONECLAW_CONFIG_DIR="$TEST_JSON_DIR"
 unset ONECLAW_TOKEN ONECLAW_API_KEY
 run_expect_fail --json vault list
+unset ONECLAW_CONFIG_DIR
 [[ -n "$SAVE_T" ]] && export ONECLAW_TOKEN="$SAVE_T"
 [[ -n "$SAVE_K" ]] && export ONECLAW_API_KEY="$SAVE_K"
 [[ -n "$SAVE_CD" ]] && export ONECLAW_CONFIG_DIR="$SAVE_CD" || unset ONECLAW_CONFIG_DIR
@@ -203,6 +227,25 @@ else
   echo "  FAIL node --test scripts/test-spawn-templates.mjs"
   ((FAILED++)) || true
   tail -30 /tmp/cli_spawn
+fi
+
+echo ""
+echo "=== 9. Spawn Docker integration (optional) ==="
+if [[ "${ONECLAW_TEST_DOCKER:-}" == "1" ]]; then
+  if docker info >/dev/null 2>&1; then
+    if ONECLAW_TEST_DOCKER=1 node --test scripts/test-spawn-docker.mjs > /tmp/cli_spawn_docker 2>&1; then
+      echo "  OK   ONECLAW_TEST_DOCKER=1 node --test scripts/test-spawn-docker.mjs"
+      ((PASSED++)) || true
+    else
+      echo "  FAIL ONECLAW_TEST_DOCKER=1 node --test scripts/test-spawn-docker.mjs"
+      ((FAILED++)) || true
+      tail -30 /tmp/cli_spawn_docker
+    fi
+  else
+    echo "  SKIP ONECLAW_TEST_DOCKER=1 but Docker daemon is not running"
+  fi
+else
+  echo "  SKIP (set ONECLAW_TEST_DOCKER=1 to build/run langchain container smoke test)"
 fi
 
 echo ""

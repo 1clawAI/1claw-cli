@@ -4,15 +4,16 @@
 //   node --test scripts/test-spawn-templates.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { cleanupTestSuite, cleanupDockerTestResources } from "./test-helpers.mjs";
 
 const TMP_CONFIG = mkdtempSync(join(tmpdir(), "1claw-spawn-test-"));
 process.env.ONECLAW_CONFIG_DIR = TMP_CONFIG;
 
 const templateRegistry = await import("../dist/src/templates/registry.js");
+const config = await import("../dist/src/lib/container-config.js");
 const paths = await import("../dist/src/lib/paths.js");
 
 const PYTHON_TEMPLATES = [
@@ -246,6 +247,10 @@ test("deprecatedSpawnModuleWarning flags langchain and elizaos", async () => {
     );
 });
 
-test.after(() => {
-    rmSync(TMP_CONFIG, { recursive: true, force: true });
+test.before(async () => {
+    await cleanupDockerTestResources();
+});
+
+test.after(async () => {
+    await cleanupTestSuite(config, TMP_CONFIG);
 });

@@ -3,13 +3,23 @@
 // Run after `npm run build`:  node --test scripts/test-docker.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+    TEST_CONTAINER_STATE_NAMES,
+    trackTestContainerState,
+    cleanupTestSuite,
+    cleanupDockerTestResources,
+} from "./test-helpers.mjs";
 
 // Use an isolated config dir BEFORE importing modules that read it at load time.
 const TMP_CONFIG = mkdtempSync(join(tmpdir(), "1claw-test-cfg-"));
 process.env.ONECLAW_CONFIG_DIR = TMP_CONFIG;
+
+for (const name of TEST_CONTAINER_STATE_NAMES) {
+    trackTestContainerState(name);
+}
 
 const registry = await import("../dist/src/modules/registry.js");
 const config = await import("../dist/src/lib/container-config.js");
@@ -201,6 +211,11 @@ test("container state with template field round-trips", () => {
     config.deleteContainerState("test-template-agent");
 });
 
-test.after(() => {
-    rmSync(TMP_CONFIG, { recursive: true, force: true });
+test.after(async () => {
+    await cleanupTestSuite(config, TMP_CONFIG);
+});
+
+test.before(async () => {
+    // Remove leftovers from a previously failed run before starting.
+    await cleanupDockerTestResources();
 });
