@@ -1,4 +1,4 @@
-# @1claw/cli (v0.37.0)
+# @1claw/cli (v0.37.3)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -269,6 +269,46 @@ Common options for `submit` and `sign`:
 | `--json` | Output raw JSON |
 
 `list` and `get` accept `--include-signed-tx` to include the raw signed transaction in the response.
+
+**Non-EVM chains** (Bitcoin, Solana, XRP, Cardano, Tron) use the same `submit` / `sign` commands with chain-specific flags instead of `--to` / `--value`:
+
+```bash
+# Solana devnet — native SOL transfer (sign-only)
+1claw agent tx sign <agent-id> \
+  --chain solana-devnet \
+  --to <recipient-base58> \
+  --value 0.001
+
+# Bitcoin testnet — fee rate optional (sat/vByte)
+1claw agent tx submit <agent-id> \
+  --chain bitcoin-testnet \
+  --to <bech32-address> \
+  --value 0.00001 \
+  --fee-rate-sat-per-vbyte 5
+
+# XRP — optional destination tag
+1claw agent tx submit <agent-id> \
+  --chain xrp-testnet \
+  --to r... \
+  --value 1 \
+  --destination-tag 12345
+
+# Tron — optional fee limit (sun)
+1claw agent tx submit <agent-id> \
+  --chain tron-shasta \
+  --to T... \
+  --value 1 \
+  --fee-limit-sun 10000000
+
+# Cardano preprod — optional TTL (slots)
+1claw agent tx submit <agent-id> \
+  --chain cardano-preprod \
+  --to addr_test1... \
+  --value 1.5 \
+  --ttl 3600
+```
+
+Supported non-EVM chain names match the chain registry (`bitcoin`, `bitcoin-testnet`, `solana`, `solana-devnet`, `xrp`, `xrp-testnet`, `cardano`, `cardano-preprod`, `tron`, `tron-shasta`). SPL (Solana) and TRC-20 (Tron) token transfers accept `--token-mint` and `--token-decimals`.
 
 ### Signing Keys (Multi-Chain)
 
