@@ -286,12 +286,18 @@ Common options for `submit` and `sign`:
   --value 0.00001 \
   --fee-rate-sat-per-vbyte 5
 
-# XRP — optional destination tag
+# XRP — simple Payment with optional destination tag
 1claw agent tx submit <agent-id> \
   --chain xrp-testnet \
   --to r... \
   --value 1 \
   --destination-tag 12345
+
+# XRP — arbitrary XRPL transaction type via --xrpl-tx-json
+# Supports 30+ types: TrustSet, OfferCreate, NFTokenMint, AMMCreate, EscrowCreate, etc.
+1claw agent tx submit <agent-id> \
+  --chain xrp \
+  --xrpl-tx-json '{"TransactionType":"TrustSet","LimitAmount":{"currency":"USD","issuer":"rIssuer...","value":"100"}}'
 
 # Tron — optional fee limit (sun)
 1claw agent tx submit <agent-id> \
