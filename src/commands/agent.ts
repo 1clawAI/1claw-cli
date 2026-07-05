@@ -51,6 +51,10 @@ interface Agent {
     tx_max_value_eth?: string;
     tx_daily_limit_eth?: string;
     tx_allowed_chains?: string[];
+    tx_token_allowlist?: string[];
+    tx_known_tokens_only?: boolean;
+    xrpl_allowed_tx_types?: string[];
+    per_chain_guardrails?: Record<string, unknown>;
     token_ttl_seconds?: number | null;
     vault_ids?: string[];
     shroud_enabled: boolean;
@@ -130,6 +134,10 @@ agentCommand
         "--api-key-expires-at <date>",
         "API key expiration (ISO 8601 or relative: 30d, 90d, 6m, 1y)",
     )
+    .option('--tx-token-allowlist <addrs>', 'Comma-separated list of allowed token contract/mint addresses', (v: string) => v.split(',').map(s => s.trim()))
+    .option('--tx-known-tokens-only', 'Only allow transfers of tokens in the known_tokens registry')
+    .option('--xrpl-allowed-tx-types <types>', 'Comma-separated list of allowed XRP transaction types', (v: string) => v.split(',').map(s => s.trim()))
+    .option('--per-chain-guardrails <json>', 'JSON object with per-chain guardrail overrides')
     .action(async (name, opts) => {
         try {
             requireToken();
@@ -157,6 +165,14 @@ agentCommand
                     .map((s: string) => s.trim());
             if (opts.apiKeyExpiresAt)
                 body.api_key_expires_at = resolveExpiresAt(opts.apiKeyExpiresAt);
+            if (opts.txTokenAllowlist)
+                body.tx_token_allowlist = opts.txTokenAllowlist;
+            if (opts.txKnownTokensOnly)
+                body.tx_known_tokens_only = true;
+            if (opts.xrplAllowedTxTypes)
+                body.xrpl_allowed_tx_types = opts.xrplAllowedTxTypes;
+            if (opts.perChainGuardrails)
+                body.per_chain_guardrails = JSON.parse(opts.perChainGuardrails);
 
             const agent = await api<Agent & { api_key?: string }>("/agents", {
                 method: "POST",
@@ -445,6 +461,27 @@ agentCommand
                         ? agent.tx_allowed_chains.join(", ")
                         : chalk.dim("all"),
                 ]);
+                if (agent.tx_token_allowlist?.length) {
+                    rows.push([
+                        "Token allowlist",
+                        agent.tx_token_allowlist.join(", "),
+                    ]);
+                }
+                if (agent.tx_known_tokens_only) {
+                    rows.push(["Known tokens only", "true"]);
+                }
+                if (agent.xrpl_allowed_tx_types?.length) {
+                    rows.push([
+                        "XRP allowed types",
+                        agent.xrpl_allowed_tx_types.join(", "),
+                    ]);
+                }
+                if (agent.per_chain_guardrails && Object.keys(agent.per_chain_guardrails).length > 0) {
+                    rows.push([
+                        "Per-chain guardrails",
+                        JSON.stringify(agent.per_chain_guardrails),
+                    ]);
+                }
             }
             rows.push(["Created by", agent.created_by]);
             rows.push(["Created", formatDate(agent.created_at, "long")]);
@@ -488,6 +525,10 @@ agentCommand
         "--api-key-expires-at <date>",
         'API key expiration (ISO 8601, relative: 30d/90d/6m/1y, or "" to clear)',
     )
+    .option('--tx-token-allowlist <addrs>', 'Comma-separated list of allowed token contract/mint addresses (use "" to clear)', (v: string) => v === '' ? '' : v.split(',').map(s => s.trim()))
+    .option('--tx-known-tokens-only <bool>', 'Enable/disable known tokens only restriction (true/false)')
+    .option('--xrpl-allowed-tx-types <types>', 'Comma-separated list of allowed XRP transaction types (use "" to clear)', (v: string) => v === '' ? '' : v.split(',').map(s => s.trim()))
+    .option('--per-chain-guardrails <json>', 'JSON object with per-chain guardrail overrides (use "" to clear)')
     .action(async (id, opts) => {
         try {
             requireToken();
@@ -538,6 +579,18 @@ agentCommand
                     opts.apiKeyExpiresAt === ""
                         ? null
                         : resolveExpiresAt(opts.apiKeyExpiresAt);
+            }
+            if (opts.txTokenAllowlist !== undefined) {
+                body.tx_token_allowlist = opts.txTokenAllowlist === '' ? [] : opts.txTokenAllowlist;
+            }
+            if (opts.txKnownTokensOnly !== undefined) {
+                body.tx_known_tokens_only = opts.txKnownTokensOnly === 'true';
+            }
+            if (opts.xrplAllowedTxTypes !== undefined) {
+                body.xrpl_allowed_tx_types = opts.xrplAllowedTxTypes === '' ? [] : opts.xrplAllowedTxTypes;
+            }
+            if (opts.perChainGuardrails !== undefined) {
+                body.per_chain_guardrails = opts.perChainGuardrails === '' ? null : JSON.parse(opts.perChainGuardrails);
             }
 
             if (Object.keys(body).length === 0) {
