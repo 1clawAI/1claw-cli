@@ -48,6 +48,8 @@ interface Agent {
     scopes: string[];
     intents_api_enabled: boolean;
     tx_to_allowlist?: string[];
+    tx_max_value?: string;
+    tx_daily_limit?: string;
     tx_max_value_eth?: string;
     tx_daily_limit_eth?: string;
     tx_allowed_chains?: string[];
@@ -151,8 +153,8 @@ agentCommand
                 body.tx_to_allowlist = opts.txToAllowlist
                     .split(",")
                     .map((s: string) => s.trim());
-            if (opts.txMaxValue) body.tx_max_value_eth = opts.txMaxValue;
-            if (opts.txDailyLimit) body.tx_daily_limit_eth = opts.txDailyLimit;
+            if (opts.txMaxValue) body.tx_max_value = opts.txMaxValue;
+            if (opts.txDailyLimit) body.tx_daily_limit = opts.txDailyLimit;
             if (opts.txAllowedChains)
                 body.tx_allowed_chains = opts.txAllowedChains
                     .split(",")
@@ -445,14 +447,14 @@ agentCommand
                 ]);
                 rows.push([
                     "Max value/tx",
-                    agent.tx_max_value_eth
-                        ? `${agent.tx_max_value_eth} ETH`
+                    agent.tx_max_value ?? agent.tx_max_value_eth
+                        ? `${agent.tx_max_value ?? agent.tx_max_value_eth} (native units)`
                         : chalk.dim("unlimited"),
                 ]);
                 rows.push([
                     "Daily limit",
-                    agent.tx_daily_limit_eth
-                        ? `${agent.tx_daily_limit_eth} ETH`
+                    agent.tx_daily_limit ?? agent.tx_daily_limit_eth
+                        ? `${agent.tx_daily_limit ?? agent.tx_daily_limit_eth} (native units / chain family)`
                         : chalk.dim("unlimited"),
                 ]);
                 rows.push([
@@ -549,11 +551,11 @@ agentCommand
                               .map((s: string) => s.trim());
             }
             if (opts.txMaxValue !== undefined) {
-                body.tx_max_value_eth =
+                body.tx_max_value =
                     opts.txMaxValue === "" ? null : opts.txMaxValue;
             }
             if (opts.txDailyLimit !== undefined) {
-                body.tx_daily_limit_eth =
+                body.tx_daily_limit =
                     opts.txDailyLimit === "" ? null : opts.txDailyLimit;
             }
             if (opts.txAllowedChains !== undefined) {
