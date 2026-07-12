@@ -11,6 +11,7 @@ import {
     formatDate,
     resolveExpiresAt,
 } from "../output.js";
+import { registerAgentBindingCommands } from "./binding.js";
 
 interface ShroudConfig {
     pii_policy?: string;
@@ -47,6 +48,8 @@ interface Agent {
     name: string;
     scopes: string[];
     intents_api_enabled: boolean;
+    execution_intents_enabled?: boolean;
+    execution_guardrails?: Record<string, unknown>;
     tx_to_allowlist?: string[];
     tx_max_value?: string;
     tx_daily_limit?: string;
@@ -112,7 +115,12 @@ agentCommand
     .command("create <name>")
     .description("Register a new agent")
     .option("--scopes <scopes>", "Comma-separated scopes")
-    .option("--intents-api", "Enable Intents API")
+    .option("--intents-api", "Enable Intents API (on-chain signing)")
+    .option("--execution-intents", "Enable Execution Intents (HTTP/GraphQL proxy; Pro+ tier)")
+    .option(
+        "--execution-guardrails <json>",
+        "Agent execution guardrails JSON (allowed_hosts, allowed_binding_types, max_duration_ms, …)",
+    )
     .option("--shroud", "Enable Shroud LLM Proxy")
     .option(
         "--tx-to-allowlist <addrs>",
@@ -148,6 +156,9 @@ agentCommand
                 body.scopes = opts.scopes.split(",").map((s: string) => s.trim());
             }
             if (opts.intentsApi) body.intents_api_enabled = true;
+            if (opts.executionIntents) body.execution_intents_enabled = true;
+            if (opts.executionGuardrails)
+                body.execution_guardrails = JSON.parse(opts.executionGuardrails);
             if (opts.shroud) body.shroud_enabled = true;
             if (opts.txToAllowlist)
                 body.tx_to_allowlist = opts.txToAllowlist
@@ -296,6 +307,10 @@ agentCommand
                     agent.intents_api_enabled ? "enabled" : "disabled",
                 ],
                 [
+                    "Execution Intents",
+                    agent.execution_intents_enabled ? "enabled" : "disabled",
+                ],
+                [
                     "Shroud LLM Proxy",
                     agent.shroud_enabled ? "enabled" : "disabled",
                 ],
@@ -306,6 +321,30 @@ agentCommand
                         : chalk.dim("never"),
                 ],
             ];
+            if (agent.execution_intents_enabled && agent.execution_guardrails) {
+                const eg = agent.execution_guardrails;
+                if (eg.allowed_hosts && Array.isArray(eg.allowed_hosts)) {
+                    rows.push([
+                        "  Exec allowed hosts",
+                        (eg.allowed_hosts as string[]).join(", "),
+                    ]);
+                }
+                if (eg.allowed_binding_types && Array.isArray(eg.allowed_binding_types)) {
+                    rows.push([
+                        "  Exec binding types",
+                        (eg.allowed_binding_types as string[]).join(", "),
+                    ]);
+                }
+                if (eg.max_duration_ms != null) {
+                    rows.push(["  Exec max duration", `${eg.max_duration_ms}ms`]);
+                }
+                if (eg.max_requests_per_minute != null) {
+                    rows.push([
+                        "  Exec rate limit",
+                        `${eg.max_requests_per_minute}/min`,
+                    ]);
+                }
+            }
             if (agent.shroud_enabled && agent.shroud_config) {
                 rows.push([
                     "  PII policy",
@@ -497,6 +536,14 @@ agentCommand
     .command("update <id>")
     .description("Update agent settings")
     .option("--intents-api <bool>", "Enable/disable Intents API (true/false)")
+    .option(
+        "--execution-intents <bool>",
+        "Enable/disable Execution Intents (true/false)",
+    )
+    .option(
+        '--execution-guardrails <json>',
+        'Agent execution guardrails JSON (use "" to clear)',
+    )
     .option("--shroud <bool>", "Enable/disable Shroud LLM Proxy (true/false)")
     .option(
         "--tx-to-allowlist <addrs>",
@@ -538,6 +585,14 @@ agentCommand
 
             if (opts.intentsApi !== undefined)
                 body.intents_api_enabled = opts.intentsApi === "true";
+            if (opts.executionIntents !== undefined)
+                body.execution_intents_enabled = opts.executionIntents === "true";
+            if (opts.executionGuardrails !== undefined) {
+                body.execution_guardrails =
+                    opts.executionGuardrails === ""
+                        ? {}
+                        : JSON.parse(opts.executionGuardrails);
+            }
             if (opts.shroud !== undefined)
                 body.shroud_enabled = opts.shroud === "true";
             if (opts.active !== undefined)
@@ -1366,3 +1421,5 @@ bankrCommand
             handleError(err);
         }
     });
+
+registerAgentBindingCommands(agentCommand);

@@ -1,4 +1,4 @@
-# @1claw/cli (v0.37.4)
+# @1claw/cli (v0.40.1)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -200,7 +200,9 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
   --token-ttl 600 \                            # Update TTL
   --vault-ids <uuid> \                         # Update vault binding
   --shroud true \                              # Enable/disable Shroud LLM proxy
-  --intents-api true                           # Enable/disable Intents API
+  --intents-api true \                         # Enable/disable Intents API
+  --execution-intents true \                   # Enable/disable Execution Intents (Pro+)
+  --execution-guardrails '{"allowed_hosts":["api.example.com"]}'
 1claw agent delete <id>                        # Delete an agent
 1claw agent token <id>                         # Generate agent JWT (api_key only)
 1claw agent token <id> --quiet                 # Raw token (for piping)
@@ -208,6 +210,7 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
   --email human@example.com                    # Self-enroll (no auth needed)
 1claw agent create my-agent \
   --shroud \                                   # Enable Shroud LLM proxy
+  --execution-intents \                        # Enable Execution Intents (Pro+)
   --tx-to-allowlist 0x... \                    # Transaction guardrails
   --tx-max-value 0.1 \
   --tx-daily-limit 1.0 \
@@ -228,6 +231,38 @@ Lease short-lived Bankr wallet API keys from your org's partner key (`BANKR_PART
 1claw agent bankr-key list <agent-id>          # Active leases (no secrets)
 1claw agent bankr-key revoke <agent-id> <lease-id>
 ```
+
+### Execution Intents (bindings)
+
+Manage named credential handles and execute HTTP/GraphQL intents through the Vault proxy. Requires **Pro+** tier and `execution_intents_enabled` on the agent.
+
+```bash
+# Enable on an agent
+1claw agent update <agent-id> --execution-intents true
+1claw agent update <agent-id> --execution-guardrails '{"allowed_hosts":["api.example.com"],"max_duration_ms":30000}'
+
+# Bindings (human-only create/update/delete)
+1claw agent binding create <agent-id> \
+  --name github-api --type http \
+  --config '{"base_url":"https://api.github.com","auth_type":"bearer"}' \
+  --credential '{"token":"ghp_..."}'
+
+1claw agent binding list <agent-id>
+1claw agent binding get <agent-id> <binding-id>
+1claw agent binding update <agent-id> <binding-id> --guardrails '{"allowed_paths":["/repos/*"]}'
+1claw agent binding test <agent-id> <binding-id>
+1claw agent binding rotate-credential <agent-id> <binding-id> --credential '{"token":"ghp_new"}'
+1claw agent binding delete <agent-id> <binding-id>
+
+# Execute (agent or human token with execution_intents claim)
+1claw agent binding execute <agent-id> \
+  --binding github-api --intent-type http \
+  --params '{"method":"GET","path":"/user"}'
+
+1claw agent binding executions <agent-id>   # Audit log
+```
+
+Use `--config-file`, `--guardrails-file`, `--credential-file`, or `--params-file` instead of inline JSON when needed.
 
 ### Transactions (Intents API)
 
