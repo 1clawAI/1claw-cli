@@ -152,6 +152,9 @@ agentCommand
     .option('--tx-known-tokens-only', 'Only allow transfers of tokens in the known_tokens registry')
     .option('--xrpl-allowed-tx-types <types>', 'Comma-separated list of allowed XRP transaction types', (v: string) => v.split(',').map(s => s.trim()))
     .option('--per-chain-guardrails <json>', 'JSON object with per-chain guardrail overrides')
+    .option('--tx-max-per-day <n>', 'Max transactions per UTC calendar day')
+    .option('--tx-overhead-budget <json>', 'Per-chain daily overhead budget JSON (e.g. {"solana":"0.5","xrp":"100"})')
+    .option('--solana-ata-allowlist <addrs>', 'Comma-separated Solana addresses whose ATAs may be created', (v: string) => v.split(',').map(s => s.trim()))
     .action(async (name, opts) => {
         try {
             requireToken();
@@ -192,6 +195,12 @@ agentCommand
                 body.xrpl_allowed_tx_types = opts.xrplAllowedTxTypes;
             if (opts.perChainGuardrails)
                 body.per_chain_guardrails = JSON.parse(opts.perChainGuardrails);
+            if (opts.txMaxPerDay)
+                body.tx_max_per_day = parseInt(opts.txMaxPerDay, 10);
+            if (opts.txOverheadBudget)
+                body.tx_overhead_budget = JSON.parse(opts.txOverheadBudget);
+            if (opts.solanaAtaAllowlist)
+                body.solana_ata_allowlist = opts.solanaAtaAllowlist;
 
             const agent = await api<Agent & { api_key?: string }>("/agents", {
                 method: "POST",
@@ -594,6 +603,9 @@ agentCommand
     .option('--tx-known-tokens-only <bool>', 'Enable/disable known tokens only restriction (true/false)')
     .option('--xrpl-allowed-tx-types <types>', 'Comma-separated list of allowed XRP transaction types (use "" to clear)', (v: string) => v === '' ? '' : v.split(',').map(s => s.trim()))
     .option('--per-chain-guardrails <json>', 'JSON object with per-chain guardrail overrides (use "" to clear)')
+    .option('--tx-max-per-day <n>', 'Max transactions per UTC calendar day (use "" to clear)')
+    .option('--tx-overhead-budget <json>', 'Per-chain daily overhead budget JSON (use "" to clear)')
+    .option('--solana-ata-allowlist <addrs>', 'Comma-separated Solana addresses whose ATAs may be created (use "" to clear)', (v: string) => v === '' ? '' : v.split(',').map(s => s.trim()))
     .action(async (id, opts) => {
         try {
             requireToken();
@@ -668,6 +680,15 @@ agentCommand
             }
             if (opts.perChainGuardrails !== undefined) {
                 body.per_chain_guardrails = opts.perChainGuardrails === '' ? null : JSON.parse(opts.perChainGuardrails);
+            }
+            if (opts.txMaxPerDay !== undefined) {
+                body.tx_max_per_day = opts.txMaxPerDay === '' ? null : parseInt(opts.txMaxPerDay, 10);
+            }
+            if (opts.txOverheadBudget !== undefined) {
+                body.tx_overhead_budget = opts.txOverheadBudget === '' ? null : JSON.parse(opts.txOverheadBudget);
+            }
+            if (opts.solanaAtaAllowlist !== undefined) {
+                body.solana_ata_allowlist = opts.solanaAtaAllowlist === '' ? [] : opts.solanaAtaAllowlist;
             }
 
             if (Object.keys(body).length === 0) {

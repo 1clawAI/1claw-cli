@@ -216,7 +216,10 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
   --tx-to-allowlist 0x... \                    # Transaction guardrails
   --tx-max-value 0.1 \
   --tx-daily-limit 1.0 \
-  --tx-allowed-chains sepolia,base
+  --tx-allowed-chains sepolia,base \
+  --tx-max-per-day 100 \                       # Daily count cap
+  --tx-overhead-budget '{"solana":"0.5"}' \    # Non-value cost budget
+  --solana-ata-allowlist addr1,addr2           # ATA creation restriction
 ```
 
 The CLI's `agent create` always uses `auth_method=api_key` (default; returns an `ocv_` API key). To register an `mtls` or `oidc_client_credentials` agent, use the SDK or `POST /v1/agents` directly — those auth methods don't generate an API key.

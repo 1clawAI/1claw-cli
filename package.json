@@ -1,63 +1,63 @@
 {
-  "name": "@1claw/cli",
-  "version": "0.41.1",
-  "description": "CLI for 1Claw — secrets management for AI agents and humans",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/1clawAI/1claw-cli"
-  },
-  "homepage": "https://1claw.xyz",
-  "bin": {
-    "1claw": "./dist/bin/1claw.js"
-  },
-  "type": "module",
-  "exports": {
-    ".": "./dist/index.js"
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsc && node scripts/copy-assets.mjs",
-    "prepublishOnly": "npm run build",
-    "dev": "tsc --watch",
-    "start": "node dist/bin/1claw.js",
-    "test": "bash scripts/test-cli.sh",
-    "lint": "tsc --noEmit",
-    "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "chalk": "^5.4.1",
-    "commander": "^13.1.0",
-    "conf": "^13.1.0",
-    "inquirer": "^12.3.2",
-    "open": "^10.1.0",
-    "ora": "^8.2.0",
-    "yaml": "^2.9.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.13.4",
-    "typescript": "^5.7.3"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "keywords": [
-    "1claw",
-    "secrets",
-    "vault",
-    "cli",
-    "ai-agents",
-    "devops",
-    "ci-cd",
-    "npm",
-    "credentials",
-    "api-keys",
-    "mcp",
-    "zero-trust"
-  ]
+    "name": "@1claw/cli",
+    "version": "0.41.2",
+    "description": "CLI for 1Claw — secrets management for AI agents and humans",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/1clawAI/1claw-cli"
+    },
+    "homepage": "https://1claw.xyz",
+    "bin": {
+        "1claw": "./dist/bin/1claw.js"
+    },
+    "type": "module",
+    "exports": {
+        ".": "./dist/index.js"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc && node scripts/copy-assets.mjs",
+        "prepublishOnly": "npm run build",
+        "dev": "tsc --watch",
+        "start": "node dist/bin/1claw.js",
+        "test": "bash scripts/test-cli.sh",
+        "lint": "tsc --noEmit",
+        "clean": "rm -rf dist"
+    },
+    "dependencies": {
+        "chalk": "^5.4.1",
+        "commander": "^13.1.0",
+        "conf": "^13.1.0",
+        "inquirer": "^12.3.2",
+        "open": "^10.1.0",
+        "ora": "^8.2.0",
+        "yaml": "^2.9.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.13.4",
+        "typescript": "^5.7.3"
+    },
+    "engines": {
+        "node": ">=20"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "keywords": [
+        "1claw",
+        "secrets",
+        "vault",
+        "cli",
+        "ai-agents",
+        "devops",
+        "ci-cd",
+        "npm",
+        "credentials",
+        "api-keys",
+        "mcp",
+        "zero-trust"
+    ]
 }
