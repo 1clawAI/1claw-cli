@@ -12,6 +12,13 @@ import {
     formatDate,
 } from "../output.js";
 
+interface CredentialSource {
+    type: "inline" | "vault_ref";
+    value?: Record<string, unknown>;
+    vault_id?: string;
+    path?: string;
+}
+
 interface Binding {
     id: string;
     agent_id: string;
@@ -21,6 +28,9 @@ interface Binding {
     guardrails?: Record<string, unknown>;
     is_active: boolean;
     credential_set?: boolean;
+    credential_source_type?: "inline" | "vault_ref" | null;
+    credential_vault_id?: string | null;
+    credential_path?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -41,6 +51,24 @@ interface ExecutionEvent {
     status: string;
     execution_surface?: string;
     created_at: string;
+}
+
+function parseVaultRef(raw: string | undefined): CredentialSource | undefined {
+    if (!raw) return undefined;
+    const colonIdx = raw.indexOf(":");
+    if (colonIdx === -1) {
+        throw new Error(
+            "Invalid --vault-ref format. Expected <vault-id>:<path> (e.g. 550e8400-...:secrets/api-key)",
+        );
+    }
+    const vaultId = raw.slice(0, colonIdx);
+    const path = raw.slice(colonIdx + 1);
+    if (!vaultId || !path) {
+        throw new Error(
+            "Invalid --vault-ref format. Both vault ID and path are required (e.g. <vault-id>:<path>)",
+        );
+    }
+    return { type: "vault_ref", vault_id: vaultId, path };
 }
 
 function parseJsonOption(raw: string | undefined, label: string): Record<string, unknown> | undefined {
@@ -90,6 +118,10 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
         .option("--guardrails-file <path>", "Path to guardrails JSON file")
         .option("--credential <json>", "Credential JSON (write-only; not returned on read)")
         .option("--credential-file <path>", "Path to credential JSON file")
+        .option(
+            "--vault-ref <vault-id:path>",
+            "Live-pointer credential source — reference a vault secret instead of inline credential (e.g. <vault-id>:secrets/api-key)",
+        )
         .option("--json", "Output as JSON")
         .action(async (agentId: string, opts) => {
             try {
@@ -101,9 +133,19 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                 const config = resolveJson(opts.config, opts.configFile, "config");
                 const guardrails = resolveJson(opts.guardrails, opts.guardrailsFile, "guardrails");
                 const credential = resolveJson(opts.credential, opts.credentialFile, "credential");
+                const vaultRef = parseVaultRef(opts.vaultRef);
+
+                if (vaultRef && credential) {
+                    throw new Error("Cannot use both --credential and --vault-ref. Choose one credential source.");
+                }
+
                 if (config) body.config = config;
                 if (guardrails) body.guardrails = guardrails;
-                if (credential) body.credential = credential;
+                if (vaultRef) {
+                    body.credential_source = vaultRef;
+                } else if (credential) {
+                    body.credential = credential;
+                }
 
                 const result = await api<Binding>(`/agents/${agentId}/bindings`, {
                     method: "POST",
@@ -114,11 +156,15 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                     return;
                 }
                 printSuccess(`Binding ${chalk.bold(result.name)} created`);
-                printKeyValue([
+                const rows: [string, string][] = [
                     ["ID", result.id],
                     ["Type", result.binding_type],
                     ["Credential set", result.credential_set ? "yes" : "no"],
-                ]);
+                ];
+                if (result.credential_source_type === "vault_ref") {
+                    rows.push(["Credential source", `vault_ref → ${result.credential_vault_id}:${result.credential_path}`]);
+                }
+                printKeyValue(rows);
             } catch (err) {
                 handleError(err);
             }
@@ -181,17 +227,25 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                     printJson(result);
                     return;
                 }
-                printKeyValue([
+                const rows: [string, string][] = [
                     ["ID", result.id],
                     ["Name", result.name],
                     ["Type", result.binding_type],
                     ["Active", result.is_active ? "yes" : "no"],
                     ["Credential set", result.credential_set ? "yes" : "no"],
+                ];
+                if (result.credential_source_type === "vault_ref") {
+                    rows.push(["Credential source", `vault_ref → ${result.credential_vault_id}:${result.credential_path}`]);
+                } else if (result.credential_source_type === "inline") {
+                    rows.push(["Credential source", "inline (stored in __agent-keys)"]);
+                }
+                rows.push(
                     ["Config", JSON.stringify(result.config ?? {})],
                     ["Guardrails", JSON.stringify(result.guardrails ?? {})],
                     ["Created", formatDate(result.created_at, "long")],
                     ["Updated", formatDate(result.updated_at, "long")],
-                ]);
+                );
+                printKeyValue(rows);
             } catch (err) {
                 handleError(err);
             }
@@ -199,11 +253,17 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
 
     bindingCommand
         .command("update <agent-id> <binding-id>")
-        .description("Update binding config, guardrails, or active status")
+        .description("Update binding config, guardrails, credential source, or active status")
         .option("--config <json>", "Updated config JSON")
         .option("--config-file <path>", "Path to config JSON file")
         .option("--guardrails <json>", "Updated guardrails JSON")
         .option("--guardrails-file <path>", "Path to guardrails JSON file")
+        .option("--credential <json>", "Updated credential JSON (inline)")
+        .option("--credential-file <path>", "Path to credential JSON file")
+        .option(
+            "--vault-ref <vault-id:path>",
+            "Switch to a live-pointer credential source (e.g. <vault-id>:secrets/api-key)",
+        )
         .option("--active <bool>", "Set is_active (true/false)")
         .option("--json", "Output as JSON")
         .action(async (agentId: string, bindingId: string, opts) => {
@@ -212,8 +272,20 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                 const body: Record<string, unknown> = {};
                 const config = resolveJson(opts.config, opts.configFile, "config");
                 const guardrails = resolveJson(opts.guardrails, opts.guardrailsFile, "guardrails");
+                const credential = resolveJson(opts.credential, opts.credentialFile, "credential");
+                const vaultRef = parseVaultRef(opts.vaultRef);
+
+                if (vaultRef && credential) {
+                    throw new Error("Cannot use both --credential and --vault-ref. Choose one credential source.");
+                }
+
                 if (config) body.config = config;
                 if (guardrails) body.guardrails = guardrails;
+                if (vaultRef) {
+                    body.credential_source = vaultRef;
+                } else if (credential) {
+                    body.credential = credential;
+                }
                 if (opts.active !== undefined) body.is_active = opts.active === "true";
 
                 const result = await api<Binding>(

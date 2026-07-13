@@ -1,4 +1,4 @@
-# @1claw/cli (v0.40.1)
+# @1claw/cli (v0.41.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -247,9 +247,16 @@ Manage named credential handles and execute HTTP/GraphQL intents through the Vau
   --config '{"base_url":"https://api.github.com","auth_type":"bearer"}' \
   --credential '{"token":"ghp_..."}'
 
+# Use a vault secret as a live-pointer credential (resolved at execution time)
+1claw agent binding create <agent-id> \
+  --name stripe-api --type http \
+  --config '{"base_url":"https://api.stripe.com","auth_type":"bearer"}' \
+  --vault-ref <vault-id>:secrets/stripe-key
+
 1claw agent binding list <agent-id>
 1claw agent binding get <agent-id> <binding-id>
 1claw agent binding update <agent-id> <binding-id> --guardrails '{"allowed_paths":["/repos/*"]}'
+1claw agent binding update <agent-id> <binding-id> --vault-ref <vault-id>:secrets/new-key
 1claw agent binding test <agent-id> <binding-id>
 1claw agent binding rotate-credential <agent-id> <binding-id> --credential '{"token":"ghp_new"}'
 1claw agent binding delete <agent-id> <binding-id>
@@ -263,6 +270,12 @@ Manage named credential handles and execute HTTP/GraphQL intents through the Vau
 ```
 
 Use `--config-file`, `--guardrails-file`, `--credential-file`, or `--params-file` instead of inline JSON when needed.
+
+**Credential sources:** Bindings support two credential modes:
+- **Inline** (default): `--credential '{"token":"..."}'` — the value is stored in the `__agent-keys` vault.
+- **Vault ref** (live pointer): `--vault-ref <vault-id>:<path>` — references an existing vault secret. The credential is resolved at execution time and always uses the latest version. Useful for secrets that rotate independently or are shared across multiple bindings.
+
+You cannot use both `--credential` and `--vault-ref` on the same command.
 
 ### Transactions (Intents API)
 
