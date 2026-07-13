@@ -211,6 +211,8 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
 1claw agent create my-agent \
   --shroud \                                   # Enable Shroud LLM proxy
   --execution-intents \                        # Enable Execution Intents (Pro+)
+  --intents-require-tee \                      # TEE-only signing (Pro+)
+  --execution-require-tee \                    # TEE-only execution (Pro+)
   --tx-to-allowlist 0x... \                    # Transaction guardrails
   --tx-max-value 0.1 \
   --tx-daily-limit 1.0 \

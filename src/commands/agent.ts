@@ -50,6 +50,8 @@ interface Agent {
     intents_api_enabled: boolean;
     execution_intents_enabled?: boolean;
     execution_guardrails?: Record<string, unknown>;
+    intents_require_tee?: boolean;
+    execution_require_tee?: boolean;
     tx_to_allowlist?: string[];
     tx_max_value?: string;
     tx_daily_limit?: string;
@@ -121,6 +123,8 @@ agentCommand
         "--execution-guardrails <json>",
         "Agent execution guardrails JSON (allowed_hosts, allowed_binding_types, max_duration_ms, …)",
     )
+    .option("--intents-require-tee", "Enforce TEE-only transaction signing (Business+)")
+    .option("--execution-require-tee", "Enforce TEE-only execution and block all direct secret reads (Business+)")
     .option("--shroud", "Enable Shroud LLM Proxy")
     .option(
         "--tx-to-allowlist <addrs>",
@@ -159,6 +163,8 @@ agentCommand
             if (opts.executionIntents) body.execution_intents_enabled = true;
             if (opts.executionGuardrails)
                 body.execution_guardrails = JSON.parse(opts.executionGuardrails);
+            if (opts.intentsRequireTee) body.intents_require_tee = true;
+            if (opts.executionRequireTee) body.execution_require_tee = true;
             if (opts.shroud) body.shroud_enabled = true;
             if (opts.txToAllowlist)
                 body.tx_to_allowlist = opts.txToAllowlist
@@ -309,6 +315,14 @@ agentCommand
                 [
                     "Execution Intents",
                     agent.execution_intents_enabled ? "enabled" : "disabled",
+                ],
+                [
+                    "TEE Tx Enforcement",
+                    agent.intents_require_tee ? chalk.green("enforced") : chalk.dim("off"),
+                ],
+                [
+                    "TEE Exec Enforcement",
+                    agent.execution_require_tee ? chalk.green("enforced") : chalk.dim("off"),
                 ],
                 [
                     "Shroud LLM Proxy",
@@ -544,6 +558,8 @@ agentCommand
         '--execution-guardrails <json>',
         'Agent execution guardrails JSON (use "" to clear)',
     )
+    .option("--intents-require-tee <bool>", "Enforce TEE-only transaction signing (true/false; Business+)")
+    .option("--execution-require-tee <bool>", "Enforce TEE-only execution (true/false; Business+)")
     .option("--shroud <bool>", "Enable/disable Shroud LLM Proxy (true/false)")
     .option(
         "--tx-to-allowlist <addrs>",
@@ -593,6 +609,10 @@ agentCommand
                         ? {}
                         : JSON.parse(opts.executionGuardrails);
             }
+            if (opts.intentsRequireTee !== undefined)
+                body.intents_require_tee = opts.intentsRequireTee === "true";
+            if (opts.executionRequireTee !== undefined)
+                body.execution_require_tee = opts.executionRequireTee === "true";
             if (opts.shroud !== undefined)
                 body.shroud_enabled = opts.shroud === "true";
             if (opts.active !== undefined)
