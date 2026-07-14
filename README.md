@@ -1,4 +1,4 @@
-# @1claw/cli (v0.41.0)
+# @1claw/cli (v0.41.3)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -235,6 +235,44 @@ Lease short-lived Bankr wallet API keys from your org's partner key (`BANKR_PART
 1claw agent bankr-key lease <agent-id> --ttl 600 --wallet wlt_abc123
 1claw agent bankr-key list <agent-id>          # Active leases (no secrets)
 1claw agent bankr-key revoke <agent-id> <lease-id>
+```
+
+### Payment Cards (x402 card ordering)
+
+Order prepaid and gift cards via x402 micropayments. The agent's USDC signing key on Base pays Laso; the PAN/CVV are never exposed to the agent.
+
+```bash
+# Order a prepaid card ($5 USD)
+1claw card order <agent-id> --kind prepaid --amount 5.00
+
+# Order a gift card
+1claw card order <agent-id> --kind gift_card --amount 25.00 --server-id <laso-server-id>
+
+# List cards (masked — last4 only)
+1claw card list
+
+# Get card status
+1claw card get <card-id>
+
+# Reveal card details (human-only, requires password re-auth)
+1claw card reveal <card-id>
+
+# Void a card (blocks future reveals)
+1claw card void <card-id>
+
+# Refresh balance from issuer
+1claw card refresh <card-id>
+
+# Import a card manually (human-only)
+1claw card import --pan 4111111111111111 --cvv 123 --exp-month 12 --exp-year 2028 --brand visa --currency USD
+```
+
+Ordering guardrails (human-set per agent):
+
+```bash
+1claw agent update <agent-id> --cards-enabled true
+1claw agent update <agent-id> --card-max-order-usd 100
+1claw agent update <agent-id> --card-daily-limit-usd 500
 ```
 
 ### Execution Intents (bindings)

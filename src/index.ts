@@ -20,6 +20,7 @@ import { vaultCommand } from "./commands/vault.js";
 import { secretCommand } from "./commands/secret.js";
 import { envCommand } from "./commands/env.js";
 import { agentCommand } from "./commands/agent.js";
+import { cardCommand } from "./commands/card.js";
 import { policyCommand } from "./commands/policy.js";
 import { shareCommand } from "./commands/share.js";
 import { billingCommand } from "./commands/billing.js";
@@ -76,6 +77,7 @@ export function createProgram(): Command {
     program.addCommand(secretCommand);
     program.addCommand(envCommand);
     program.addCommand(agentCommand);
+    program.addCommand(cardCommand);
     program.addCommand(policyCommand);
 
     // Sharing
