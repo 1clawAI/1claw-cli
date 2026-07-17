@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { existsSync, cpSync, mkdirSync, readdirSync } from "node:fs";
 import { api } from "../client.js";
 import {
     printSuccess,
@@ -51,6 +52,8 @@ interface SpawnOptions {
     refresh?: boolean;
     port: string;
     name?: string;
+    output?: string;
+    noCopy?: boolean;
     local?: boolean;
     agentKey?: string;
     detach?: boolean;
@@ -68,6 +71,8 @@ export const spawnCommand = new Command("spawn")
     .argument("[template]", "Template name (e.g. langchain, crewai, openai-agents)")
     .option("--list", "List all available templates and exit")
     .option("--refresh", "Force-refresh the template registry from GitHub")
+    .option("--output <dir>", "Project directory to copy template into (default: ./<template>)")
+    .option("--no-copy", "Skip copying template files locally (container-only)")
     .option("--port <port>", "Chat UI port", "3000")
     .option("--name <name>", "Container name (default: auto-generated)")
     .option("--local", "Fully offline — no cloud provisioning")
@@ -327,16 +332,52 @@ async function spawnAction(
         }
     }
 
+    // ── Copy template to project directory (default behavior) ──────
+    // By default, spawn copies the template into a local project folder
+    // so you can edit the source. Use --no-copy to skip this step.
+    let projectDir: string | null = null;
+    const shouldCopy = opts.noCopy !== true;
+
+    if (shouldCopy) {
+        const targetDir = opts.output
+            ? resolve(opts.output)
+            : resolve(process.cwd(), manifest.name);
+
+        if (existsSync(targetDir) && readdirSync(targetDir).length > 0) {
+            throw new Error(
+                `Directory "${targetDir}" already exists and is not empty. ` +
+                    `Use --output to specify a different path, or --no-copy to skip.`,
+            );
+        }
+
+        mkdirSync(targetDir, { recursive: true });
+        cpSync(templateDir, targetDir, { recursive: true });
+        projectDir = targetDir;
+
+        // Initialize a fresh git repo so the user can track changes
+        try {
+            const { execSync } = await import("node:child_process");
+            execSync("git init", { cwd: targetDir, stdio: "ignore" });
+        } catch {
+            // git not installed — non-fatal
+        }
+
+        printSuccess(`Project scaffolded → ${projectDir}`);
+    }
+
+    // Use the local project dir as build context when available
+    const buildContext = projectDir ?? templateDir;
+
     // ── Build template image ─────────────────────────────────────────
     const imageTag = `1claw/${manifest.name}:${manifest.version}`;
-    const dockerfilePath = join(templateDir, "Dockerfile");
+    const dockerfilePath = join(buildContext, "Dockerfile");
 
     const buildSpinner = ora(
         `Building ${manifest.display_name} image...`,
     ).start();
     try {
         await dockerBuild({
-            context: templateDir,
+            context: buildContext,
             dockerfile: dockerfilePath,
             tag: imageTag,
             onProgress: (line) => {
@@ -501,6 +542,7 @@ async function spawnAction(
 
     printSummaryBox([
         ["Template", `${manifest.display_name} (${manifest.name})`],
+        ["Project", projectDir ?? chalk.dim("(not copied — --no-copy)")],
         ["Container", containerName],
         ["Agent", agentId ?? chalk.dim("local")],
         ["Vault", vaultId ?? undefined],
@@ -519,6 +561,9 @@ async function spawnAction(
         console.log();
     }
 
+    if (projectDir) {
+        console.log(chalk.dim(`  edit:  cd ${projectDir}`));
+    }
     console.log(chalk.dim(`  logs:  1claw containers logs ${containerName}`));
     console.log(
         chalk.dim(`  stop:  1claw containers stop ${containerName}`),
