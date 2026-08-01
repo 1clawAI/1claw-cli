@@ -612,3 +612,109 @@ platformCommand
             handleError(err);
         }
     });
+
+// ── Platform delegation commands ────────────────────────────────────────
+
+platformCommand
+    .command("resources <connectionId>")
+    .description("List all platform-managed resources for a connection")
+    .option("--json", "Output raw JSON")
+    .hook("preAction", requireToken)
+    .action(async (connectionId: string, opts: { json?: boolean }) => {
+        try {
+            const result = await api<Record<string, unknown[]>>(
+                `/platform/connections/${connectionId}/resources`,
+                { headers: { "X-Platform-Connection": connectionId } },
+            );
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            for (const [type, items] of Object.entries(result)) {
+                if (Array.isArray(items) && items.length > 0) {
+                    console.log(chalk.bold(`\n${type} (${items.length})`));
+                    for (const item of items) {
+                        const rec = item as Record<string, unknown>;
+                        console.log(
+                            `  ${rec.id}${rec.name ? ` — ${rec.name}` : ""}`,
+                        );
+                    }
+                }
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("delegation-log <connectionId>")
+    .description("View the delegation audit log for a connection")
+    .option("--limit <n>", "Max entries", "20")
+    .option("--offset <n>", "Skip entries", "0")
+    .option("--json", "Output raw JSON")
+    .hook("preAction", requireToken)
+    .action(
+        async (
+            connectionId: string,
+            opts: { limit: string; offset: string; json?: boolean },
+        ) => {
+            try {
+                const result = await api<{
+                    entries: Array<{
+                        id: string;
+                        action: string;
+                        resource_type?: string;
+                        resource_id?: string;
+                        success: boolean;
+                        created_at: string;
+                    }>;
+                    total: number;
+                }>(
+                    `/platform/connections/${connectionId}/delegation-log?limit=${opts.limit}&offset=${opts.offset}`,
+                );
+
+                if (opts.json) {
+                    printJson(result);
+                    return;
+                }
+
+                if (result.entries.length === 0) {
+                    console.log("No delegation log entries.");
+                    return;
+                }
+
+                printTable(
+                    ["Action", "Resource", "Success", "Date"],
+                    result.entries.map((e) => [
+                        e.action,
+                        e.resource_type
+                            ? `${e.resource_type}/${e.resource_id ?? ""}`
+                            : "—",
+                        e.success ? "✓" : "✗",
+                        formatDate(e.created_at),
+                    ]),
+                );
+                console.log(chalk.dim(`Total: ${result.total}`));
+            } catch (err) {
+                handleError(err);
+            }
+        },
+    );
+
+platformCommand
+    .command("exec")
+    .description(
+        "Execute a CLI command in the delegated context of a platform connection",
+    )
+    .requiredOption("--connection <id>", "Connection ID to delegate through")
+    .allowUnknownOption(true)
+    .action(async (_opts: { connection: string }) => {
+        console.log(
+            chalk.yellow(
+                "platform exec: use the SDK's withConnection() for programmatic delegation.\n" +
+                    "CLI exec support requires process-level env forwarding — use the SDK instead.",
+            ),
+        );
+    });

@@ -1,4 +1,4 @@
-# @1claw/cli (v0.41.3)
+# @1claw/cli (v0.42.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -642,6 +642,69 @@ Manage registered mobile companion app devices.
 ```bash
 1claw device list                              # List registered devices
 1claw device revoke <device-id>                # Revoke a device
+```
+
+### Automations
+
+Create, manage, and trigger automation workflows for agents.
+
+```bash
+1claw automation list                          # List all automations
+1claw automation create my-automation \
+  --agent-id <uuid> \
+  --trigger schedule \
+  --schedule "*/15 * * * *" \
+  --action-type http_request \
+  --action-config '{"url":"https://api.example.com/check"}'
+1claw automation get <id>                      # Get automation details
+1claw automation update <id> --name new-name   # Update automation
+1claw automation trigger <id>                  # Manually trigger
+1claw automation runs <id>                     # List recent runs
+1claw automation delete <id>                   # Delete automation
+```
+
+### Runtimes
+
+Deploy and manage cloud runtime containers for agents.
+
+```bash
+1claw runtime list                             # List all runtimes
+1claw runtime create my-runtime \
+  --agent-id <uuid> \
+  --template python-agent \
+  --preset small                               # 0.5 vCPU / 512 MB
+1claw runtime get <id>                         # Get runtime details + status
+1claw runtime update <id> --idle-timeout 600   # Update idle timeout
+1claw runtime start <id>                       # Start a stopped runtime
+1claw runtime stop <id>                        # Stop a running runtime
+1claw runtime logs <id>                        # Get recent logs
+1claw runtime logs <id> --tail 100             # Last 100 lines
+1claw runtime delete <id>                      # Delete runtime
+1claw runtime slug-check my-agent              # Check slug availability
+```
+
+### Agent Memory
+
+Store and retrieve agent memory (scratch, durable, semantic).
+
+```bash
+1claw memory put <agent-id> context/user-prefs '{"theme":"dark"}'
+1claw memory get <agent-id> context/user-prefs
+1claw memory list <agent-id>                   # List namespaces
+1claw memory list <agent-id> context           # List entries in namespace
+1claw memory delete <agent-id> context/user-prefs
+1claw memory search <agent-id> context "user preferences for dark mode"
+```
+
+### Discovery
+
+Browse the public agent directory and manage agent discoverability.
+
+```bash
+1claw directory search                         # Browse all discoverable agents
+1claw directory search --query "trading bot"   # Search by keyword
+1claw directory search --tags defi,solana       # Filter by tags
+1claw directory card <agent-id>                # View an agent's public card
 ```
 
 ### Configuration

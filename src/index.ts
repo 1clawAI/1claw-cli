@@ -43,6 +43,10 @@ import { publishCommand } from "./commands/publish.js";
 import { ejectCommand } from "./commands/eject.js";
 import { containersCommand } from "./commands/containers.js";
 import { deployCommand } from "./commands/deploy.js";
+import { automationCommand } from "./commands/automation.js";
+import { memoryCommand } from "./commands/memory.js";
+import { runtimeCommand } from "./commands/runtime.js";
+import { directoryCommand } from "./commands/directory.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -122,6 +126,12 @@ export function createProgram(): Command {
     // Mobile companion
     program.addCommand(deviceCommand);
     program.addCommand(approvalCommand);
+
+    // Automations, Memory & Runtimes
+    program.addCommand(automationCommand);
+    program.addCommand(memoryCommand);
+    program.addCommand(runtimeCommand);
+    program.addCommand(directoryCommand);
 
     // Global options
     program.option("--json", "Force JSON output for all commands");
