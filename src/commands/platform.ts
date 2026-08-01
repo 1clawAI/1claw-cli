@@ -619,7 +619,7 @@ platformCommand
     .command("resources <connectionId>")
     .description("List all platform-managed resources for a connection")
     .option("--json", "Output raw JSON")
-    .hook("preAction", requireToken)
+    .hook("preAction", () => { requireToken(); })
     .action(async (connectionId: string, opts: { json?: boolean }) => {
         try {
             const result = await api<Record<string, unknown[]>>(
@@ -654,7 +654,7 @@ platformCommand
     .option("--limit <n>", "Max entries", "20")
     .option("--offset <n>", "Skip entries", "0")
     .option("--json", "Output raw JSON")
-    .hook("preAction", requireToken)
+    .hook("preAction", () => { requireToken(); })
     .action(
         async (
             connectionId: string,
@@ -686,15 +686,20 @@ platformCommand
                 }
 
                 printTable(
-                    ["Action", "Resource", "Success", "Date"],
-                    result.entries.map((e) => [
-                        e.action,
-                        e.resource_type
+                    result.entries.map((e) => ({
+                        action: e.action,
+                        resource: e.resource_type
                             ? `${e.resource_type}/${e.resource_id ?? ""}`
                             : "—",
-                        e.success ? "✓" : "✗",
-                        formatDate(e.created_at),
-                    ]),
+                        success: e.success ? "✓" : "✗",
+                        date: formatDate(e.created_at),
+                    })),
+                    [
+                        { key: "action", header: "Action", width: 24 },
+                        { key: "resource", header: "Resource", width: 30 },
+                        { key: "success", header: "Success", width: 8 },
+                        { key: "date", header: "Date", width: 20 },
+                    ],
                 );
                 console.log(chalk.dim(`Total: ${result.total}`));
             } catch (err) {

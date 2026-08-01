@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import chalk from "chalk";
-import { api } from "../client.js";
+import { apiNoAuth } from "../client.js";
 import { handleError } from "../middleware.js";
 import { printTable, printKeyValue, printJson } from "../output.js";
 
@@ -15,23 +15,14 @@ export const directoryCommand = new Command("directory")
             .option("--json", "Output as JSON")
             .action(async (query, opts) => {
                 try {
-                    const params = new URLSearchParams();
-                    if (query) params.set("q", query);
-                    if (opts.tags) params.set("tags", opts.tags);
-                    params.set("page", opts.page);
-                    params.set("page_size", "20");
-                    const qs = params.toString();
+                    const params: Record<string, string> = {
+                        page: opts.page,
+                        page_size: "20",
+                    };
+                    if (query) params.q = query;
+                    if (opts.tags) params.tags = opts.tags;
 
-                    const result = await api.get(
-                        `/v1/agents/directory${qs ? `?${qs}` : ""}`,
-                    );
-
-                    if (opts.json) {
-                        printJson(result);
-                        return;
-                    }
-
-                    const data = result as {
+                    const data = await apiNoAuth<{
                         agents: Array<{
                             id: string;
                             name: string;
@@ -42,7 +33,12 @@ export const directoryCommand = new Command("directory")
                         }>;
                         total: number;
                         page: number;
-                    };
+                    }>("/agents/directory", { query: params });
+
+                    if (opts.json) {
+                        printJson(data);
+                        return;
+                    }
 
                     if (data.agents.length === 0) {
                         console.log(chalk.yellow("No agents found."));
@@ -56,14 +52,20 @@ export const directoryCommand = new Command("directory")
                     );
 
                     printTable(
-                        ["Name", "ID", "Capabilities", "Tags", "A2A URL"],
-                        data.agents.map((a) => [
-                            a.name,
-                            a.id.slice(0, 8) + "...",
-                            a.capabilities.join(", "),
-                            a.tags.join(", "),
-                            a.a2a_url ?? "-",
-                        ]),
+                        data.agents.map((a) => ({
+                            name: a.name,
+                            id: a.id.slice(0, 8) + "...",
+                            capabilities: a.capabilities.join(", "),
+                            tags: a.tags.join(", "),
+                            a2a_url: a.a2a_url ?? "-",
+                        })),
+                        [
+                            { key: "name", header: "Name", width: 24 },
+                            { key: "id", header: "ID", width: 12 },
+                            { key: "capabilities", header: "Capabilities", width: 30 },
+                            { key: "tags", header: "Tags", width: 20 },
+                            { key: "a2a_url", header: "A2A URL", width: 30 },
+                        ],
                     );
                 } catch (err) {
                     handleError(err);
@@ -77,16 +79,7 @@ export const directoryCommand = new Command("directory")
             .option("--json", "Output as JSON")
             .action(async (agentId, opts) => {
                 try {
-                    const result = await api.get(
-                        `/v1/agents/${agentId}/card`,
-                    );
-
-                    if (opts.json) {
-                        printJson(result);
-                        return;
-                    }
-
-                    const card = result as {
+                    const card = await apiNoAuth<{
                         id: string;
                         name: string;
                         description: string;
@@ -94,7 +87,12 @@ export const directoryCommand = new Command("directory")
                         a2a_url?: string;
                         mcp_url?: string;
                         capabilities: string[];
-                    };
+                    }>(`/agents/${agentId}/card`);
+
+                    if (opts.json) {
+                        printJson(card);
+                        return;
+                    }
 
                     printKeyValue([
                         ["Name", card.name],
