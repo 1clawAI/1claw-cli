@@ -47,6 +47,8 @@ import { automationCommand } from "./commands/automation.js";
 import { memoryCommand } from "./commands/memory.js";
 import { runtimeCommand } from "./commands/runtime.js";
 import { directoryCommand } from "./commands/directory.js";
+import { chatCommand } from "./commands/chat.js";
+import { channelCommand } from "./commands/channel.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -132,6 +134,10 @@ export function createProgram(): Command {
     program.addCommand(memoryCommand);
     program.addCommand(runtimeCommand);
     program.addCommand(directoryCommand);
+
+    // Agent Communication
+    program.addCommand(chatCommand);
+    program.addCommand(channelCommand);
 
     // Global options
     program.option("--json", "Force JSON output for all commands");
