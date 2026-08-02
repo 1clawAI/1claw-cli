@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 
+import type { RuntimePreset } from "./docker-client.js";
+
 const CONFIG_DIR =
     process.env.ONECLAW_CONFIG_DIR || join(homedir(), ".config", "1claw");
 
@@ -169,3 +171,62 @@ export async function findAvailablePort(start: number): Promise<number> {
 
 /** Label namespace applied to every CLI-managed container. */
 export const MANAGED_LABEL = "1claw.managed";
+
+// --- Security hardening configuration ---
+
+export interface ContainerSecurityConfig {
+    preset: RuntimePreset;
+    memory: string;
+    cpus: string;
+    pidsLimit: number;
+    tmpfsSizeMb: number;
+    readOnly: boolean;
+    noNewPrivileges: boolean;
+    user: string;
+}
+
+const SECURITY_CONFIGS: Record<RuntimePreset, ContainerSecurityConfig> = {
+    small: {
+        preset: "small",
+        memory: "512m",
+        cpus: "0.5",
+        pidsLimit: 256,
+        tmpfsSizeMb: 256,
+        readOnly: true,
+        noNewPrivileges: true,
+        user: "65534:65534",
+    },
+    medium: {
+        preset: "medium",
+        memory: "1g",
+        cpus: "1",
+        pidsLimit: 256,
+        tmpfsSizeMb: 256,
+        readOnly: true,
+        noNewPrivileges: true,
+        user: "65534:65534",
+    },
+    large: {
+        preset: "large",
+        memory: "4g",
+        cpus: "2",
+        pidsLimit: 256,
+        tmpfsSizeMb: 256,
+        readOnly: true,
+        noNewPrivileges: true,
+        user: "65534:65534",
+    },
+};
+
+export function getContainerSecurityConfig(preset: RuntimePreset): ContainerSecurityConfig {
+    return SECURITY_CONFIGS[preset];
+}
+
+export function isValidPreset(value: string): value is RuntimePreset {
+    return value === "small" || value === "medium" || value === "large";
+}
+
+export const ISOLATED_NETWORK_NAME = "1claw-isolated";
+
+export const DEFAULT_SIDECAR_PORT = 8080;
+export const DEFAULT_HEALTH_CHECK_INTERVAL = 5;

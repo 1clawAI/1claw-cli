@@ -9,6 +9,16 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
  * values (image names, env values, tags) cannot inject shell metacharacters.
  */
 
+export type RuntimePreset = "small" | "medium" | "large";
+
+const PRESET_RESOURCE_LIMITS: Record<RuntimePreset, { memory: string; cpus: string }> = {
+    small: { memory: "512m", cpus: "0.5" },
+    medium: { memory: "1g", cpus: "1" },
+    large: { memory: "4g", cpus: "2" },
+};
+
+const ISOLATED_NETWORK = "1claw-isolated";
+
 export interface DockerRunOptions {
     image: string;
     name: string;
@@ -20,6 +30,10 @@ export interface DockerRunOptions {
     detach: boolean;
     restart?: string;
     labels?: Record<string, string>;
+    /** Runtime preset for resource limits. Defaults to "small". */
+    preset?: RuntimePreset;
+    /** Skip network isolation (container gets full internet access). */
+    allowInternet?: boolean;
 }
 
 export interface DockerBuildOptions {
@@ -190,9 +204,53 @@ export async function dockerBuild(opts: DockerBuildOptions): Promise<string> {
     return stdout.trim();
 }
 
+/**
+ * Ensure the isolated Docker network exists. Creates it as an internal
+ * bridge (no outbound internet) if missing.
+ */
+export async function ensureIsolatedNetwork(): Promise<void> {
+    try {
+        await run(["network", "inspect", ISOLATED_NETWORK]);
+    } catch {
+        await run([
+            "network", "create",
+            "--driver", "bridge",
+            "--internal",
+            ISOLATED_NETWORK,
+        ]);
+    }
+}
+
 export async function dockerRun(opts: DockerRunOptions): Promise<string> {
+    const preset = opts.preset ?? "small";
+    const { memory: memoryLimit, cpus: cpuLimit } = PRESET_RESOURCE_LIMITS[preset];
+
     const args = ["run", "--name", opts.name];
-    args.push(opts.detach ? "-d" : "-d"); // always detached; logs streamed separately
+    args.push("-d"); // always detached; logs streamed separately
+
+    // --- Security hardening flags ---
+    args.push(
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--read-only",
+        "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m",
+        "--tmpfs", "/run:rw,noexec,nosuid,size=64m",
+        "--user", "65534:65534",
+        "--pids-limit", "256",
+        "--memory", memoryLimit,
+        "--cpus", cpuLimit,
+    );
+
+    // --- Network isolation ---
+    if (!opts.allowInternet) {
+        await ensureIsolatedNetwork();
+        args.push("--network", ISOLATED_NETWORK);
+    } else {
+        process.stderr.write(
+            "[1claw] WARNING: --allow-internet is set; container has unrestricted network access.\n",
+        );
+    }
+
     if (opts.restart) args.push("--restart", opts.restart);
     for (const [host, container] of Object.entries(opts.ports)) {
         args.push("-p", `${host}:${container}`);
