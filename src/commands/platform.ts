@@ -714,12 +714,53 @@ platformCommand
         "Execute a CLI command in the delegated context of a platform connection",
     )
     .requiredOption("--connection <id>", "Connection ID to delegate through")
+    .argument(
+        "[command...]",
+        "CLI subcommand to run (e.g. agent create --name bot)",
+    )
     .allowUnknownOption(true)
-    .action(async (_opts: { connection: string }) => {
-        console.log(
-            chalk.yellow(
-                "platform exec: use the SDK's withConnection() for programmatic delegation.\n" +
-                    "CLI exec support requires process-level env forwarding — use the SDK instead.",
-            ),
-        );
+    .passThroughOptions()
+    .action(async (commandParts: string[], opts: { connection: string }) => {
+        try {
+            requireToken();
+            const parts =
+                commandParts[0] === "--" ? commandParts.slice(1) : commandParts;
+            if (parts.length === 0) {
+                console.error(
+                    chalk.red(
+                        "Usage: 1claw platform exec --connection <id> -- <command> [args...]\n" +
+                            'Example: 1claw platform exec --connection abc -- agent list',
+                    ),
+                );
+                process.exit(1);
+            }
+
+            const { spawn } = await import("node:child_process");
+            const cliEntry = process.argv[1];
+            const child = spawn(
+                process.execPath,
+                [cliEntry, ...parts],
+                {
+                    stdio: "inherit",
+                    env: {
+                        ...process.env,
+                        ONECLAW_PLATFORM_CONNECTION: opts.connection,
+                    },
+                },
+            );
+
+            child.on("exit", (code, signal) => {
+                if (signal) {
+                    process.kill(process.pid, signal);
+                    return;
+                }
+                process.exit(code ?? 1);
+            });
+            child.on("error", (err) => {
+                console.error(chalk.red(`Failed to spawn command: ${err.message}`));
+                process.exit(1);
+            });
+        } catch (err) {
+            handleError(err);
+        }
     });

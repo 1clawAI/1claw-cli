@@ -53,6 +53,11 @@ export async function api<T = unknown>(
         ...options.headers,
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    // Delegated platform context (set by `1claw platform exec --connection ...`)
+    const platformConnection = process.env.ONECLAW_PLATFORM_CONNECTION;
+    if (platformConnection && !headers["X-Platform-Connection"]) {
+        headers["X-Platform-Connection"] = platformConnection;
+    }
 
     if (isDPoPEnabled()) {
         headers["DPoP"] = await generateDPoPProof(method, url.toString());
