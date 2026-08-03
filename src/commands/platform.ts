@@ -61,9 +61,10 @@ interface ConnectedApp {
     created_at: string;
 }
 
-export const platformCommand = new Command("platform").description(
-    "Manage platform apps (multi-tenant)",
-);
+export const platformCommand = new Command("platform")
+    .description("Manage platform apps (multi-tenant)")
+    // Required by nested `platform exec` (.passThroughOptions) under Commander 13+
+    .enablePositionalOptions();
 
 platformCommand
     .command("create <name> <slug>")

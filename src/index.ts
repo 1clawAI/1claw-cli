@@ -66,7 +66,9 @@ export function createProgram(): Command {
         .version(cliPackageVersion)
         .description(
             "1Claw CLI — HSM-backed secret management for AI agents and humans",
-        );
+        )
+        // Required by `platform exec` (.passThroughOptions) under Commander 13+
+        .enablePositionalOptions();
 
     // Auth
     program.addCommand(loginCommand);
