@@ -652,16 +652,19 @@ Create, manage, and trigger automation workflows for agents.
 1claw automation list                          # List all automations
 1claw automation create my-automation \
   --agent-id <uuid> \
-  --trigger schedule \
-  --schedule "*/15 * * * *" \
-  --action-type http_request \
-  --action-config '{"url":"https://api.example.com/check"}'
+  --trigger cron \
+  --cron "*/15 * * * *" \
+  --workflow '{"steps":[{"type":"http","action":"execute_http","url":"https://api.example.com/check"}]}'
 1claw automation get <id>                      # Get automation details
 1claw automation update <id> --name new-name   # Update automation
 1claw automation trigger <id>                  # Manually trigger
 1claw automation runs <id>                     # List recent runs
 1claw automation delete <id>                   # Delete automation
 ```
+
+`workflow_spec` is required on create (`--workflow` JSON or `@file`). For cron
+triggers, `--cron` is required. Dashboard `schedule` is accepted by the API as
+an alias for `cron`.
 
 ### Runtimes
 
@@ -682,6 +685,11 @@ Deploy and manage cloud runtime containers for agents.
 1claw runtime delete <id>                      # Delete runtime
 1claw runtime slug-check my-agent              # Check slug availability
 ```
+
+Interactive shell (dashboard Terminal tab) uses
+`POST /v1/runtimes/{id}/shell/session` with step-up auth (password, TOTP,
+passkey, or reauth token). Enabling shell on a running runtime may require
+stop/start, or the server auto-reconciles the sidecar on connect.
 
 ### Agent Memory
 
