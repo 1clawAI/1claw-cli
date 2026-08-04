@@ -231,6 +231,44 @@ runtimeCommand
     });
 
 runtimeCommand
+    .command("logs <runtime-id>")
+    .description("Fetch recent container logs")
+    .option("--tail <n>", "Number of recent lines", "100")
+    .option("--json", "Output as JSON")
+    .action(async (runtimeId, opts) => {
+        try {
+            requireToken();
+            const tail = parseInt(opts.tail, 10);
+            const res = await api<{
+                entries: Array<{ timestamp?: string; message: string; level?: string }>;
+            }>(`/runtimes/${runtimeId}/logs`, {
+                query: { tail },
+            });
+            const entries = res.entries ?? [];
+
+            if (opts.json) {
+                printJson(entries);
+                return;
+            }
+
+            if (entries.length === 0) {
+                console.log(chalk.dim("No logs available."));
+                return;
+            }
+
+            for (const entry of entries) {
+                const parts: string[] = [];
+                if (entry.timestamp) parts.push(chalk.dim(entry.timestamp));
+                if (entry.level) parts.push(chalk.cyan(String(entry.level).toUpperCase()));
+                parts.push(entry.message ?? "");
+                console.log(parts.join(" "));
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+runtimeCommand
     .command("delete <runtime-id>")
     .alias("rm")
     .description("Delete a runtime")

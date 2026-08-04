@@ -260,6 +260,34 @@ automationCommand
     });
 
 automationCommand
+    .command("rotate-webhook <automation-id>")
+    .description("Rotate the webhook token for a webhook-triggered automation")
+    .option("--json", "Output as JSON")
+    .action(async (automationId, opts) => {
+        try {
+            requireToken();
+            const res = await api<{ webhook_url: string; webhook_token: string }>(
+                `/automations/${automationId}/rotate-webhook-token`,
+                { method: "POST" },
+            );
+
+            if (opts.json) {
+                printJson(res);
+                return;
+            }
+
+            printSuccess("Webhook token rotated.");
+            printKeyValue([
+                ["Webhook URL", res.webhook_url],
+                ["Webhook token", res.webhook_token],
+            ]);
+            console.log(chalk.yellow("Store the token now — it is shown only once."));
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+automationCommand
     .command("runs <automation-id>")
     .description("List runs for an automation")
     .option("--limit <n>", "Max results", "20")
