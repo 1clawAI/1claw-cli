@@ -338,3 +338,66 @@ automationCommand
             handleError(err);
         }
     });
+
+automationCommand
+    .command("cancel-run <automation-id> <run-id>")
+    .description("Cancel a running or awaiting_approval automation run")
+    .option("--json", "Output as JSON")
+    .action(async (automationId, runId, opts) => {
+        try {
+            requireToken();
+            const run = await api<AutomationRun>(
+                `/automations/${automationId}/runs/${runId}/cancel`,
+                { method: "POST" },
+            );
+
+            if (opts.json) {
+                printJson(run);
+                return;
+            }
+
+            printSuccess(`Run cancelled: ${run.id} (status: ${run.status})`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+automationCommand
+    .command("presets")
+    .description("List available automation presets")
+    .option("--json", "Output as JSON")
+    .action(async (opts) => {
+        try {
+            const res = await api<{ presets: Array<{ id: string; name: string; description?: string; trigger_type: string }> }>(
+                "/automations/presets",
+            );
+            const presets = res.presets ?? [];
+
+            if (opts.json) {
+                printJson(presets);
+                return;
+            }
+
+            if (presets.length === 0) {
+                console.log(chalk.dim("No presets available."));
+                return;
+            }
+
+            printTable(
+                presets.map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    trigger: p.trigger_type,
+                    description: p.description ?? chalk.dim("—"),
+                })),
+                [
+                    { key: "id", header: "ID", width: 28 },
+                    { key: "name", header: "Name", width: 28 },
+                    { key: "trigger", header: "Trigger", width: 10 },
+                    { key: "description", header: "Description" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
