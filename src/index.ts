@@ -49,6 +49,7 @@ import { runtimeCommand } from "./commands/runtime.js";
 import { directoryCommand } from "./commands/directory.js";
 import { chatCommand } from "./commands/chat.js";
 import { channelCommand } from "./commands/channel.js";
+import { oauthCommand } from "./commands/oauth.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -140,6 +141,9 @@ export function createProgram(): Command {
     // Agent Communication
     program.addCommand(chatCommand);
     program.addCommand(channelCommand);
+
+    // OAuth Connected Accounts
+    program.addCommand(oauthCommand);
 
     // Global options
     program.option("--json", "Force JSON output for all commands");
