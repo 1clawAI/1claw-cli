@@ -793,6 +793,153 @@ platformCommand
         }
     });
 
+// ── Grants ──────────────────────────────────────────────────────────────
+
+interface PlatformGrant {
+    id: string;
+    connection_id: string;
+    platform_app_id: string;
+    user_id: string;
+    vault_id: string;
+    allowed_paths: string[];
+    permissions: string[];
+    expires_at: string | null;
+    revoked_at: string | null;
+    created_at: string;
+}
+
+platformCommand
+    .command("grant <connectionId>")
+    .description("Grant platform access to vaults and/or agents for a connection")
+    .option("--vault-ids <ids...>", "Vault IDs to grant access to")
+    .option("--agent-ids <ids...>", "Agent IDs to grant access to")
+    .option("--permissions <perms>", "Comma-separated permissions (e.g. read,write)")
+    .option("--allowed-paths <paths>", "Comma-separated allowed secret paths")
+    .option(
+        "--expires-at <date>",
+        "Grant expiration (ISO 8601 or relative: 30d, 90d, 6m, 1y)",
+    )
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+
+            if (!opts.vaultIds?.length && !opts.agentIds?.length) {
+                console.error(
+                    chalk.red("At least one of --vault-ids or --agent-ids is required."),
+                );
+                process.exit(1);
+            }
+
+            const body: Record<string, unknown> = {};
+            if (opts.vaultIds?.length) body.vault_ids = opts.vaultIds;
+            if (opts.agentIds?.length) body.agent_ids = opts.agentIds;
+            if (opts.permissions)
+                body.permissions = opts.permissions.split(",").map((s: string) => s.trim());
+            if (opts.allowedPaths)
+                body.allowed_paths = opts.allowedPaths.split(",").map((s: string) => s.trim());
+            if (opts.expiresAt)
+                body.expires_at = resolveExpiresAt(opts.expiresAt);
+
+            const result = await api<{
+                connection_id: string;
+                grants: PlatformGrant[];
+                vault_ids: string[];
+                agent_ids: string[];
+            }>(`/platform/connections/${connectionId}/grant`, {
+                method: "POST",
+                body,
+            });
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess("Access granted.");
+            printKeyValue([
+                ["Connection", result.connection_id],
+                ["Vaults", result.vault_ids.length ? result.vault_ids.join(", ") : chalk.dim("none")],
+                ["Agents", result.agent_ids.length ? result.agent_ids.join(", ") : chalk.dim("none")],
+                ["Grants created", String(result.grants.length)],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("list-grants <connectionId>")
+    .description("List active resource grants for a connection")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const res = await api<{ grants: PlatformGrant[] }>(
+                `/platform/connections/${connectionId}/grants`,
+            );
+            const grants = res.grants ?? [];
+
+            if (opts.json) {
+                printJson(grants);
+                return;
+            }
+
+            if (!grants.length) {
+                console.log(chalk.dim("No active grants for this connection."));
+                return;
+            }
+
+            printTable(
+                grants.map((g) => ({
+                    id: g.id,
+                    vault_id: g.vault_id.slice(0, 8) + "…",
+                    permissions: g.permissions.join(", ") || chalk.dim("—"),
+                    paths: g.allowed_paths.length
+                        ? g.allowed_paths.join(", ")
+                        : chalk.dim("all"),
+                    expires: g.expires_at
+                        ? formatDate(g.expires_at)
+                        : chalk.dim("never"),
+                    created: formatDate(g.created_at),
+                })),
+                [
+                    { key: "id", header: "Grant ID", width: 36 },
+                    { key: "vault_id", header: "Vault" },
+                    { key: "permissions", header: "Permissions", width: 14 },
+                    { key: "paths", header: "Paths", width: 20 },
+                    { key: "expires", header: "Expires" },
+                    { key: "created", header: "Created" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("revoke-grant <connectionId> <grantId>")
+    .description("Revoke a resource grant for a connection")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, grantId, opts) => {
+        try {
+            requireToken();
+            await api(
+                `/platform/connections/${connectionId}/grants/${grantId}`,
+                { method: "DELETE" },
+            );
+
+            if (opts.json) {
+                printJson({ status: "revoked", grant_id: grantId });
+                return;
+            }
+
+            printSuccess(`Grant ${grantId} revoked.`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 // ── Platform delegation commands ────────────────────────────────────────
 
 platformCommand

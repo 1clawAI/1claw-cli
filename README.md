@@ -1,4 +1,4 @@
-# @1claw/cli (v0.42.0)
+# @1claw/cli (v0.44.0)
 
 Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
 
@@ -613,6 +613,18 @@ Manage platform apps for developers building multi-tenant applications on top of
 1claw platform rotate-key <app-id>             # Rotate the plt_ API key
 1claw platform reissue-claim <connection-id>   # Reissue a claim URL (no re-provisioning)
 
+# Resource grants (user-side delegation to platform apps)
+1claw platform grant <connection-id> \
+  --vault-ids <id1> <id2> \
+  --agent-ids <id3>                            # Grant access to vaults/agents
+1claw platform grant <connection-id> \
+  --vault-ids <id> \
+  --permissions read,write \
+  --allowed-paths "secrets/*" \
+  --expires-at 90d                             # Grant with restrictions
+1claw platform list-grants <connection-id>     # List active grants
+1claw platform revoke-grant <connection-id> <grant-id>  # Revoke a grant
+
 # Template management
 1claw platform templates list <app-id>         # List templates for an app
 1claw platform templates create <app-id> <name> \
@@ -659,6 +671,7 @@ Create, manage, and trigger automation workflows for agents.
 1claw automation update <id> --name new-name   # Update automation
 1claw automation trigger <id>                  # Manually trigger
 1claw automation runs <id>                     # List recent runs
+1claw automation get-run <id> <run-id>         # Get details for a specific run
 1claw automation delete <id>                   # Delete automation
 ```
 

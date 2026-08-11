@@ -340,6 +340,48 @@ automationCommand
     });
 
 automationCommand
+    .command("get-run <automation-id> <run-id>")
+    .description("Get details for a specific automation run")
+    .option("--json", "Output as JSON")
+    .action(async (automationId, runId, opts) => {
+        try {
+            requireToken();
+            const run = await api<AutomationRun>(
+                `/automations/${automationId}/runs/${runId}`,
+            );
+
+            if (opts.json) {
+                printJson(run);
+                return;
+            }
+
+            printKeyValue([
+                ["Run ID", run.id],
+                ["Automation", run.automation_id],
+                ["Status", run.status === "success"
+                    ? chalk.green(run.status)
+                    : run.status === "failed"
+                        ? chalk.red(run.status)
+                        : chalk.yellow(run.status)],
+                ["Trigger", run.trigger_source],
+                ["Agent", run.agent_id],
+                ["Tokens used", String(run.tokens_used)],
+                ["Cost", `$${(run.cost_cents / 100).toFixed(2)}`],
+                ["Started", formatDate(run.started_at)],
+                ["Finished", run.finished_at ? formatDate(run.finished_at) : chalk.dim("—")],
+                ["Error", run.error ?? chalk.dim("none")],
+            ]);
+
+            if (run.step_results) {
+                console.log(chalk.bold("\nStep Results:"));
+                console.log(JSON.stringify(run.step_results, null, 2));
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+automationCommand
     .command("cancel-run <automation-id> <run-id>")
     .description("Cancel a running or awaiting_approval automation run")
     .option("--json", "Output as JSON")
