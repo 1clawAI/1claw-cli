@@ -475,6 +475,87 @@ templatesCommand
         }
     });
 
+templatesCommand
+    .command("update <appId> <templateId>")
+    .description("Update a platform app template")
+    .option("--spec <file>", "Path to JSON file with updated template spec")
+    .option("--name <name>", "Updated template name")
+    .option("--description <desc>", "Updated template description")
+    .option("--json", "Output as JSON")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+
+            if (opts.spec) {
+                if (!existsSync(opts.spec)) {
+                    throw new Error(`Spec file not found: ${opts.spec}`);
+                }
+                body.spec = JSON.parse(readFileSync(opts.spec, "utf8"));
+            }
+            if (opts.name) body.name = opts.name;
+            if (opts.description) body.description = opts.description;
+
+            if (Object.keys(body).length === 0) {
+                console.log(
+                    chalk.yellow(
+                        "No update options provided. Use --help for available flags.",
+                    ),
+                );
+                return;
+            }
+
+            const template = await api<Template>(
+                `/platform/apps/${appId}/templates/${templateId}`,
+                { method: "PATCH", body },
+            );
+
+            if (opts.json) {
+                printJson(template);
+                return;
+            }
+
+            printSuccess(`Template ${chalk.bold(template.name)} updated.`);
+            printKeyValue([
+                ["ID", template.id],
+                ["Name", template.name],
+                ["Version", String(template.version)],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+templatesCommand
+    .command("delete <appId> <templateId>")
+    .description("Delete a platform app template")
+    .option("-y, --yes", "Skip confirmation")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+
+            if (!opts.yes) {
+                const inquirer = await import("inquirer");
+                const { confirm } = await inquirer.default.prompt([
+                    {
+                        type: "confirm",
+                        name: "confirm",
+                        message: `Delete template ${templateId}? This cannot be undone.`,
+                        default: false,
+                    },
+                ]);
+                if (!confirm) return;
+            }
+
+            await api(`/platform/apps/${appId}/templates/${templateId}`, {
+                method: "DELETE",
+            });
+            printSuccess("Template deleted.");
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 // ── Users ───────────────────────────────────────────────────────────────
 
 const usersCommand = platformCommand
@@ -527,6 +608,49 @@ usersCommand
         }
     });
 
+platformCommand
+    .command("bootstrap <connectionId>")
+    .description("Bootstrap a connected user with resources from a template")
+    .option("--template <id>", "Template ID (uses app default if omitted)")
+    .option("--return-to <url>", "Redirect URL after claim")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.template) body.template_id = opts.template;
+            if (opts.returnTo) body.return_to = opts.returnTo;
+
+            const result = await api<{
+                claim_url: string;
+                claim_token: string;
+                connection_id: string;
+                summary: Record<string, unknown>;
+            }>(`/platform/connections/${connectionId}/bootstrap`, {
+                method: "POST",
+                body,
+            });
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess("User bootstrapped successfully.");
+            printKeyValue([
+                ["Connection", result.connection_id],
+                ["Claim URL", result.claim_url],
+            ]);
+            if (result.summary) {
+                console.log();
+                console.log(chalk.dim("Summary:"));
+                console.log(JSON.stringify(result.summary, null, 2));
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 // ── Connected Apps (user-side) ──────────────────────────────────────────
 
 platformCommand
@@ -567,6 +691,61 @@ platformCommand
                     { key: "created", header: "Connected" },
                 ],
             );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("audit <appId>")
+    .description("View platform audit events for an app")
+    .option("--limit <n>", "Max events to show", "20")
+    .option("--offset <n>", "Skip events", "0")
+    .option("--json", "Output as JSON")
+    .action(async (appId, opts) => {
+        try {
+            requireToken();
+            const result = await api<{
+                events: Array<{
+                    id: string;
+                    action: string;
+                    actor_id: string;
+                    resource_type?: string;
+                    resource_id?: string;
+                    created_at: string;
+                }>;
+                total: number;
+            }>(
+                `/platform/apps/${appId}/audit?limit=${opts.limit}&offset=${opts.offset}`,
+            );
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            if (result.events.length === 0) {
+                console.log(chalk.dim("No audit events found."));
+                return;
+            }
+
+            printTable(
+                result.events.map((e) => ({
+                    action: e.action,
+                    actor: e.actor_id.slice(0, 8) + "…",
+                    resource: e.resource_type
+                        ? `${e.resource_type}/${(e.resource_id ?? "").slice(0, 8)}…`
+                        : "—",
+                    date: formatDate(e.created_at),
+                })),
+                [
+                    { key: "action", header: "Action", width: 28 },
+                    { key: "actor", header: "Actor" },
+                    { key: "resource", header: "Resource", width: 24 },
+                    { key: "date", header: "Date", width: 20 },
+                ],
+            );
+            console.log(chalk.dim(`Total: ${result.total}`));
         } catch (err) {
             handleError(err);
         }
