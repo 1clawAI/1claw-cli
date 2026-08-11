@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import chalk from "chalk";
-import { apiNoAuth } from "../client.js";
+import { api, apiNoAuth } from "../client.js";
 import { handleError } from "../middleware.js";
 import { printTable, printKeyValue, printJson } from "../output.js";
 
@@ -103,6 +103,70 @@ export const directoryCommand = new Command("directory")
                         ["A2A URL", card.a2a_url ?? "-"],
                         ["MCP URL", card.mcp_url ?? "-"],
                     ]);
+                } catch (err) {
+                    handleError(err);
+                }
+            }),
+    )
+    .addCommand(
+        new Command("org")
+            .description("List agents in your organization")
+            .option("-q, --query <query>", "Search query")
+            .option("--tags <tags>", "Filter by comma-separated tags")
+            .option("--page <page>", "Page number", "1")
+            .option("--page-size <size>", "Results per page", "20")
+            .option("--json", "Output as JSON")
+            .action(async (opts) => {
+                try {
+                    const params: Record<string, string> = {
+                        page: opts.page,
+                        page_size: opts.pageSize,
+                    };
+                    if (opts.query) params.q = opts.query;
+                    if (opts.tags) params.tags = opts.tags;
+
+                    const data = await api<{
+                        agents: Array<{
+                            id: string;
+                            name: string;
+                            description: string;
+                            tags: string[];
+                            capabilities: string[];
+                        }>;
+                        total: number;
+                        page: number;
+                    }>("/agents/org-directory", { query: params });
+
+                    if (opts.json) {
+                        printJson(data);
+                        return;
+                    }
+
+                    if (data.agents.length === 0) {
+                        console.log(chalk.yellow("No agents found in your organization."));
+                        return;
+                    }
+
+                    console.log(
+                        chalk.bold(
+                            `Found ${data.total} agent(s) in your org (page ${data.page}):\n`,
+                        ),
+                    );
+
+                    printTable(
+                        data.agents.map((a) => ({
+                            name: a.name,
+                            id: a.id.slice(0, 8) + "...",
+                            tags: (a.tags || []).join(", "),
+                            capabilities: (a.capabilities || []).join(", "),
+                        })),
+                        [
+                            { key: "name", header: "Name", width: 24 },
+                            { key: "id", header: "ID", width: 12 },
+                            { key: "tags", header: "Tags", width: 20 },
+                            { key: "capabilities", header: "Capabilities", width: 30 },
+                        ],
+                    );
                 } catch (err) {
                     handleError(err);
                 }
