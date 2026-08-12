@@ -1,10 +1,12 @@
 # @1claw/cli (v0.44.0)
 
-Command-line interface for [1Claw](https://1claw.xyz) — HSM-backed secret management for AI agents and humans.
+Command-line interface for [1Claw](https://1claw.xyz).
 
-Designed for CI/CD pipelines, DevOps workflows, and server environments.
+Use the CLI when you want vault and agent operations from a terminal, a CI pipeline, or a shell script. Create vaults, rotate secrets, provision agents, set policies, submit transactions, and import `.env` files without opening the dashboard.
 
-**HTTP surface:** Commands call the Vault REST API. The authoritative contract is [@1claw/openapi-spec](https://www.npmjs.com/package/@1claw/openapi-spec) (`openapi.yaml` / `openapi.json`).
+`1claw setup` auto-configures Cursor, Claude Desktop, VS Code, and other MCP clients in one pass. `1claw env run` injects secrets into a subprocess so your app reads them from the environment at runtime, not from a committed file. Auth works via browser device flow, email/password, or `ONECLAW_TOKEN` / `ONECLAW_API_KEY` in CI.
+
+**HTTP surface:** Commands call the Vault REST API. The contract lives in [@1claw/openapi-spec](https://www.npmjs.com/package/@1claw/openapi-spec) (`openapi.yaml` / `openapi.json`).
 
 ## Installation
 
