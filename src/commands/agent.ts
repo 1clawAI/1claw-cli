@@ -1463,4 +1463,262 @@ bankrCommand
         }
     });
 
+// ── Delegation subcommand ──
+const delegationCommand = agentCommand
+    .command("delegation")
+    .description("Manage agent-to-agent delegations");
+
+delegationCommand
+    .command("create <agent-id>")
+    .description("Create a delegation granting an agent permission to delegate to another agent")
+    .requiredOption("--delegate <id>", "Delegate (target) agent ID")
+    .option("--tools <tools...>", "Allowed tool names (space-separated)")
+    .option("--block-tools <tools...>", "Blocked tool names (space-separated)")
+    .option("--daily-limit <n>", "Max delegations per UTC day")
+    .option("--depth <n>", "Max delegation chain depth (default: 3)")
+    .option("--mode <mode>", "Execution mode: caller, target, or both", "caller")
+    .option("--expires <iso>", "ISO 8601 expiration timestamp")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts: {
+        delegate: string;
+        tools?: string[];
+        blockTools?: string[];
+        dailyLimit?: string;
+        depth?: string;
+        mode?: string;
+        expires?: string;
+        json?: boolean;
+    }) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {
+                delegate_id: opts.delegate,
+            };
+            if (opts.tools) body.allowed_tools = opts.tools;
+            if (opts.blockTools) body.blocked_tools = opts.blockTools;
+            if (opts.dailyLimit) body.max_daily_delegations = parseInt(opts.dailyLimit, 10);
+            if (opts.depth) body.max_depth = parseInt(opts.depth, 10);
+            if (opts.mode) body.delegation_mode = opts.mode;
+            if (opts.expires) body.expires_at = resolveExpiresAt(opts.expires);
+
+            const result = await api<{
+                id: string;
+                delegator_id: string;
+                delegate_id: string;
+                delegator_name?: string;
+                delegate_name?: string;
+                delegation_mode: string;
+                max_daily_delegations?: number;
+                max_depth: number;
+                allowed_tools: string[];
+                blocked_tools: string[];
+                expires_at?: string;
+                created_at: string;
+            }>(`/agents/${agentId}/delegations`, { method: "POST", body });
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess("Delegation created");
+            const rows: [string, string][] = [
+                ["ID", result.id],
+                ["Delegator", result.delegator_name || result.delegator_id],
+                ["Delegate", result.delegate_name || result.delegate_id],
+                ["Mode", result.delegation_mode],
+                ["Max depth", String(result.max_depth)],
+            ];
+            if (result.max_daily_delegations != null)
+                rows.push(["Daily limit", String(result.max_daily_delegations)]);
+            if (result.allowed_tools.length > 0)
+                rows.push(["Allowed tools", result.allowed_tools.join(", ")]);
+            if (result.blocked_tools.length > 0)
+                rows.push(["Blocked tools", result.blocked_tools.join(", ")]);
+            if (result.expires_at)
+                rows.push(["Expires", formatDate(result.expires_at)]);
+            rows.push(["Created", formatDate(result.created_at)]);
+            printKeyValue(rows);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+delegationCommand
+    .command("list <agent-id>")
+    .description("List delegations for an agent")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts: { json?: boolean }) => {
+        try {
+            requireToken();
+            const result = await api<{
+                delegations: Array<{
+                    id: string;
+                    delegate_id: string;
+                    delegate_name?: string;
+                    delegation_mode: string;
+                    max_daily_delegations?: number;
+                    delegations_today?: number;
+                    is_active: boolean;
+                    expires_at?: string;
+                    created_at: string;
+                }>;
+            }>(`/agents/${agentId}/delegations`);
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            if (result.delegations.length === 0) {
+                console.log(chalk.dim("No delegations configured."));
+                return;
+            }
+
+            printTable(
+                result.delegations.map((d) => ({
+                    id: d.id.slice(0, 8),
+                    delegate: d.delegate_name || d.delegate_id.slice(0, 8),
+                    mode: d.delegation_mode,
+                    daily: d.max_daily_delegations != null
+                        ? `${d.delegations_today || 0}/${d.max_daily_delegations}`
+                        : "∞",
+                    active: d.is_active ? "✓" : "✗",
+                    expires: d.expires_at ? formatDate(d.expires_at) : "—",
+                })),
+                [
+                    { key: "id", header: "ID" },
+                    { key: "delegate", header: "Delegate" },
+                    { key: "mode", header: "Mode" },
+                    { key: "daily", header: "Daily" },
+                    { key: "active", header: "Active" },
+                    { key: "expires", header: "Expires" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+delegationCommand
+    .command("get <agent-id> <delegation-id>")
+    .description("Get details of a specific delegation")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, delegationId: string, opts: { json?: boolean }) => {
+        try {
+            requireToken();
+            const result = await api<{
+                id: string;
+                delegator_id: string;
+                delegate_id: string;
+                delegator_name?: string;
+                delegate_name?: string;
+                allowed_tools: string[];
+                blocked_tools: string[];
+                max_daily_delegations?: number;
+                delegations_today?: number;
+                max_depth: number;
+                guardrails: Record<string, unknown>;
+                delegation_mode: string;
+                is_active: boolean;
+                expires_at?: string;
+                created_at: string;
+                updated_at: string;
+            }>(`/agents/${agentId}/delegations/${delegationId}`);
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            const rows: [string, string][] = [
+                ["ID", result.id],
+                ["Delegator", result.delegator_name || result.delegator_id],
+                ["Delegate", result.delegate_name || result.delegate_id],
+                ["Mode", result.delegation_mode],
+                ["Active", result.is_active ? "Yes" : "No"],
+                ["Max depth", String(result.max_depth)],
+            ];
+            if (result.max_daily_delegations != null) {
+                rows.push(["Daily limit", String(result.max_daily_delegations)]);
+                rows.push(["Used today", String(result.delegations_today || 0)]);
+            }
+            if (result.allowed_tools.length > 0)
+                rows.push(["Allowed tools", result.allowed_tools.join(", ")]);
+            if (result.blocked_tools.length > 0)
+                rows.push(["Blocked tools", result.blocked_tools.join(", ")]);
+            if (Object.keys(result.guardrails).length > 0)
+                rows.push(["Guardrails", JSON.stringify(result.guardrails)]);
+            if (result.expires_at) rows.push(["Expires", formatDate(result.expires_at)]);
+            rows.push(["Created", formatDate(result.created_at)]);
+            rows.push(["Updated", formatDate(result.updated_at)]);
+            printKeyValue(rows);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+delegationCommand
+    .command("update <agent-id> <delegation-id>")
+    .description("Update a delegation")
+    .option("--tools <tools...>", "Allowed tool names (use \"\" to clear)")
+    .option("--block-tools <tools...>", "Blocked tool names (use \"\" to clear)")
+    .option("--daily-limit <n>", "Max delegations per UTC day")
+    .option("--depth <n>", "Max delegation chain depth")
+    .option("--mode <mode>", "Execution mode: caller, target, or both")
+    .option("--active <bool>", "Enable or disable the delegation")
+    .option("--expires <iso>", "ISO 8601 expiration (use \"\" to clear)")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, delegationId: string, opts: {
+        tools?: string[];
+        blockTools?: string[];
+        dailyLimit?: string;
+        depth?: string;
+        mode?: string;
+        active?: string;
+        expires?: string;
+        json?: boolean;
+    }) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.tools) body.allowed_tools = opts.tools[0] === "" ? [] : opts.tools;
+            if (opts.blockTools) body.blocked_tools = opts.blockTools[0] === "" ? [] : opts.blockTools;
+            if (opts.dailyLimit) body.max_daily_delegations = parseInt(opts.dailyLimit, 10);
+            if (opts.depth) body.max_depth = parseInt(opts.depth, 10);
+            if (opts.mode) body.delegation_mode = opts.mode;
+            if (opts.active !== undefined) body.is_active = opts.active === "true";
+            if (opts.expires !== undefined) {
+                body.expires_at = opts.expires === "" ? null : resolveExpiresAt(opts.expires);
+            }
+
+            const result = await api<{ id: string; delegation_mode: string; is_active: boolean }>(
+                `/agents/${agentId}/delegations/${delegationId}`,
+                { method: "PATCH", body },
+            );
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess(`Delegation ${result.id.slice(0, 8)} updated (mode: ${result.delegation_mode}, active: ${result.is_active})`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+delegationCommand
+    .command("revoke <agent-id> <delegation-id>")
+    .description("Revoke (delete) a delegation")
+    .action(async (agentId: string, delegationId: string) => {
+        try {
+            requireToken();
+            await api(`/agents/${agentId}/delegations/${delegationId}`, { method: "DELETE" });
+            printSuccess("Delegation revoked");
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 registerAgentBindingCommands(agentCommand);
