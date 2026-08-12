@@ -44,6 +44,20 @@ channelCommand
     .requiredOption("--type <type>", "Channel type: telegram, whatsapp, or discord")
     .option("--name <name>", "Display name for the channel")
     .requiredOption("--config <json>", "Channel config JSON (e.g. bot_token, phone_number_id)")
+    .option(
+        "--slash-commands",
+        'Enable Hermes-compatible slash commands (/help, /new, /model, /personality, /retry, /undo, /compress, /stop, /status, /skills, /usage, /sethome)',
+    )
+    .option(
+        "--voice-transcription",
+        "Enable automatic voice message transcription via Whisper API (Telegram only)",
+    )
+    .option(
+        "--sender-allowlist <ids>",
+        "Comma-separated sender IDs allowed for auto-respond",
+        (v: string) => v.split(",").map((s: string) => s.trim()),
+    )
+    .option("--auto-respond", "Enable auto-respond for inbound messages")
     .option("--json", "Output as JSON")
     .action(async (agentId, opts) => {
         try {
@@ -62,6 +76,10 @@ channelCommand
                 config,
             };
             if (opts.name) body.channel_name = opts.name;
+            if (opts.slashCommands) body.slash_commands_enabled = true;
+            if (opts.voiceTranscription) body.voice_transcription_enabled = true;
+            if (opts.senderAllowlist) body.sender_allowlist = opts.senderAllowlist;
+            if (opts.autoRespond) body.auto_respond_enabled = true;
 
             const ch = await api<Channel>(`/agents/${agentId}/channels`, {
                 method: "POST",
@@ -136,6 +154,20 @@ channelCommand
     .option("--name <name>", "New display name")
     .option("--active <bool>", "Enable or disable the channel")
     .option("--config <json>", "Updated config JSON")
+    .option(
+        "--slash-commands <bool>",
+        'Enable/disable Hermes-compatible slash commands (/help, /new, /model, /personality, /retry, /undo, /compress, /stop, /status, /skills, /usage, /sethome)',
+    )
+    .option(
+        "--voice-transcription <bool>",
+        "Enable/disable automatic voice message transcription via Whisper API (Telegram only)",
+    )
+    .option(
+        "--sender-allowlist <ids>",
+        'Comma-separated sender IDs allowed for auto-respond (use "" to clear)',
+        (v: string) => v === "" ? "" : v.split(",").map((s: string) => s.trim()),
+    )
+    .option("--auto-respond <bool>", "Enable/disable auto-respond for inbound messages")
     .option("--json", "Output as JSON")
     .action(async (agentId, channelId, opts) => {
         try {
@@ -145,6 +177,12 @@ channelCommand
             if (opts.name) body.channel_name = opts.name;
             if (opts.active !== undefined) body.is_active = opts.active === "true";
             if (opts.config) body.config = JSON.parse(opts.config);
+            if (opts.slashCommands !== undefined) body.slash_commands_enabled = opts.slashCommands === "true";
+            if (opts.voiceTranscription !== undefined) body.voice_transcription_enabled = opts.voiceTranscription === "true";
+            if (opts.senderAllowlist !== undefined) {
+                body.sender_allowlist = opts.senderAllowlist === "" ? [] : opts.senderAllowlist;
+            }
+            if (opts.autoRespond !== undefined) body.auto_respond_enabled = opts.autoRespond === "true";
 
             const ch = await api<Channel>(
                 `/agents/${agentId}/channels/${channelId}`,
