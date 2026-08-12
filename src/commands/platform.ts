@@ -609,6 +609,53 @@ usersCommand
     });
 
 platformCommand
+    .command("upsert-user")
+    .description("Provision or find a user for a platform app")
+    .option("--email <email>", "User email to provision")
+    .option("--subject-token <jwt>", "OIDC subject token (JWT) for token-based provisioning")
+    .option("--json", "Output as JSON")
+    .action(async (opts) => {
+        try {
+            requireToken();
+
+            if (!opts.email && !opts.subjectToken) {
+                console.error(
+                    chalk.red("Either --email or --subject-token is required."),
+                );
+                process.exit(1);
+            }
+
+            const body: Record<string, unknown> = {};
+            if (opts.email) body.email = opts.email;
+            if (opts.subjectToken) body.subject_token = opts.subjectToken;
+
+            const result = await api<{
+                user_handle: string;
+                connection_id: string;
+                is_new: boolean;
+            }>("/platform/users/upsert", { method: "POST", body });
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess(
+                result.is_new
+                    ? "New user provisioned."
+                    : "Existing user found.",
+            );
+            printKeyValue([
+                ["User handle", result.user_handle],
+                ["Connection ID", result.connection_id],
+                ["New user", result.is_new ? "yes" : "no"],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
     .command("bootstrap <connectionId>")
     .description("Bootstrap a connected user with resources from a template")
     .option("--template <id>", "Template ID (uses app default if omitted)")
@@ -935,6 +982,126 @@ platformCommand
             }
 
             printSuccess(`Grant ${grantId} revoked.`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+// ── Marketplace ─────────────────────────────────────────────────────────
+
+platformCommand
+    .command("marketplace")
+    .description("List platform apps in the public marketplace")
+    .option("--json", "Output as JSON")
+    .action(async (opts) => {
+        try {
+            const res = await api<{
+                apps: Array<{
+                    id: string;
+                    name: string;
+                    slug: string;
+                    description: string;
+                    logo_url?: string;
+                    category?: string;
+                    listing_tags?: string[];
+                    pricing_summary?: string;
+                }>;
+            }>("/platform/marketplace");
+            const apps = res.apps ?? [];
+
+            if (opts.json) {
+                printJson(apps);
+                return;
+            }
+
+            if (!apps.length) {
+                console.log(chalk.dim("No marketplace apps found."));
+                return;
+            }
+
+            printTable(
+                apps.map((a) => ({
+                    name: a.name,
+                    slug: a.slug,
+                    category: a.category || chalk.dim("—"),
+                    tags: a.listing_tags?.join(", ") || chalk.dim("—"),
+                    pricing: a.pricing_summary || chalk.dim("—"),
+                })),
+                [
+                    { key: "name", header: "Name", width: 20 },
+                    { key: "slug", header: "Slug", width: 16 },
+                    { key: "category", header: "Category", width: 14 },
+                    { key: "tags", header: "Tags", width: 24 },
+                    { key: "pricing", header: "Pricing", width: 16 },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+// ── App stats ───────────────────────────────────────────────────────────
+
+platformCommand
+    .command("app-stats <appId>")
+    .description("Get usage statistics for a platform app")
+    .option("--json", "Output as JSON")
+    .action(async (appId, opts) => {
+        try {
+            requireToken();
+            const stats = await api<{
+                total_connections: number;
+                active_connections: number;
+                claimed_connections: number;
+                total_bootstraps: number;
+                total_grants: number;
+            }>(`/platform/apps/${appId}/stats`);
+
+            if (opts.json) {
+                printJson(stats);
+                return;
+            }
+
+            printKeyValue([
+                ["Total connections", String(stats.total_connections)],
+                ["Active connections", String(stats.active_connections)],
+                ["Claimed connections", String(stats.claimed_connections)],
+                ["Total bootstraps", String(stats.total_bootstraps)],
+                ["Total grants", String(stats.total_grants)],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+// ── Webhook secret rotation ─────────────────────────────────────────────
+
+platformCommand
+    .command("rotate-webhook-secret <appId>")
+    .description("Rotate the webhook secret for a platform app")
+    .option("--json", "Output as JSON")
+    .action(async (appId, opts) => {
+        try {
+            requireToken();
+            const result = await api<{ webhook_secret: string }>(
+                `/platform/apps/${appId}/rotate-webhook-secret`,
+                { method: "POST" },
+            );
+
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+
+            printSuccess("Webhook secret rotated.");
+            console.log();
+            console.log(
+                chalk.yellow(
+                    "  Save this webhook secret — it won't be shown again:",
+                ),
+            );
+            console.log(`  ${chalk.bold(result.webhook_secret)}`);
+            console.log();
         } catch (err) {
             handleError(err);
         }

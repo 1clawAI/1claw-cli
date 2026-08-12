@@ -1,4 +1,4 @@
-# @1claw/cli (v0.44.0)
+# @1claw/cli (v0.44.4)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -613,7 +613,14 @@ Manage platform apps for developers building multi-tenant applications on top of
 1claw platform update <app-id> --name new-name # Update app settings
 1claw platform delete <app-id>                 # Delete a platform app
 1claw platform rotate-key <app-id>             # Rotate the plt_ API key
+1claw platform rotate-webhook-secret <app-id>  # Rotate the webhook HMAC secret
 1claw platform reissue-claim <connection-id>   # Reissue a claim URL (no re-provisioning)
+1claw platform app-stats <app-id>              # Connection/bootstrap/grant statistics
+1claw platform marketplace                     # Browse the public platform marketplace
+1claw platform upsert-user \
+  --email user@example.com                     # Provision or find a user (platform-only)
+1claw platform upsert-user \
+  --subject-token <jwt>                        # Provision via OIDC subject token
 
 # Resource grants (user-side delegation to platform apps)
 1claw platform grant <connection-id> \
@@ -635,6 +642,15 @@ Manage platform apps for developers building multi-tenant applications on top of
 # Connected users
 1claw platform users list <app-id>             # List connected users for an app
 1claw platform connected-apps                  # List apps connected to your account
+
+# Delegation (operate on connected-user resources)
+1claw platform resources <connection-id>       # List platform-managed resources
+1claw platform delegation-log <connection-id>  # View delegation audit log
+1claw platform exec --connection <id> -- \
+  agent list                                   # Run a CLI command in delegated context
+
+# Audit
+1claw platform audit <app-id>                  # View platform audit events
 ```
 
 ### Approvals
