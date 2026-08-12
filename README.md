@@ -1,4 +1,4 @@
-# @1claw/cli (v0.44.4)
+# @1claw/cli (v0.46.0)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -227,6 +227,28 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
 The CLI's `agent create` always uses `auth_method=api_key` (default; returns an `ocv_` API key). To register an `mtls` or `oidc_client_credentials` agent, use the SDK or `POST /v1/agents` directly — those auth methods don't generate an API key.
 
 All agents automatically receive an Ed25519 SSH keypair for future A2A messaging. The public key is shown in `agent get` output.
+
+### Agent Delegation
+
+Human-controlled inter-agent delegation. Create, manage, and revoke delegation permissions between agents.
+
+```bash
+1claw agent delegation create <agent-id> \
+  --delegate <delegate-agent-id> \
+  --tools "delegate_task,search_memory" \
+  --daily-limit 100 \
+  --depth 2 \
+  --mode caller \
+  --expires 2026-12-31T23:59:59Z         # Create a delegation
+
+1claw agent delegation list <agent-id>   # List delegations
+1claw agent delegation get <agent-id> <delegation-id>  # Get details
+1claw agent delegation update <agent-id> <delegation-id> \
+  --daily-limit 200 --active false       # Update
+1claw agent delegation revoke <agent-id> <delegation-id>  # Revoke
+```
+
+Delegation modes: `caller` (delegate uses own credentials), `target` (delegate uses target's config), `both`.
 
 ### Bankr dynamic key vending
 
