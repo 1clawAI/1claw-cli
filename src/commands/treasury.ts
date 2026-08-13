@@ -398,6 +398,26 @@ treasuryCommand
     });
 
 treasuryCommand
+    .command("import <chain>")
+    .description("Import an existing private key as a treasury wallet")
+    .requiredOption("--key <privateKey>", "Private key to import")
+    .option("--format <format>", "Key format: hex, base64, wif", "hex")
+    .requiredOption("--password <password>", "Account password for re-authentication")
+    .option("--json", "Output as JSON")
+    .action(async (chain: string, opts) => {
+        try {
+            requireToken();
+            const res = await api(`/treasury/wallets/${chain.toLowerCase()}/import`, {
+                method: "POST",
+                body: { private_key: opts.key, format: opts.format },
+                headers: { "X-Auth-Confirm": opts.password },
+            });
+            if (opts.json) { printJson(res); return; }
+            printSuccess(`Treasury wallet imported for ${chain}.`);
+        } catch (e) { handleError(e); }
+    });
+
+treasuryCommand
     .command("deactivate <chain>")
     .description("Deactivate a treasury wallet")
     .action(async (chain: string) => {

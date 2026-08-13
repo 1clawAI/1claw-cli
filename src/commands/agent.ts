@@ -1194,6 +1194,48 @@ keysCommand
         }
     });
 
+keysCommand
+    .command("import <agent-id> <chain>")
+    .description("Import a signing key for a chain")
+    .requiredOption("--key <privateKey>", "Private key to import")
+    .option("--format <format>", "Key format: hex, base64, wif", "hex")
+    .requiredOption("--password <password>", "Account password for re-authentication")
+    .option("--json", "Output as JSON")
+    .action(async (agentId, chain, opts) => {
+        try {
+            requireToken();
+            const res = await api(`/agents/${agentId}/signing-keys/${chain}/import`, {
+                method: "POST",
+                body: { private_key: opts.key, format: opts.format },
+                headers: { "X-Auth-Confirm": opts.password },
+            });
+            if (opts.json) { printJson(res); return; }
+            printSuccess(`Signing key imported for ${chain} on agent ${agentId}.`);
+        } catch (err) { handleError(err); }
+    });
+
+// ── Smart account import ────────────────────────────────────────────────
+
+agentCommand
+    .command("smart-account-import <agent-id>")
+    .description("Import an existing Safe smart account")
+    .requiredOption("--chain <chain>", "Chain name")
+    .requiredOption("--chain-id <chainId>", "Chain ID", parseInt)
+    .requiredOption("--safe <address>", "Safe address")
+    .option("--no-verify", "Skip on-chain verification")
+    .option("--json", "Output as JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+            const res = await api(`/agents/${agentId}/smart-accounts/import`, {
+                method: "POST",
+                body: { chain: opts.chain, chain_id: opts.chainId, safe_address: opts.safe, verify: opts.verify },
+            });
+            if (opts.json) { printJson(res); return; }
+            printSuccess(`Smart account imported for agent ${agentId}.`);
+        } catch (err) { handleError(err); }
+    });
+
 // ── Export signing key command ───────────────────────────────────────────
 
 interface SigningKeyExportResponse {

@@ -50,6 +50,10 @@ import { directoryCommand } from "./commands/directory.js";
 import { chatCommand } from "./commands/chat.js";
 import { channelCommand } from "./commands/channel.js";
 import { oauthCommand } from "./commands/oauth.js";
+import { cedarPolicyCommand } from "./commands/cedar-policy.js";
+import { opaPolicyCommand } from "./commands/opa-policy.js";
+import { subOrgCommand } from "./commands/sub-org.js";
+import { portfolioCommand } from "./commands/portfolio.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -144,6 +148,16 @@ export function createProgram(): Command {
 
     // OAuth Connected Accounts
     program.addCommand(oauthCommand);
+
+    // Policy engines
+    program.addCommand(cedarPolicyCommand);
+    program.addCommand(opaPolicyCommand);
+
+    // Sub-organizations
+    program.addCommand(subOrgCommand);
+
+    // Portfolio
+    program.addCommand(portfolioCommand);
 
     // Global options
     program.option("--json", "Force JSON output for all commands");
