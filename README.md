@@ -517,7 +517,7 @@ Multi-chain wallet generation for human users (replaces CDP embedded wallets). P
 1claw treasury deactivate <chain>               # Deactivate wallet for a chain
 ```
 
-Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. Requires Pro or higher billing tier for generate and rotate.
+Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. Available on all tiers (counts toward wallet quota).
 
 `send` and `swap` require re-authentication via account password (prompted interactively or via `--password`). Both operations are audit-logged.
 

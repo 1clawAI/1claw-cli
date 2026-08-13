@@ -27,7 +27,7 @@ interface TreasuryWalletExport {
 }
 
 export const treasuryCommand = new Command("treasury").description(
-    "Manage treasury wallets (human-only, Pro+ required)",
+    "Manage treasury wallets (human-only, counts toward wallet quota)",
 );
 
 treasuryCommand

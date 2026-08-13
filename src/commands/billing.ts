@@ -19,6 +19,8 @@ interface Subscription {
         vaults?: UsageMeter;
         secrets?: UsageMeter;
         agents?: UsageMeter;
+        wallets?: UsageMeter;
+        intent_transactions?: UsageMeter;
     };
 }
 
@@ -56,6 +58,8 @@ billingCommand
             const vaults = sub.usage?.vaults ?? { used: 0, limit: 0 };
             const secrets = sub.usage?.secrets ?? { used: 0, limit: 0 };
             const agents = sub.usage?.agents ?? { used: 0, limit: 0 };
+            const wallets = sub.usage?.wallets ?? { used: 0, limit: 0 };
+            const sigs = sub.usage?.intent_transactions ?? { used: 0, limit: 0 };
             const pct =
                 req.limit > 0 ? Math.round((req.used / req.limit) * 100) : 0;
             const bar = progressBar(pct);
@@ -75,8 +79,10 @@ billingCommand
             console.log();
             console.log(chalk.bold("  Usage"));
             console.log(
-                `  Requests   ${bar}  ${req.used.toLocaleString()} / ${req.limit.toLocaleString()} (${pct}%)`,
+                `  API calls  ${bar}  ${req.used.toLocaleString()} / ${req.limit.toLocaleString()} (${pct}%)`,
             );
+            console.log(`  Wallets    ${wallets.used.toLocaleString()} / ${wallets.limit.toLocaleString()}`);
+            console.log(`  Signatures ${sigs.used.toLocaleString()} / ${sigs.limit.toLocaleString()}`);
             console.log(`  Vaults     ${vaults.used} / ${vaults.limit}`);
             console.log(
                 `  Secrets    ${secrets.used.toLocaleString()} / ${secrets.limit.toLocaleString()}`,
