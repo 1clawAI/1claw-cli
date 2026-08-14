@@ -551,6 +551,34 @@ Create, sign, and execute Safe multisig transaction proposals.
 1claw policy delete <id>                       # Remove a policy
 ```
 
+### Policy backend (Cedar/OPA enforcement v2)
+
+```bash
+1claw policy-backend get                       # Show backend, mode, scope, circuit breaker
+1claw policy-backend set --mode shadow         # Stay in shadow mode (default)
+1claw policy-backend set --backend builtin+cedar --mode enforce
+1claw policy-backend shadow-report             # Divergence report (shadow vs builtin)
+```
+
+### Contract ABIs
+
+```bash
+1claw contract-abi list                        # List org contract ABIs
+1claw contract-abi create --chain ethereum \
+  --address 0x... --abi-file ./erc20.json      # Register an ABI
+1claw contract-abi delete <id>                 # Remove from registry
+```
+
+### Pending approvals (consensus)
+
+```bash
+1claw pending-approval list                    # List pending approvals
+1claw pending-approval get <id>                # Details + signatures
+1claw pending-approval approve <id> --decision approve --payload-hash <hash>
+1claw pending-approval execute <id>            # Execute approved action (human)
+1claw pending-approval cancel <id>             # Cancel pending approval
+```
+
 ### Sharing
 
 ```bash

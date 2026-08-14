@@ -52,6 +52,9 @@ import { channelCommand } from "./commands/channel.js";
 import { oauthCommand } from "./commands/oauth.js";
 import { cedarPolicyCommand } from "./commands/cedar-policy.js";
 import { opaPolicyCommand } from "./commands/opa-policy.js";
+import { policyBackendCommand } from "./commands/policy-backend.js";
+import { contractAbiCommand } from "./commands/contract-abi.js";
+import { pendingApprovalCommand } from "./commands/pending-approval.js";
 import { subOrgCommand } from "./commands/sub-org.js";
 import { portfolioCommand } from "./commands/portfolio.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
@@ -152,6 +155,9 @@ export function createProgram(): Command {
     // Policy engines
     program.addCommand(cedarPolicyCommand);
     program.addCommand(opaPolicyCommand);
+    program.addCommand(policyBackendCommand);
+    program.addCommand(contractAbiCommand);
+    program.addCommand(pendingApprovalCommand);
 
     // Sub-organizations
     program.addCommand(subOrgCommand);
