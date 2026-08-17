@@ -53,6 +53,10 @@ export async function api<T = unknown>(
         ...options.headers,
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    const runtimeId = process.env.ONECLAW_RUNTIME_ID;
+    if (runtimeId) {
+        headers["X-1Claw-Runtime-Id"] = runtimeId;
+    }
     // Delegated platform context (set by `1claw platform exec --connection ...`)
     const platformConnection = process.env.ONECLAW_PLATFORM_CONNECTION;
     if (platformConnection && !headers["X-Platform-Connection"]) {
