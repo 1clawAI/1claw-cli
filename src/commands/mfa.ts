@@ -7,7 +7,6 @@ import {
     printKeyValue,
     printSuccess,
     printInfo,
-    printWarning,
 } from "../output.js";
 
 export const mfaCommand = new Command("mfa").description(
@@ -103,49 +102,19 @@ mfaCommand
         try {
             requireToken();
 
-            const { method } = await inquirer.prompt([
+            const { code } = await inquirer.prompt([
                 {
-                    type: "list",
-                    name: "method",
-                    message: "Confirm with:",
-                    choices: [
-                        {
-                            name: "TOTP code from authenticator app",
-                            value: "totp",
-                        },
-                        { name: "Account password", value: "password" },
-                    ],
+                    type: "input",
+                    name: "code",
+                    message: "Enter your 6-digit TOTP or recovery code:",
+                    validate: (v: string) =>
+                        v.trim().length >= 6 || "Enter a valid code",
                 },
             ]);
 
-            const body: Record<string, string> = {};
-
-            if (method === "totp") {
-                const { code } = await inquirer.prompt([
-                    {
-                        type: "input",
-                        name: "code",
-                        message: "Enter your 6-digit TOTP code:",
-                        validate: (v: string) =>
-                            /^\d{6}$/.test(v) || "Enter a 6-digit code",
-                    },
-                ]);
-                body.code = code;
-            } else {
-                const { password } = await inquirer.prompt([
-                    {
-                        type: "password",
-                        name: "password",
-                        message: "Enter your account password:",
-                        mask: "•",
-                    },
-                ]);
-                body.password = password;
-            }
-
             await api("/auth/mfa", {
                 method: "DELETE",
-                body,
+                body: { code },
             });
 
             printSuccess("Two-factor authentication disabled.");
