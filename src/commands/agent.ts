@@ -69,6 +69,10 @@ interface Agent {
     api_key_expires_at?: string | null;
     created_at: string;
     created_by: string;
+    environment?: string | null;
+    environment_locked?: boolean;
+    env_auto_resolve?: boolean;
+    per_environment_guardrails?: Record<string, unknown> | null;
 }
 
 export const agentCommand = new Command("agent").description("Manage agents");
@@ -155,6 +159,9 @@ agentCommand
     .option('--tx-max-per-day <n>', 'Max transactions per UTC calendar day')
     .option('--tx-overhead-budget <json>', 'Per-chain daily overhead budget JSON (e.g. {"solana":"0.5","xrp":"100"})')
     .option('--solana-ata-allowlist <addrs>', 'Comma-separated Solana addresses whose ATAs may be created', (v: string) => v.split(',').map(s => s.trim()))
+    .option("--environment <env>", "Named environment tag (production, preview, development, or custom)")
+    .option("--environment-locked", "Lock the environment tag after creation")
+    .option("--env-auto-resolve", "Auto-fill env var resolve from agent environment tag")
     .action(async (name, opts) => {
         try {
             requireToken();
@@ -201,6 +208,9 @@ agentCommand
                 body.tx_overhead_budget = JSON.parse(opts.txOverheadBudget);
             if (opts.solanaAtaAllowlist)
                 body.solana_ata_allowlist = opts.solanaAtaAllowlist;
+            if (opts.environment) body.environment = opts.environment;
+            if (opts.environmentLocked) body.environment_locked = true;
+            if (opts.envAutoResolve) body.env_auto_resolve = true;
 
             const agent = await api<Agent & { api_key?: string }>("/agents", {
                 method: "POST",
@@ -316,6 +326,12 @@ agentCommand
                     agent.vault_ids?.length
                         ? agent.vault_ids.join(", ")
                         : chalk.dim("all vaults"),
+                ],
+                [
+                    "Environment",
+                    agent.environment
+                        ? `${agent.environment}${agent.environment_locked ? " (locked)" : ""}${agent.env_auto_resolve ? ", auto-resolve" : ""}`
+                        : chalk.dim("none"),
                 ],
                 [
                     "Intents API",
@@ -606,6 +622,10 @@ agentCommand
     .option('--tx-max-per-day <n>', 'Max transactions per UTC calendar day (use "" to clear)')
     .option('--tx-overhead-budget <json>', 'Per-chain daily overhead budget JSON (use "" to clear)')
     .option('--solana-ata-allowlist <addrs>', 'Comma-separated Solana addresses whose ATAs may be created (use "" to clear)', (v: string) => v === '' ? '' : v.split(',').map(s => s.trim()))
+    .option("--environment <env>", 'Named environment tag (use "" to clear)')
+    .option("--environment-locked <bool>", "Lock/unlock environment tag (true/false)")
+    .option("--env-auto-resolve <bool>", "Auto-fill env var resolve from agent tag (true/false)")
+    .option('--per-environment-guardrails <json>', 'Per-environment guardrail overrides JSON (use "" to clear)')
     .action(async (id, opts) => {
         try {
             requireToken();
@@ -689,6 +709,21 @@ agentCommand
             }
             if (opts.solanaAtaAllowlist !== undefined) {
                 body.solana_ata_allowlist = opts.solanaAtaAllowlist === '' ? [] : opts.solanaAtaAllowlist;
+            }
+            if (opts.environment !== undefined) {
+                body.environment = opts.environment === "" ? null : opts.environment;
+            }
+            if (opts.environmentLocked !== undefined) {
+                body.environment_locked = opts.environmentLocked === "true";
+            }
+            if (opts.envAutoResolve !== undefined) {
+                body.env_auto_resolve = opts.envAutoResolve === "true";
+            }
+            if (opts.perEnvironmentGuardrails !== undefined) {
+                body.per_environment_guardrails =
+                    opts.perEnvironmentGuardrails === ""
+                        ? null
+                        : JSON.parse(opts.perEnvironmentGuardrails);
             }
 
             if (Object.keys(body).length === 0) {

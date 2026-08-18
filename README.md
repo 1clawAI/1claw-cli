@@ -249,6 +249,13 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
   --tx-max-per-day 100 \                       # Daily count cap
   --tx-overhead-budget '{"solana":"0.5"}' \    # Non-value cost budget
   --solana-ata-allowlist addr1,addr2           # ATA creation restriction
+1claw agent create prod-agent \
+  --environment production \                   # Tag agent with named environment
+  --environment-locked \                       # Lock tag after creation
+  --env-auto-resolve                           # Auto-fill env resolve from tag
+1claw agent update <id> \
+  --environment preview \                      # Change environment tag
+  --per-environment-guardrails '{"production":{"tx_max_value":"1.0"}}'
 ```
 
 The CLI's `agent create` always uses `auth_method=api_key` (default; returns an `ocv_` API key). To register an `mtls` or `oidc_client_credentials` agent, use the SDK or `POST /v1/agents` directly — those auth methods don't generate an API key.
