@@ -1,4 +1,4 @@
-# @1claw/cli (v0.47.0)
+# @1claw/cli (v0.51.0)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -167,14 +167,41 @@ echo "sk_live_..." | 1claw secret set <path> --stdin   # From stdin
 
 ```bash
 1claw env pull                                 # Pull secrets as .env format
+1claw env pull -e production                   # Pull for a specific environment
 1claw env pull --format json                   # As JSON
 1claw env pull --format shell                  # As export statements
 1claw env pull -o .env.local                   # Write to file
 1claw env push .env                            # Push .env file to vault
+1claw env push .env -e staging                 # Push to a specific environment
 1claw env run -- npm start                     # Run with secrets injected
+1claw env run -e production -- npm start       # Run with a specific environment
 1claw env run --prefix config/ -- ./deploy.sh  # Only inject matching secrets
 1claw env run --no-cache -- npm start          # Skip local cache, always fetch from API
 ```
+
+### Environment Variables (Structured)
+
+Manage per-vault environment variables with environment scoping and precedence-based resolution.
+
+```bash
+1claw env ls                                   # List all env vars
+1claw env ls production                        # List env vars for a specific environment
+1claw env add DATABASE_URL                     # Add env var (prompts for value)
+1claw env add DATABASE_URL production          # Add env var scoped to an environment
+1claw env add API_KEY --sensitive              # Mark as sensitive (write-only)
+1claw env rm DATABASE_URL                      # Remove env var
+1claw env rm DATABASE_URL preview              # Remove env var from a specific environment
+```
+
+### Environment Management
+
+```bash
+1claw env environments ls                      # List environments for the vault
+1claw env environments add staging             # Create a custom environment
+1claw env environments rm staging              # Delete a custom environment
+```
+
+The `-e, --environment` flag is available on `env pull`, `env push`, and `env run` to scope operations to a specific environment.
 
 ### Environment Cache (Offline Mode)
 
