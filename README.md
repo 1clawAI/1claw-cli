@@ -574,7 +574,7 @@ Create, sign, and execute Safe multisig transaction proposals.
 ```bash
 1claw pending-approval list                    # List pending approvals
 1claw pending-approval get <id>                # Details + signatures
-1claw pending-approval approve <id> --decision approve --payload-hash <hash>
+1claw pending-approval approve <id> --decision approve --payload-hash <hash> [--credential-type passkey]
 1claw pending-approval execute <id>            # Execute approved action (human)
 1claw pending-approval cancel <id>             # Cancel pending approval
 ```
