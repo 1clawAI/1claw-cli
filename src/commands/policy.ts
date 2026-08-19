@@ -79,6 +79,8 @@ policyCommand
     .option("--expires <date>", "Expiration date (ISO 8601)")
     .option("--tx-conditions <json>", "Signing-time tx_conditions JSON (AND)")
     .option("--consensus-trigger <json>", "Consensus trigger JSON (202 pending approval)")
+    .option("--policy-schema-version <n>", "Policy schema version (1=legacy, 2=expression engine)", "2")
+    .option("--approval-id <uuid>", "Completed approval ID for control-plane consensus bypass")
     .action(async (opts) => {
         try {
             requireToken();
@@ -107,6 +109,10 @@ policyCommand
                     throw new Error("--consensus-trigger must be valid JSON");
                 }
             }
+            if (opts.policySchemaVersion) {
+                body.policy_schema_version = parseInt(opts.policySchemaVersion, 10);
+            }
+            if (opts.approvalId) body.approval_id = opts.approvalId;
 
             const policy = await api<Policy>(`/vaults/${vaultId}/policies`, {
                 method: "POST",
