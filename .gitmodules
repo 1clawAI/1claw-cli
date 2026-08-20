@@ -1,0 +1,3 @@
+[submodule "agent-templates"]
+	path = agent-templates
+	url = https://github.com/1clawAI/agent-templates.git

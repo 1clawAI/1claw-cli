@@ -30,7 +30,20 @@ for (const dir of assetDirs) {
 
 // Agent templates submodule → dist/bundled-templates/ (NOT dist/src/templates/,
 // which is reserved for compiled registry.ts + fetcher.ts).
-const agentTemplatesRoot = join(root, "..", "agent-templates");
+function resolveAgentTemplatesRoot() {
+    const candidates = [
+        join(root, "agent-templates"),
+        join(root, "..", "agent-templates"),
+    ];
+    for (const candidate of candidates) {
+        if (existsSync(join(candidate, "templates"))) {
+            return candidate;
+        }
+    }
+    return candidates[0];
+}
+
+const agentTemplatesRoot = resolveAgentTemplatesRoot();
 const templatesFrom = join(agentTemplatesRoot, "templates");
 const bundledRoot = join(root, "dist", "bundled-templates");
 const templatesTo = join(bundledRoot, "templates");
