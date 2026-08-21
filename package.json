@@ -43,6 +43,9 @@
   "engines": {
     "node": ">=20"
   },
+  "overrides": {
+    "fast-uri": ">=3.1.2"
+  },
   "publishConfig": {
     "access": "public"
   },

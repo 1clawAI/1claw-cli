@@ -1,3 +1,5 @@
+# Pin the major/minor tag; rebuild to pick up Alpine security updates.
+# Digest pinning is maintained via Renovate/scheduled rebuilds of 1claw/agent.
 FROM node:20-alpine AS base
 
 # Bumped by the CLI when bundled assets (chat UI, entrypoint) change, so an
@@ -12,7 +14,7 @@ WORKDIR /app
 # Install the 1Claw MCP server (local daemon mode). Best-effort: the chat UI
 # talks to the daemon over the mounted socket directly, so the container is
 # still healthy if the registry is unreachable at build time.
-RUN npm install -g @1claw/mcp@latest || echo "WARN: @1claw/mcp install deferred to runtime"
+RUN npm install -g @1claw/mcp@0.53.3 || echo "WARN: @1claw/mcp install deferred to runtime"
 
 # Baked-in chat UI (single Node http server + static HTML, zero deps).
 COPY chat-ui /app/chat-ui

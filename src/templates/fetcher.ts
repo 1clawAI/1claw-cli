@@ -7,7 +7,7 @@ import {
     statSync,
     cpSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { templatesCacheDir, bundledTemplatesDir } from "../lib/paths.js";
 
 function dirHasTemplateManifests(root: string): boolean {
@@ -21,6 +21,21 @@ function dirHasTemplateManifests(root: string): boolean {
     } catch {
         return false;
     }
+}
+
+function assertSafeTemplateName(name: string): void {
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+        throw new Error(`Invalid template name: ${name}`);
+    }
+}
+
+function assertInside(root: string, candidate: string): string {
+    const resolved = resolve(candidate);
+    const rootResolved = resolve(root);
+    if (resolved !== rootResolved && !resolved.startsWith(`${rootResolved}/`)) {
+        throw new Error("Path escapes the templates cache directory");
+    }
+    return resolved;
 }
 
 const REPO_OWNER = "1clawAI";
@@ -175,7 +190,8 @@ async function fetchTemplate(
     cacheDir: string,
     name: string,
 ): Promise<void> {
-    const templateDir = join(cacheDir, name);
+    assertSafeTemplateName(name);
+    const templateDir = assertInside(cacheDir, join(cacheDir, name));
     if (!existsSync(templateDir)) mkdirSync(templateDir, { recursive: true });
 
     const contentsUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/templates/${name}?ref=${BRANCH}`;
@@ -202,8 +218,11 @@ async function fetchTemplate(
                 `Failed to download ${name}/${file.name}: ${fileRes.status}`,
             );
         }
+        if (file.name.includes("..") || file.name.includes("/") || file.name.includes("\\")) {
+            continue;
+        }
         writeFileSync(
-            join(templateDir, file.name),
+            assertInside(templateDir, join(templateDir, file.name)),
             await fileRes.text(),
         );
     }
@@ -240,6 +259,7 @@ export async function fetchSingleTemplate(
     name: string,
     onProgress?: (msg: string) => void,
 ): Promise<string> {
+    assertSafeTemplateName(name);
     const cacheDir = templatesCacheDir();
     if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
 
