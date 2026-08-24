@@ -13,6 +13,7 @@ permissions:
 jobs:
     publish:
         runs-on: ubuntu-latest
+        environment: npm
         outputs:
             version: ${{ steps.version.outputs.version }}
         steps:
@@ -23,15 +24,19 @@ jobs:
             - uses: actions/setup-node@v4
               with:
                   node-version: 22
-                  registry-url: https://registry.npmjs.org
 
             - run: npm install
 
             - run: npm run build
 
+            # Auth: npm Trusted Publishing (OIDC). Remove repo NPM_TOKEN if present — setup-node
+            # maps it to NODE_AUTH_TOKEN and stale tokens cause E404 on @1claw/* publishes.
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  registry-url: https://registry.npmjs.org
+
             - run: npm publish --provenance --access public
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
             - name: Extract version
               id: version
