@@ -660,6 +660,8 @@ platformCommand
     .description("Bootstrap a connected user with resources from a template")
     .option("--template <id>", "Template ID (uses app default if omitted)")
     .option("--return-to <url>", "Redirect URL after claim")
+    .option("--parameters <json>", "Template parameters JSON (substituted as {{params.*}})")
+    .option("--idempotency-key <key>", "Idempotency-Key header for params-aware replay")
     .option("--json", "Output as JSON")
     .action(async (connectionId, opts) => {
         try {
@@ -667,6 +669,14 @@ platformCommand
             const body: Record<string, unknown> = {};
             if (opts.template) body.template_id = opts.template;
             if (opts.returnTo) body.return_to = opts.returnTo;
+            if (opts.parameters) {
+                body.parameters = JSON.parse(opts.parameters);
+            }
+
+            const headers: Record<string, string> = {};
+            if (opts.idempotencyKey) {
+                headers["Idempotency-Key"] = opts.idempotencyKey;
+            }
 
             const result = await api<{
                 claim_url: string;
@@ -676,6 +686,7 @@ platformCommand
             }>(`/platform/connections/${connectionId}/bootstrap`, {
                 method: "POST",
                 body,
+                headers: Object.keys(headers).length ? headers : undefined,
             });
 
             if (opts.json) {
@@ -693,6 +704,122 @@ platformCommand
                 console.log(chalk.dim("Summary:"));
                 console.log(JSON.stringify(result.summary, null, 2));
             }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("siwe-challenge")
+    .description("Issue a SIWE nonce for wallet-native user provisioning")
+    .option("--domain <domain>", "SIWE domain override")
+    .option("--json", "Output as JSON")
+    .action(async (opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.domain) body.domain = opts.domain;
+            const result = await api<{
+                nonce: string;
+                expires_in: number;
+                domain: string;
+            }>("/platform/siwe/challenge", { method: "POST", body });
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printSuccess("SIWE nonce issued.");
+            printKeyValue([
+                ["Domain", result.domain],
+                ["Nonce", result.nonce],
+                ["Expires in", `${result.expires_in}s`],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection")
+    .description("Connection detail, usage, and entitlements")
+    .argument("<connectionId>", "Platform connection UUID")
+    .option("--usage", "Show per-connection inference usage")
+    .option("--entitlements", "List entitlement evaluations")
+    .option("--refresh-entitlements", "Trigger entitlement monitor refresh")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            if (opts.refreshEntitlements) {
+                await api(
+                    `/platform/connections/${connectionId}/entitlements/refresh`,
+                    { method: "POST" },
+                );
+                printSuccess("Entitlement refresh accepted (202).");
+                return;
+            }
+            if (opts.usage) {
+                const result = await api<{
+                    connection_id: string;
+                    period: string;
+                    inference_spent_usd: string;
+                }>(`/platform/connections/${connectionId}/usage`);
+                if (opts.json) {
+                    printJson(result);
+                    return;
+                }
+                printKeyValue([
+                    ["Connection", result.connection_id],
+                    ["Period", result.period],
+                    ["Inference spent (USD)", result.inference_spent_usd],
+                ]);
+                return;
+            }
+            if (opts.entitlements) {
+                const result = await api<{ evaluations: unknown[] }>(
+                    `/platform/connections/${connectionId}/entitlements`,
+                );
+                if (opts.json) {
+                    printJson(result);
+                    return;
+                }
+                printJson(result.evaluations);
+                return;
+            }
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}`,
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("template-preview <appId> <templateId>")
+    .description("Preview resolved template spec with parameters")
+    .option("--parameters <json>", "Template parameters object")
+    .option("--subject <json>", "Subject context for {{subject.*}} placeholders")
+    .option("--json", "Output as JSON")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.parameters) body.parameters = JSON.parse(opts.parameters);
+            if (opts.subject) body.subject = JSON.parse(opts.subject);
+            const result = await api<{ resolved_spec: Record<string, unknown> }>(
+                `/platform/apps/${appId}/templates/${templateId}/preview`,
+                { method: "POST", body },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printJson(result.resolved_spec);
         } catch (err) {
             handleError(err);
         }
