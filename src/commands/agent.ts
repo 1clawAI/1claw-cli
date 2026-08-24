@@ -13,6 +13,17 @@ import {
 } from "../output.js";
 import { registerAgentBindingCommands } from "./binding.js";
 
+function mergeExecutionGuardrails(
+    guardrails: Record<string, unknown> | undefined,
+    enforcement: string | undefined,
+): Record<string, unknown> | undefined {
+    if (!enforcement) return guardrails;
+    if (!["log", "enforce"].includes(enforcement)) {
+        throw new Error("execution-enforcement must be log or enforce");
+    }
+    return { ...(guardrails ?? {}), enforcement };
+}
+
 interface ShroudConfig {
     pii_policy?: string;
     injection_threshold?: number;
@@ -142,6 +153,10 @@ agentCommand
         "--execution-guardrails <json>",
         "Agent execution guardrails JSON (allowed_hosts, allowed_binding_types, max_duration_ms, …)",
     )
+    .option(
+        "--execution-enforcement <mode>",
+        "Convention 6 shadow mode on agent execution guardrails: log or enforce",
+    )
     .option("--intents-require-tee", "Enforce TEE-only transaction signing (Business+)")
     .option("--execution-require-tee", "Enforce TEE-only execution and block all direct secret reads (Business+)")
     .option("--shroud", "Enable Shroud LLM Proxy")
@@ -200,8 +215,14 @@ agentCommand
             }
             if (opts.intentsApi) body.intents_api_enabled = true;
             if (opts.executionIntents) body.execution_intents_enabled = true;
-            if (opts.executionGuardrails)
-                body.execution_guardrails = JSON.parse(opts.executionGuardrails);
+            if (opts.executionGuardrails || opts.executionEnforcement) {
+                body.execution_guardrails = mergeExecutionGuardrails(
+                    opts.executionGuardrails
+                        ? JSON.parse(opts.executionGuardrails)
+                        : undefined,
+                    opts.executionEnforcement,
+                );
+            }
             if (opts.intentsRequireTee) body.intents_require_tee = true;
             if (opts.executionRequireTee) body.execution_require_tee = true;
             if (opts.shroud) body.shroud_enabled = true;
@@ -674,6 +695,10 @@ agentCommand
         '--execution-guardrails <json>',
         'Agent execution guardrails JSON (use "" to clear)',
     )
+    .option(
+        "--execution-enforcement <mode>",
+        "Convention 6 shadow mode on agent execution guardrails: log or enforce",
+    )
     .option("--intents-require-tee <bool>", "Enforce TEE-only transaction signing (true/false; Business+)")
     .option("--execution-require-tee <bool>", "Enforce TEE-only execution (true/false; Business+)")
     .option("--shroud <bool>", "Enable/disable Shroud LLM Proxy (true/false)")
@@ -741,11 +766,14 @@ agentCommand
                 body.intents_api_enabled = opts.intentsApi === "true";
             if (opts.executionIntents !== undefined)
                 body.execution_intents_enabled = opts.executionIntents === "true";
-            if (opts.executionGuardrails !== undefined) {
-                body.execution_guardrails =
-                    opts.executionGuardrails === ""
-                        ? {}
-                        : JSON.parse(opts.executionGuardrails);
+            if (opts.executionGuardrails !== undefined || opts.executionEnforcement !== undefined) {
+                const parsed =
+                    opts.executionGuardrails === undefined
+                        ? undefined
+                        : opts.executionGuardrails === ""
+                          ? {}
+                          : JSON.parse(opts.executionGuardrails);
+                body.execution_guardrails = mergeExecutionGuardrails(parsed, opts.executionEnforcement);
             }
             if (opts.intentsRequireTee !== undefined)
                 body.intents_require_tee = opts.intentsRequireTee === "true";

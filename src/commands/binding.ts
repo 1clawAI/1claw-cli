@@ -98,6 +98,40 @@ function resolveJson(
     return parseJsonOption(inline, label);
 }
 
+type GraphqlGuardrailOpts = {
+    allowMutations?: boolean;
+    allowIntrospection?: boolean;
+    maxQueryDepth?: number;
+    maxAliases?: number;
+    allowedOperations?: string;
+};
+
+function mergeGraphqlGuardrailFlags(
+    guardrails: Record<string, unknown> | undefined,
+    opts: GraphqlGuardrailOpts,
+): Record<string, unknown> | undefined {
+    const hasFlag =
+        opts.allowMutations !== undefined ||
+        opts.allowIntrospection !== undefined ||
+        opts.maxQueryDepth !== undefined ||
+        opts.maxAliases !== undefined ||
+        opts.allowedOperations !== undefined;
+    if (!hasFlag) return guardrails;
+
+    const merged: Record<string, unknown> = { ...(guardrails ?? {}) };
+    if (opts.allowMutations !== undefined) merged.allow_mutations = opts.allowMutations;
+    if (opts.allowIntrospection !== undefined) merged.allow_introspection = opts.allowIntrospection;
+    if (opts.maxQueryDepth !== undefined) merged.max_query_depth = opts.maxQueryDepth;
+    if (opts.maxAliases !== undefined) merged.max_aliases = opts.maxAliases;
+    if (opts.allowedOperations !== undefined) {
+        merged.allowed_operations = opts.allowedOperations
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+    }
+    return merged;
+}
+
 /** Register `1claw agent binding …` subcommands on the agent command group. */
 export function registerAgentBindingCommands(agentCommand: Command): void {
     const bindingCommand = agentCommand
@@ -116,6 +150,14 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
         .option("--config-file <path>", "Path to binding config JSON file")
         .option("--guardrails <json>", "Per-binding guardrails JSON")
         .option("--guardrails-file <path>", "Path to guardrails JSON file")
+        .option("--allow-mutations <bool>", "GraphQL: allow mutations/subscriptions (true/false)")
+        .option("--allow-introspection <bool>", "GraphQL: allow __schema/__type introspection (true/false)")
+        .option("--max-query-depth <n>", "GraphQL: max query depth (default 10)")
+        .option("--max-aliases <n>", "GraphQL: max field aliases per query (default 30)")
+        .option(
+            "--allowed-operations <names>",
+            "GraphQL: comma-separated allowed root operation names",
+        )
         .option("--credential <json>", "Credential JSON (write-only; not returned on read)")
         .option("--credential-file <path>", "Path to credential JSON file")
         .option(
@@ -131,7 +173,19 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                     binding_type: opts.type,
                 };
                 const config = resolveJson(opts.config, opts.configFile, "config");
-                const guardrails = resolveJson(opts.guardrails, opts.guardrailsFile, "guardrails");
+                let guardrails = resolveJson(opts.guardrails, opts.guardrailsFile, "guardrails");
+                guardrails = mergeGraphqlGuardrailFlags(guardrails, {
+                    allowMutations: opts.allowMutations === undefined ? undefined : opts.allowMutations === "true",
+                    allowIntrospection:
+                        opts.allowIntrospection === undefined
+                            ? undefined
+                            : opts.allowIntrospection === "true",
+                    maxQueryDepth:
+                        opts.maxQueryDepth === undefined ? undefined : parseInt(opts.maxQueryDepth, 10),
+                    maxAliases:
+                        opts.maxAliases === undefined ? undefined : parseInt(opts.maxAliases, 10),
+                    allowedOperations: opts.allowedOperations,
+                });
                 const credential = resolveJson(opts.credential, opts.credentialFile, "credential");
                 const vaultRef = parseVaultRef(opts.vaultRef);
 
@@ -258,6 +312,14 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
         .option("--config-file <path>", "Path to config JSON file")
         .option("--guardrails <json>", "Updated guardrails JSON")
         .option("--guardrails-file <path>", "Path to guardrails JSON file")
+        .option("--allow-mutations <bool>", "GraphQL: allow mutations/subscriptions (true/false)")
+        .option("--allow-introspection <bool>", "GraphQL: allow __schema/__type introspection (true/false)")
+        .option("--max-query-depth <n>", "GraphQL: max query depth (default 10)")
+        .option("--max-aliases <n>", "GraphQL: max field aliases per query (default 30)")
+        .option(
+            "--allowed-operations <names>",
+            "GraphQL: comma-separated allowed root operation names",
+        )
         .option("--credential <json>", "Updated credential JSON (inline)")
         .option("--credential-file <path>", "Path to credential JSON file")
         .option(
@@ -271,7 +333,19 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                 requireToken();
                 const body: Record<string, unknown> = {};
                 const config = resolveJson(opts.config, opts.configFile, "config");
-                const guardrails = resolveJson(opts.guardrails, opts.guardrailsFile, "guardrails");
+                let guardrails = resolveJson(opts.guardrails, opts.guardrailsFile, "guardrails");
+                guardrails = mergeGraphqlGuardrailFlags(guardrails, {
+                    allowMutations: opts.allowMutations === undefined ? undefined : opts.allowMutations === "true",
+                    allowIntrospection:
+                        opts.allowIntrospection === undefined
+                            ? undefined
+                            : opts.allowIntrospection === "true",
+                    maxQueryDepth:
+                        opts.maxQueryDepth === undefined ? undefined : parseInt(opts.maxQueryDepth, 10),
+                    maxAliases:
+                        opts.maxAliases === undefined ? undefined : parseInt(opts.maxAliases, 10),
+                    allowedOperations: opts.allowedOperations,
+                });
                 const credential = resolveJson(opts.credential, opts.credentialFile, "credential");
                 const vaultRef = parseVaultRef(opts.vaultRef);
 
