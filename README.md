@@ -1,4 +1,4 @@
-# @1claw/cli (v0.56.3)
+# @1claw/cli (v0.57.0)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
