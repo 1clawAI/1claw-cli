@@ -1,4 +1,4 @@
-# @1claw/cli (v0.53.2)
+# @1claw/cli (v0.55.0)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -257,6 +257,33 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
   --environment preview \                      # Change environment tag
   --per-environment-guardrails '{"production":{"tx_max_value":"1.0"}}'
 ```
+
+### Graduated HITL & v0.55 guardrails (Intents API)
+
+When Intents API is enabled, configure graduated human-in-the-loop thresholds and extended hard guardrails:
+
+```bash
+1claw agent create my-agent --intents-api \
+  --tx-approval-policy '{"require_above_native":{"ethereum":"0.1"},"require_for_new_recipients":true}' \
+  --typed-data-policy approve \              # EIP-712 → HITL (deny|approve)
+  --simulation-failure-policy approve \      # Tenderly revert → HITL
+  --raw-signing-policy approve \             # Raw digest → HITL (allow|deny|approve)
+  --tx-block-unlimited-approvals \
+  --tx-max-value-usd 1000 \
+  --tx-daily-limit-usd 5000 \
+  --allow-erc4337 \
+  --allow-eip7702
+
+1claw agent update <id> \
+  --tx-approval-policy '{"require_for_unlimited_approvals":true}' \
+  --clear-auto-suspended                     # Clear circuit-breaker suspension (owner/admin)
+
+# Org emergency stop (owner/admin)
+curl -X POST https://api.1claw.xyz/v1/org/freeze -H "Authorization: Bearer $ONECLAW_TOKEN"
+curl -X POST https://api.1claw.xyz/v1/org/unfreeze -H "Authorization: Bearer $ONECLAW_TOKEN"
+```
+
+Matching transactions return **202** `awaiting_approval` with an `approval_id`. Approve via dashboard or `1claw approval decide <id> --decision approved`.
 
 The CLI's `agent create` always uses `auth_method=api_key` (default; returns an `ocv_` API key). To register an `mtls` or `oidc_client_credentials` agent, use the SDK or `POST /v1/agents` directly — those auth methods don't generate an API key.
 

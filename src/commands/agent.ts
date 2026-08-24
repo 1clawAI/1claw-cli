@@ -73,6 +73,20 @@ interface Agent {
     environment_locked?: boolean;
     env_auto_resolve?: boolean;
     per_environment_guardrails?: Record<string, unknown> | null;
+    tx_approval_policy?: Record<string, unknown> | null;
+    typed_data_policy?: string;
+    simulation_failure_policy?: string;
+    tx_block_unlimited_approvals?: boolean;
+    tx_per_recipient_max_per_day?: number | null;
+    tx_per_recipient_daily_limit?: string | null;
+    new_recipient_cap_native?: string | null;
+    tx_max_value_usd?: string | null;
+    tx_daily_limit_usd?: string | null;
+    raw_signing_policy?: string;
+    personal_sign_policy?: Record<string, unknown> | null;
+    allow_erc4337?: boolean;
+    allow_eip7702?: boolean;
+    auto_suspended?: boolean;
 }
 
 export const agentCommand = new Command("agent").description("Manage agents");
@@ -159,6 +173,19 @@ agentCommand
     .option('--tx-max-per-day <n>', 'Max transactions per UTC calendar day')
     .option('--tx-overhead-budget <json>', 'Per-chain daily overhead budget JSON (e.g. {"solana":"0.5","xrp":"100"})')
     .option('--solana-ata-allowlist <addrs>', 'Comma-separated Solana addresses whose ATAs may be created', (v: string) => v.split(',').map(s => s.trim()))
+    .option('--tx-approval-policy <json>', 'Graduated tx HITL policy JSON')
+    .option('--typed-data-policy <mode>', 'EIP-712 escalation: deny or approve (HITL)')
+    .option('--simulation-failure-policy <mode>', 'Simulation failure: deny or approve (HITL)')
+    .option('--tx-block-unlimited-approvals', 'Block unlimited ERC-20 approvals')
+    .option('--tx-per-recipient-max-per-day <n>', 'Max txs to same recipient per UTC day')
+    .option('--tx-per-recipient-daily-limit <amount>', 'Max native spend to same recipient per day')
+    .option('--new-recipient-cap-native <amount>', 'Cap on first-time recipient spend (native units)')
+    .option('--tx-max-value-usd <amount>', 'Per-transaction USD cap')
+    .option('--tx-daily-limit-usd <amount>', 'Rolling 24h USD spend cap')
+    .option('--raw-signing-policy <mode>', 'Raw digest signing: allow, deny, or approve (HITL)')
+    .option('--personal-sign-policy <json>', 'personal_sign guardrails JSON')
+    .option('--allow-erc4337', 'Allow ERC-4337 gasless UserOperations')
+    .option('--allow-eip7702', 'Allow EIP-7702 type-4 transactions')
     .option("--environment <env>", "Named environment tag (production, preview, development, or custom)")
     .option("--environment-locked", "Lock the environment tag after creation")
     .option("--env-auto-resolve", "Auto-fill env var resolve from agent environment tag")
@@ -208,6 +235,32 @@ agentCommand
                 body.tx_overhead_budget = JSON.parse(opts.txOverheadBudget);
             if (opts.solanaAtaAllowlist)
                 body.solana_ata_allowlist = opts.solanaAtaAllowlist;
+            if (opts.txApprovalPolicy)
+                body.tx_approval_policy = JSON.parse(opts.txApprovalPolicy);
+            if (opts.typedDataPolicy)
+                body.typed_data_policy = opts.typedDataPolicy;
+            if (opts.simulationFailurePolicy)
+                body.simulation_failure_policy = opts.simulationFailurePolicy;
+            if (opts.txBlockUnlimitedApprovals)
+                body.tx_block_unlimited_approvals = true;
+            if (opts.txPerRecipientMaxPerDay)
+                body.tx_per_recipient_max_per_day = parseInt(opts.txPerRecipientMaxPerDay, 10);
+            if (opts.txPerRecipientDailyLimit)
+                body.tx_per_recipient_daily_limit = opts.txPerRecipientDailyLimit;
+            if (opts.newRecipientCapNative)
+                body.new_recipient_cap_native = opts.newRecipientCapNative;
+            if (opts.txMaxValueUsd)
+                body.tx_max_value_usd = opts.txMaxValueUsd;
+            if (opts.txDailyLimitUsd)
+                body.tx_daily_limit_usd = opts.txDailyLimitUsd;
+            if (opts.rawSigningPolicy)
+                body.raw_signing_policy = opts.rawSigningPolicy;
+            if (opts.personalSignPolicy)
+                body.personal_sign_policy = JSON.parse(opts.personalSignPolicy);
+            if (opts.allowErc4337)
+                body.allow_erc4337 = true;
+            if (opts.allowEip7702)
+                body.allow_eip7702 = true;
             if (opts.environment) body.environment = opts.environment;
             if (opts.environmentLocked) body.environment_locked = true;
             if (opts.envAutoResolve) body.env_auto_resolve = true;
@@ -562,6 +615,35 @@ agentCommand
                         JSON.stringify(agent.per_chain_guardrails),
                     ]);
                 }
+                if (agent.tx_approval_policy) {
+                    rows.push([
+                        "Tx approval policy (HITL)",
+                        JSON.stringify(agent.tx_approval_policy),
+                    ]);
+                }
+                if (agent.typed_data_policy) {
+                    rows.push(["Typed data policy", agent.typed_data_policy]);
+                }
+                if (agent.simulation_failure_policy) {
+                    rows.push(["Simulation failure policy", agent.simulation_failure_policy]);
+                }
+                if (agent.raw_signing_policy) {
+                    rows.push(["Raw signing policy", agent.raw_signing_policy]);
+                }
+                if (agent.tx_block_unlimited_approvals) {
+                    rows.push(["Block unlimited approvals", "true"]);
+                }
+                if (agent.tx_max_value_usd) {
+                    rows.push(["Max value USD", agent.tx_max_value_usd]);
+                }
+                if (agent.tx_daily_limit_usd) {
+                    rows.push(["Daily limit USD", agent.tx_daily_limit_usd]);
+                }
+                if (agent.allow_erc4337) rows.push(["Allow ERC-4337", "true"]);
+                if (agent.allow_eip7702) rows.push(["Allow EIP-7702", "true"]);
+                if (agent.auto_suspended) {
+                    rows.push(["Auto-suspended", chalk.red("yes")]);
+                }
             }
             rows.push(["Created by", agent.created_by]);
             rows.push(["Created", formatDate(agent.created_at, "long")]);
@@ -626,6 +708,20 @@ agentCommand
     .option("--environment-locked <bool>", "Lock/unlock environment tag (true/false)")
     .option("--env-auto-resolve <bool>", "Auto-fill env var resolve from agent tag (true/false)")
     .option('--per-environment-guardrails <json>', 'Per-environment guardrail overrides JSON (use "" to clear)')
+    .option('--tx-approval-policy <json>', 'Graduated tx HITL policy JSON (use "" to clear)')
+    .option('--typed-data-policy <mode>', 'EIP-712 escalation: deny or approve (use "" to clear)')
+    .option('--simulation-failure-policy <mode>', 'Simulation failure: deny or approve (use "" to clear)')
+    .option('--tx-block-unlimited-approvals <bool>', 'Block unlimited ERC-20 approvals (true/false)')
+    .option('--tx-per-recipient-max-per-day <n>', 'Max txs to same recipient per UTC day (use "" to clear)')
+    .option('--tx-per-recipient-daily-limit <amount>', 'Per-recipient daily native limit (use "" to clear)')
+    .option('--new-recipient-cap-native <amount>', 'First-time recipient cap (use "" to clear)')
+    .option('--tx-max-value-usd <amount>', 'Per-transaction USD cap (use "" to clear)')
+    .option('--tx-daily-limit-usd <amount>', 'Rolling 24h USD cap (use "" to clear)')
+    .option('--raw-signing-policy <mode>', 'Raw digest: allow, deny, or approve')
+    .option('--personal-sign-policy <json>', 'personal_sign guardrails JSON (use "" to clear)')
+    .option('--allow-erc4337 <bool>', 'Allow ERC-4337 gasless (true/false)')
+    .option('--allow-eip7702 <bool>', 'Allow EIP-7702 type-4 (true/false)')
+    .option('--clear-auto-suspended', 'Clear circuit-breaker auto-suspension (owner/admin)')
     .action(async (id, opts) => {
         try {
             requireToken();
@@ -724,6 +820,70 @@ agentCommand
                     opts.perEnvironmentGuardrails === ""
                         ? null
                         : JSON.parse(opts.perEnvironmentGuardrails);
+            }
+            if (opts.txApprovalPolicy !== undefined) {
+                body.tx_approval_policy =
+                    opts.txApprovalPolicy === ""
+                        ? null
+                        : JSON.parse(opts.txApprovalPolicy);
+            }
+            if (opts.typedDataPolicy !== undefined) {
+                body.typed_data_policy =
+                    opts.typedDataPolicy === "" ? null : opts.typedDataPolicy;
+            }
+            if (opts.simulationFailurePolicy !== undefined) {
+                body.simulation_failure_policy =
+                    opts.simulationFailurePolicy === ""
+                        ? null
+                        : opts.simulationFailurePolicy;
+            }
+            if (opts.txBlockUnlimitedApprovals !== undefined) {
+                body.tx_block_unlimited_approvals =
+                    opts.txBlockUnlimitedApprovals === "true";
+            }
+            if (opts.txPerRecipientMaxPerDay !== undefined) {
+                body.tx_per_recipient_max_per_day =
+                    opts.txPerRecipientMaxPerDay === ""
+                        ? null
+                        : parseInt(opts.txPerRecipientMaxPerDay, 10);
+            }
+            if (opts.txPerRecipientDailyLimit !== undefined) {
+                body.tx_per_recipient_daily_limit =
+                    opts.txPerRecipientDailyLimit === ""
+                        ? null
+                        : opts.txPerRecipientDailyLimit;
+            }
+            if (opts.newRecipientCapNative !== undefined) {
+                body.new_recipient_cap_native =
+                    opts.newRecipientCapNative === ""
+                        ? null
+                        : opts.newRecipientCapNative;
+            }
+            if (opts.txMaxValueUsd !== undefined) {
+                body.tx_max_value_usd =
+                    opts.txMaxValueUsd === "" ? null : opts.txMaxValueUsd;
+            }
+            if (opts.txDailyLimitUsd !== undefined) {
+                body.tx_daily_limit_usd =
+                    opts.txDailyLimitUsd === "" ? null : opts.txDailyLimitUsd;
+            }
+            if (opts.rawSigningPolicy !== undefined) {
+                body.raw_signing_policy = opts.rawSigningPolicy;
+            }
+            if (opts.personalSignPolicy !== undefined) {
+                body.personal_sign_policy =
+                    opts.personalSignPolicy === ""
+                        ? null
+                        : JSON.parse(opts.personalSignPolicy);
+            }
+            if (opts.allowErc4337 !== undefined) {
+                body.allow_erc4337 = opts.allowErc4337 === "true";
+            }
+            if (opts.allowEip7702 !== undefined) {
+                body.allow_eip7702 = opts.allowEip7702 === "true";
+            }
+            if (opts.clearAutoSuspended) {
+                body.clear_auto_suspended = true;
             }
 
             if (Object.keys(body).length === 0) {
