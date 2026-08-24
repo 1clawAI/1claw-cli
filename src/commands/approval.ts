@@ -79,6 +79,34 @@ approvalCommand
     });
 
 approvalCommand
+    .command("status <id>")
+    .description("Poll lightweight approval status (agent token only)")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts) => {
+        try {
+            requireToken();
+            const result = await api<{ status: string; expires_at?: string | null }>(
+                `/approvals/${id}/status`,
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printKeyValue([
+                ["Status", statusBadge(result.status)],
+                [
+                    "Expires",
+                    result.expires_at
+                        ? new Date(result.expires_at).toLocaleString()
+                        : "—",
+                ],
+            ]);
+        } catch (e) {
+            handleError(e);
+        }
+    });
+
+approvalCommand
     .command("get <id>")
     .description("Get approval details")
     .option("--json", "Output as JSON")
