@@ -514,7 +514,14 @@ async function initAction(opts: InitOptions): Promise<void> {
     saveContainerState(state);
 
     console.log();
-    printSuccess(`Agent runtime is up → ${chalk.cyan(`http://localhost:${port}`)}`);
+    if (healthy) {
+        printSuccess(`Agent runtime is up → ${chalk.cyan(`http://localhost:${port}`)}`);
+    } else {
+        printWarning(
+            `Container started but localhost:${port} is not responding yet.`,
+        );
+        printInfo(`Check logs: 1claw containers logs ${containerName}`);
+    }
     console.log();
 
     const llmLabel = llmWired

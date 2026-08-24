@@ -19,6 +19,23 @@ const PRESET_RESOURCE_LIMITS: Record<RuntimePreset, { memory: string; cpus: stri
 
 const ISOLATED_NETWORK = "1claw-isolated";
 
+/** Which Docker network `dockerRun` attaches to. */
+export type DockerNetworkMode = "bridge" | "isolated";
+
+/**
+ * Host port publishing (`-p`) is incompatible with Docker's `--internal` networks:
+ * bindings are accepted at create time but NetworkSettings.Ports stays empty.
+ * Use the default bridge when exposing ports; reserve isolated for headless runs.
+ */
+export function resolveDockerNetwork(opts: {
+    ports: Record<string, string>;
+    allowInternet?: boolean;
+}): DockerNetworkMode {
+    const publishPorts = Object.keys(opts.ports).length > 0;
+    if (opts.allowInternet || publishPorts) return "bridge";
+    return "isolated";
+}
+
 export interface DockerRunOptions {
     image: string;
     name: string;
@@ -221,9 +238,62 @@ export async function ensureIsolatedNetwork(): Promise<void> {
     }
 }
 
+/** Host port → container port for bindings Docker actually published. */
+export async function dockerPublishedHostPorts(
+    nameOrId: string,
+): Promise<Map<string, string>> {
+    const { stdout } = await run([
+        "inspect",
+        nameOrId,
+        "--format",
+        "{{json .NetworkSettings.Ports}}",
+    ]);
+    const raw = stdout.trim();
+    const ports = (raw ? JSON.parse(raw) : {}) as Record<
+        string,
+        Array<{ HostIp?: string; HostPort?: string }> | null
+    >;
+    const result = new Map<string, string>();
+    for (const [containerSpec, bindings] of Object.entries(ports)) {
+        if (!bindings?.length) continue;
+        const containerPort = containerSpec.replace(/\/(?:tcp|udp)$/, "");
+        for (const binding of bindings) {
+            if (binding.HostPort) {
+                result.set(binding.HostPort, containerPort);
+            }
+        }
+    }
+    return result;
+}
+
+async function assertHostPortsPublished(
+    containerId: string,
+    expectedHostPorts: string[],
+): Promise<void> {
+    if (expectedHostPorts.length === 0) return;
+
+    const published = await dockerPublishedHostPorts(containerId);
+    const missing = expectedHostPorts.filter((hp) => !published.has(hp));
+    if (missing.length === 0) return;
+
+    try {
+        await dockerRm(containerId, true);
+    } catch {
+        // best-effort cleanup
+    }
+
+    throw new DockerError(
+        `Host port(s) ${missing.join(", ")} were not published to localhost. ` +
+            "Docker ignores -p on internal networks; recreate without network isolation " +
+            "or omit --port for a headless container.",
+    );
+}
+
 export async function dockerRun(opts: DockerRunOptions): Promise<string> {
     const preset = opts.preset ?? "small";
     const { memory: memoryLimit, cpus: cpuLimit } = PRESET_RESOURCE_LIMITS[preset];
+    const networkMode = resolveDockerNetwork(opts);
+    const expectedHostPorts = Object.keys(opts.ports);
 
     const args = ["run", "--name", opts.name];
     args.push("-d"); // always detached; logs streamed separately
@@ -242,12 +312,17 @@ export async function dockerRun(opts: DockerRunOptions): Promise<string> {
     );
 
     // --- Network isolation ---
-    if (!opts.allowInternet) {
+    if (networkMode === "isolated") {
         await ensureIsolatedNetwork();
         args.push("--network", ISOLATED_NETWORK);
-    } else {
+    } else if (opts.allowInternet) {
         process.stderr.write(
             "[1claw] WARNING: --allow-internet is set; container has unrestricted network access.\n",
+        );
+    } else if (expectedHostPorts.length > 0) {
+        process.stderr.write(
+            "[1claw] NOTE: Chat UI port publishing uses the default bridge network " +
+                "(not 1claw-isolated) so localhost access works.\n",
         );
     }
 
@@ -266,7 +341,9 @@ export async function dockerRun(opts: DockerRunOptions): Promise<string> {
     }
     args.push(opts.image);
     const { stdout } = await run(args);
-    return stdout.trim();
+    const containerId = stdout.trim();
+    await assertHostPortsPublished(containerId, expectedHostPorts);
+    return containerId;
 }
 
 export async function dockerStop(nameOrId: string): Promise<void> {

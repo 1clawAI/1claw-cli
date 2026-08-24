@@ -79,6 +79,15 @@ test(
             const status = await docker.dockerContainerStatus(SPAWN_SMOKE_CONTAINER);
             assert.ok(status.exists);
             assert.equal(status.running, true);
+
+            const published = await docker.dockerPublishedHostPorts(
+                SPAWN_SMOKE_CONTAINER,
+            );
+            assert.ok(
+                published.has(HOST_PORT),
+                `expected host port ${HOST_PORT} to be published`,
+            );
+            assert.equal(published.get(HOST_PORT), "3000");
         } finally {
             await cleanupTestSuite(config, TMP_CONFIG);
         }

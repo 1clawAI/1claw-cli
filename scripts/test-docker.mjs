@@ -131,6 +131,38 @@ test("findAvailablePort returns a bindable port", async () => {
     assert.ok(p >= 34567 && p < 34567 + 100);
 });
 
+test("resolveDockerNetwork uses bridge when publishing host ports", async () => {
+    const docker = await import("../dist/src/lib/docker-client.js");
+    assert.equal(
+        docker.resolveDockerNetwork({ ports: { "3000": "3000" } }),
+        "bridge",
+    );
+    assert.equal(
+        docker.resolveDockerNetwork({
+            ports: { "3000": "3000" },
+            allowInternet: false,
+        }),
+        "bridge",
+    );
+});
+
+test("resolveDockerNetwork uses isolated for headless containers", async () => {
+    const docker = await import("../dist/src/lib/docker-client.js");
+    assert.equal(docker.resolveDockerNetwork({ ports: {} }), "isolated");
+    assert.equal(
+        docker.resolveDockerNetwork({ ports: {}, allowInternet: false }),
+        "isolated",
+    );
+});
+
+test("resolveDockerNetwork honors allowInternet on bridge", async () => {
+    const docker = await import("../dist/src/lib/docker-client.js");
+    assert.equal(
+        docker.resolveDockerNetwork({ ports: {}, allowInternet: true }),
+        "bridge",
+    );
+});
+
 // ── Template system (smoke — see test-spawn-templates.mjs for full coverage) ──
 
 test("listTemplateNames includes core bundled templates", () => {

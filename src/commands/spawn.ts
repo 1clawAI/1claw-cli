@@ -521,9 +521,16 @@ async function spawnAction(
     saveContainerState(state);
 
     console.log();
-    printSuccess(
-        `${manifest.display_name} agent is up → ${chalk.cyan(`http://localhost:${port}`)}`,
-    );
+    if (healthy) {
+        printSuccess(
+            `${manifest.display_name} agent is up → ${chalk.cyan(`http://localhost:${port}`)}`,
+        );
+    } else {
+        printWarning(
+            `${manifest.display_name} container started but localhost:${port} is not responding yet.`,
+        );
+        printInfo(`Check logs: 1claw containers logs ${containerName}`);
+    }
     console.log();
 
     const llmLabel = llmWired
@@ -571,8 +578,10 @@ async function spawnAction(
     console.log();
 
     try {
-        const open = (await import("open")).default;
-        await open(`http://localhost:${port}`);
+        if (healthy) {
+            const open = (await import("open")).default;
+            await open(`http://localhost:${port}`);
+        }
     } catch {
         // headless or no browser
     }
