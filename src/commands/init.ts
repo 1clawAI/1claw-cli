@@ -49,6 +49,7 @@ import {
     waitForHealthy,
     type StoreKeySpec,
 } from "../lib/provisioning.js";
+import { resolveAgentKeyFromInput } from "../lib/agent-key.js";
 
 interface InitOptions {
     docker?: string | boolean;
@@ -221,21 +222,14 @@ async function initAction(opts: InitOptions): Promise<void> {
         printInfo("Local mode — no cloud account or provisioning.");
     } else if (agentApiKey) {
         printInfo("Using provided --agent-key (skipping provisioning).");
-        // Resolve agent ID + vault via token exchange (key-only auth).
-        try {
-            const exchangeRes = await api<{
-                token: string;
-                agent_id?: string;
-                vault_ids?: string[];
-            }>("/auth/agent-token", {
-                method: "POST",
-                body: { api_key: agentApiKey },
-                token: "",
-            });
-            if (exchangeRes.agent_id) agentId = exchangeRes.agent_id;
-            if (exchangeRes.vault_ids?.length) vaultId = exchangeRes.vault_ids[0];
-        } catch {
-            // Non-fatal — continue with local-only mode if exchange fails.
+        const resolved = await resolveAgentKeyFromInput(agentApiKey);
+        agentId = resolved.agentId;
+        agentApiKey = resolved.apiKey;
+        if (resolved.vaultIds?.length) vaultId = resolved.vaultIds[0];
+        if (!opts.agentKey?.includes(":")) {
+            printInfo(
+                `Resolved agent ${agentId.slice(0, 8)}… from key-only ocv_ auth.`,
+            );
         }
     } else {
         const authed = await ensureAuth();
@@ -260,8 +254,6 @@ async function initAction(opts: InitOptions): Promise<void> {
     let shroudAgentKey: string | null = null;
     if (agentId && agentApiKey) {
         shroudAgentKey = `${agentId}:${agentApiKey}`;
-    } else if (agentApiKey && agentApiKey.includes(":")) {
-        shroudAgentKey = agentApiKey;
     }
 
     if (agentApiKey) {

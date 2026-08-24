@@ -46,6 +46,7 @@ import {
     type TemplateManifest,
 } from "../templates/registry.js";
 import { ensureTemplates } from "../templates/fetcher.js";
+import { resolveAgentKeyFromInput } from "../lib/agent-key.js";
 
 interface SpawnOptions {
     list?: boolean;
@@ -211,20 +212,14 @@ async function spawnAction(
         printInfo("Local mode — no cloud account or provisioning.");
     } else if (agentApiKey) {
         printInfo("Using provided --agent-key (skipping provisioning).");
-        try {
-            const exchangeRes = await api<{
-                token: string;
-                agent_id?: string;
-                vault_ids?: string[];
-            }>("/auth/agent-token", {
-                method: "POST",
-                body: { api_key: agentApiKey },
-                token: "",
-            });
-            if (exchangeRes.agent_id) agentId = exchangeRes.agent_id;
-            if (exchangeRes.vault_ids?.length) vaultId = exchangeRes.vault_ids[0];
-        } catch {
-            // non-fatal
+        const resolved = await resolveAgentKeyFromInput(agentApiKey);
+        agentId = resolved.agentId;
+        agentApiKey = resolved.apiKey;
+        if (resolved.vaultIds?.length) vaultId = resolved.vaultIds[0];
+        if (!opts.agentKey?.includes(":")) {
+            printInfo(
+                `Resolved agent ${agentId.slice(0, 8)}… from key-only ocv_ auth.`,
+            );
         }
     } else {
         const authed = await ensureAuth();
@@ -246,8 +241,6 @@ async function spawnAction(
     let shroudAgentKey: string | null = null;
     if (agentId && agentApiKey) {
         shroudAgentKey = `${agentId}:${agentApiKey}`;
-    } else if (agentApiKey && agentApiKey.includes(":")) {
-        shroudAgentKey = agentApiKey;
     }
 
     if (agentApiKey) {

@@ -8,7 +8,7 @@ import {
 import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
 import chalk from "chalk";
-import { apiNoAuth, ApiError } from "../client.js";
+import { resolveAgentKeyFromInput } from "../lib/agent-key.js";
 import { printError, printInfo, printSuccess } from "../output.js";
 
 const DEFAULT_PORT = 11434;
@@ -88,39 +88,18 @@ const PROVIDER_FROM_MODEL: Record<string, string> = {
     "openrouter/": "openrouter",
 };
 
-/** Build `agent_id:api_key` for Shroud. Accepts full pair or key-only `ocv_...` (Vault resolves agent by prefix). */
+/** Build `agent_id:api_key` for Shroud. Accepts full pair or key-only `ocv_...`. */
 async function resolveShroudAgentKey(input: string): Promise<string> {
-    const trimmed = input.trim();
-    if (trimmed.includes(":")) {
-        return trimmed;
-    }
-    if (!trimmed.startsWith("ocv_")) {
-        printError(
-            "Pass agent credentials as agent_id:api_key, or a standalone agent API key (ocv_...).",
-        );
-        process.exit(1);
-    }
     try {
-        const res = await apiNoAuth<{ agent_id?: string }>("/auth/agent-token", {
-            method: "POST",
-            body: { api_key: trimmed },
-        });
-        if (!res.agent_id) {
-            printError(
-                "Token exchange succeeded but server did not return agent_id. Use agent_id:api_key explicitly.",
+        const resolved = await resolveAgentKeyFromInput(input);
+        if (!input.includes(":")) {
+            printInfo(
+                `Resolved agent ${chalk.bold(resolved.agentId)} from API key (key-only auth).`,
             );
-            process.exit(1);
         }
-        printInfo(
-            `Resolved agent ${chalk.bold(res.agent_id)} from API key (key-only auth).`,
-        );
-        return `${res.agent_id}:${trimmed}`;
+        return resolved.shroudAgentKey;
     } catch (err) {
-        if (err instanceof ApiError) {
-            printError(
-                `Could not resolve agent from API key (${err.status}): ${err.detail}`,
-            );
-        } else if (err instanceof Error) {
+        if (err instanceof Error) {
             printError(err.message);
         } else {
             printError(String(err));
