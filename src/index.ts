@@ -53,6 +53,7 @@ import { oauthCommand } from "./commands/oauth.js";
 import { cedarPolicyCommand } from "./commands/cedar-policy.js";
 import { opaPolicyCommand } from "./commands/opa-policy.js";
 import { policyBackendCommand } from "./commands/policy-backend.js";
+import { guardrailsCommand } from "./commands/guardrails.js";
 import { contractAbiCommand } from "./commands/contract-abi.js";
 import { pendingApprovalCommand } from "./commands/pending-approval.js";
 import { subOrgCommand } from "./commands/sub-org.js";
@@ -156,6 +157,7 @@ export function createProgram(): Command {
     program.addCommand(cedarPolicyCommand);
     program.addCommand(opaPolicyCommand);
     program.addCommand(policyBackendCommand);
+    program.addCommand(guardrailsCommand);
     program.addCommand(contractAbiCommand);
     program.addCommand(pendingApprovalCommand);
 
