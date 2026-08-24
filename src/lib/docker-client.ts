@@ -446,7 +446,7 @@ export function dockerLogsFiltered(nameOrId: string): ChildProcess {
                 suppressing = true;
                 continue;
             }
-            if (suppressing && (line.startsWith("Ready:") || line.startsWith("[chat-ui]"))) {
+            if (suppressing && (line.startsWith("Ready:") || line.startsWith("[chat-ui]") || line.startsWith("[spawn-chat-ui]"))) {
                 suppressing = false;
                 continue;
             }

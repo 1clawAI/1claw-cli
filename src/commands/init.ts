@@ -567,10 +567,12 @@ async function initAction(opts: InitOptions): Promise<void> {
     console.log(chalk.dim(`  stop:  1claw containers stop ${containerName}`));
     console.log();
 
-    // Open the browser (best-effort) unless detached/headless.
+    // Open the browser when the chat UI health check passed (best-effort).
     try {
-        const open = (await import("open")).default;
-        await open(`http://localhost:${port}`);
+        if (healthy) {
+            const open = (await import("open")).default;
+            await open(`http://localhost:${port}`);
+        }
     } catch {
         // ignore — headless or no browser
     }

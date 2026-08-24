@@ -72,6 +72,17 @@ test("listTemplateNames returns all 12 bundled templates", () => {
     }
 });
 
+test("bundled shared spawn chat UI exists after build", () => {
+    const bundled = paths.bundledTemplatesDir();
+    assert.ok(bundled);
+    const sharedRoot = join(bundled, "..", "shared");
+    assert.ok(
+        existsSync(join(sharedRoot, "spawn_chat_ui.py")),
+        "expected dist/bundled-templates/shared/spawn_chat_ui.py",
+    );
+    assert.ok(existsSync(join(sharedRoot, "start-with-chat-ui.sh")));
+});
+
 test("loadBundledRegistry lists every bundled template", () => {
     const reg = templateRegistry.loadBundledRegistry();
     assert.ok(reg, "bundled registry.yaml must be copied to dist/src/");
@@ -152,6 +163,19 @@ for (const name of ALL_TEMPLATES) {
         assert.ok(dockerfile.includes("/health"));
         assert.ok(dockerfile.includes("EXPOSE 3000"));
         assert.ok(dockerfile.includes("ONECLAW_DAEMON_SOCKET"));
+        assert.ok(
+            dockerfile.includes("COPY shared"),
+            `${name} Dockerfile must COPY shared spawn chat UI`,
+        );
+    });
+
+    test(`${name} entrypoint starts shared chat UI sidecar`, () => {
+        const dir = templateRegistry.getTemplateDir(name);
+        const entrypoint = readFileSync(join(dir, "entrypoint.sh"), "utf-8");
+        assert.ok(
+            entrypoint.includes("start-with-chat-ui.sh"),
+            `${name}/entrypoint.sh must exec shared start-with-chat-ui.sh`,
+        );
     });
 
     test(`${name} entrypoint routes LLM via Shroud when enabled`, () => {
@@ -159,7 +183,7 @@ for (const name of ALL_TEMPLATES) {
         const entrypoint = readFileSync(join(dir, "entrypoint.sh"), "utf-8");
         assert.ok(entrypoint.includes("ONECLAW_LLM_VIA_SHROUD"));
         assert.ok(entrypoint.includes("ONECLAW_SHROUD_URL"));
-        assert.match(entrypoint, /exec (python|npx tsx|node|npm)/);
+        assert.match(entrypoint, /start-with-chat-ui\.sh (python|npx tsx|node|npm)/);
     });
 
     test(`${name} agent source exposes /health endpoint`, () => {

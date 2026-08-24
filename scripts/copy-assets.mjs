@@ -32,25 +32,43 @@ for (const dir of assetDirs) {
 // which is reserved for compiled registry.ts + fetcher.ts).
 function resolveAgentTemplatesRoot() {
     const candidates = [
-        join(root, "agent-templates"),
         join(root, "..", "agent-templates"),
+        join(root, "agent-templates"),
     ];
     for (const candidate of candidates) {
         if (existsSync(join(candidate, "templates"))) {
             return candidate;
         }
     }
-    return candidates[0];
+    return candidates[1];
 }
 
 const agentTemplatesRoot = resolveAgentTemplatesRoot();
 const templatesFrom = join(agentTemplatesRoot, "templates");
 const bundledRoot = join(root, "dist", "bundled-templates");
 const templatesTo = join(bundledRoot, "templates");
+function resolveSharedRoot() {
+    const candidates = [
+        join(agentTemplatesRoot, "shared"),
+        join(root, "..", "agent-templates", "shared"),
+    ];
+    for (const candidate of candidates) {
+        if (existsSync(join(candidate, "spawn_chat_ui.py"))) return candidate;
+    }
+    return null;
+}
 if (existsSync(templatesFrom)) {
     mkdirSync(templatesTo, { recursive: true });
     cpSync(templatesFrom, templatesTo, { recursive: true });
     console.log(`copied agent-templates/templates/ → dist/bundled-templates/templates/`);
+    const sharedFrom = resolveSharedRoot();
+    const sharedTo = join(bundledRoot, "shared");
+    if (sharedFrom) {
+        cpSync(sharedFrom, sharedTo, { recursive: true });
+        console.log(`copied ${sharedFrom} → dist/bundled-templates/shared/`);
+    } else {
+        console.warn("WARN: shared/spawn chat UI not found — spawn Docker builds may fail.");
+    }
 } else {
     console.warn(
         "WARN: packages/agent-templates not initialized — npm publish will rely on GitHub fetch.\n" +

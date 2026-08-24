@@ -145,6 +145,31 @@ function printTemplateList(templates: TemplateManifest[]): void {
     console.log();
 }
 
+/** Copy shared/spawn-chat-ui into the Docker build context (sibling of templates/). */
+function ensureSharedChatUiInBuildContext(
+    buildContext: string,
+    templateDir: string,
+): void {
+    const sharedDest = join(buildContext, "shared");
+    if (existsSync(sharedDest)) return;
+
+    const candidates = [
+        join(templateDir, "..", "..", "shared"),
+        join(templateDir, "..", "..", "..", "agent-templates", "shared"),
+    ];
+    for (const sharedSrc of candidates) {
+        if (existsSync(join(sharedSrc, "spawn_chat_ui.py"))) {
+            cpSync(sharedSrc, sharedDest, { recursive: true });
+            return;
+        }
+    }
+
+    throw new Error(
+        "Shared spawn chat UI not found. Initialize the agent-templates submodule " +
+            "(git submodule update --init packages/agent-templates).",
+    );
+}
+
 async function spawnAction(
     templateArg: string | undefined,
     opts: SpawnOptions,
@@ -345,6 +370,7 @@ async function spawnAction(
 
         mkdirSync(targetDir, { recursive: true });
         cpSync(templateDir, targetDir, { recursive: true });
+        ensureSharedChatUiInBuildContext(targetDir, templateDir);
         projectDir = targetDir;
 
         // Initialize a fresh git repo so the user can track changes
@@ -360,6 +386,7 @@ async function spawnAction(
 
     // Use the local project dir as build context when available
     const buildContext = projectDir ?? templateDir;
+    ensureSharedChatUiInBuildContext(buildContext, templateDir);
 
     // ── Build template image ─────────────────────────────────────────
     const imageTag = `1claw/${manifest.name}:${manifest.version}`;

@@ -1113,7 +1113,7 @@ conflicts: []                    # e.g. [other-tool] to forbid combining
 
 ## Agent Templates (`spawn`)
 
-`1claw spawn` creates a framework-specific AI agent from a pre-built template. Each template ships a Dockerfile, starter code, and entrypoint pre-wired with 1Claw MCP and Shroud. The container follows the same daemon-socket security model as `init --docker` — **the container never sees raw API keys.**
+`1claw spawn` creates a framework-specific AI agent from a pre-built template. Each template ships a Dockerfile, starter code, and entrypoint pre-wired with 1Claw MCP and Shroud. After spawn, an **interactive browser chat UI** opens at `http://localhost:<port>` (default 3000) so you can send test messages immediately. The container follows the same daemon-socket security model as `init --docker` — **the container never sees raw API keys.**
 
 ```bash
 1claw spawn langchain                        # LangChain agent with Shroud LLM routing
@@ -1122,6 +1122,8 @@ conflicts: []                    # e.g. [other-tool] to forbid combining
 1claw spawn --list                           # List all available templates
 1claw spawn --refresh                        # Force-refresh templates from GitHub
 ```
+
+When the health check passes, spawn prints the local URL and opens your browser to the shared chat UI. Framework logic runs on an internal port; the UI forwards `POST /chat` to your agent or falls back to Shroud through the host daemon `/proxy`.
 
 ### Available templates
 
