@@ -58,6 +58,7 @@ import { contractAbiCommand } from "./commands/contract-abi.js";
 import { pendingApprovalCommand } from "./commands/pending-approval.js";
 import { subOrgCommand } from "./commands/sub-org.js";
 import { portfolioCommand } from "./commands/portfolio.js";
+import { safeCommand } from "./commands/safe.js";
 import { setOutputFormat, setApiUrl } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -166,6 +167,9 @@ export function createProgram(): Command {
 
     // Portfolio
     program.addCommand(portfolioCommand);
+
+    // Safe (Phase 5)
+    program.addCommand(safeCommand);
 
     // Global options
     program.option("--json", "Force JSON output for all commands");

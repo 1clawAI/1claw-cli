@@ -2003,4 +2003,131 @@ delegationCommand
         }
     });
 
+// ── Agent accounts (Phase 5 Safe) ──
+interface AgentAccountRow {
+    id: string;
+    chain: string;
+    account_type: string;
+    address?: string | null;
+    safe_version?: string | null;
+    modules_enabled?: string[];
+    deploy_status: string;
+    cosign_enabled?: boolean;
+    metadata?: Record<string, unknown>;
+}
+
+interface MigrationPlan {
+    agent_id: string;
+    chain: string;
+    safe_address: string;
+    safe_version: string;
+    modules: string[];
+    eoa_address?: string | null;
+    deploy_status: string;
+    roles_config_hash: string;
+    allowance_config_hash: string;
+    warnings: string[];
+}
+
+const accountsCommand = agentCommand
+    .command("accounts")
+    .description("Agent EOA/Safe account management (Phase 5)");
+
+accountsCommand
+    .command("list <agent-id>")
+    .description("List agent accounts (EOA and Safe) per chain")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts: { json?: boolean }) => {
+        try {
+            requireToken();
+            const res = await api<{ accounts: AgentAccountRow[] }>(
+                `/agents/${agentId}/accounts`,
+            );
+            if (opts.json) {
+                printJson(res.accounts);
+                return;
+            }
+            if (!res.accounts.length) {
+                console.log("No accounts provisioned for this agent.");
+                return;
+            }
+            printTable(res.accounts as unknown as Record<string, unknown>[], [
+                { key: "chain", header: "Chain" },
+                { key: "account_type", header: "Type" },
+                { key: "address", header: "Address" },
+                { key: "deploy_status", header: "Deploy" },
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+accountsCommand
+    .command("migrate <agent-id>")
+    .description("Build EOA→Safe migration plan and provision counterfactual Safe (no on-chain broadcast)")
+    .requiredOption("--chain <chain>", "Chain name (e.g. ethereum, base, sepolia)")
+    .option("--deprecate-eoa", "Mark the EOA account deprecated after migration")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts: { chain: string; deprecateEoa?: boolean; json?: boolean }) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = { chain: opts.chain };
+            if (opts.deprecateEoa) body.deprecate_eoa = true;
+            const plan = await api<MigrationPlan>(`/agents/${agentId}/accounts/migrate`, {
+                method: "POST",
+                body,
+            });
+            if (opts.json) {
+                printJson(plan);
+                return;
+            }
+            printKeyValue([
+                ["Chain", plan.chain],
+                ["Safe address", plan.safe_address],
+                ["Safe version", plan.safe_version],
+                ["EOA address", plan.eoa_address ?? "(none)"],
+                ["Deploy status", plan.deploy_status],
+                ["Roles hash", plan.roles_config_hash],
+                ["Allowance hash", plan.allowance_config_hash],
+            ]);
+            if (plan.modules.length) {
+                console.log("\nModules:", plan.modules.join(", "));
+            }
+            if (plan.warnings.length) {
+                console.log("\nWarnings:");
+                for (const w of plan.warnings) console.log(`  • ${w}`);
+            }
+            printSuccess("Migration plan stored (counterfactual — deploy broadcast returns 501)");
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+accountsCommand
+    .command("deprecate-eoa <agent-id> <chain>")
+    .description("Mark the agent EOA account deprecated for a chain (blocks direct EOA signing path)")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, chain: string, opts: { json?: boolean }) => {
+        try {
+            requireToken();
+            const row = await api<AgentAccountRow>(
+                `/agents/${agentId}/accounts/${encodeURIComponent(chain)}/deprecate-eoa`,
+                { method: "POST" },
+            );
+            if (opts.json) {
+                printJson(row);
+                return;
+            }
+            printKeyValue([
+                ["Chain", row.chain],
+                ["Type", row.account_type],
+                ["Address", row.address ?? ""],
+                ["Deploy status", row.deploy_status],
+            ]);
+            printSuccess("EOA account marked deprecated");
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 registerAgentBindingCommands(agentCommand);
