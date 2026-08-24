@@ -1,4 +1,4 @@
-# @1claw/cli (v0.55.0)
+# @1claw/cli (v0.56.3)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -272,7 +272,8 @@ When Intents API is enabled, configure graduated human-in-the-loop thresholds an
   --tx-max-value-usd 1000 \
   --tx-daily-limit-usd 5000 \
   --allow-erc4337 \
-  --allow-eip7702
+  --allow-eip7702 \
+  --address-screening-policy deny          # off | deny | approve (recipient screening)
 
 1claw agent update <id> \
   --tx-approval-policy '{"require_for_unlimited_approvals":true}' \
@@ -310,6 +311,48 @@ Human-controlled inter-agent delegation. Create, manage, and revoke delegation p
 ```
 
 Delegation modes: `caller` (delegate uses own credentials), `target` (delegate uses target's config), `both`.
+
+### Guardrail governance (v0.56)
+
+Convention 6 shadow mode, revision history, and dry-run replay for agent/binding guardrail changes:
+
+```bash
+1claw guardrails shadow-report              # Would-deny violations (owner/admin)
+1claw guardrails shadow-report --since 2026-01-01T00:00:00Z
+1claw guardrails revisions                  # Audit trail of guardrail edits
+1claw guardrails replay <agent-id> \
+  --draft-guardrails '{"tx_max_value_eth":"0.1"}' \
+  --days 7
+```
+
+Widening agent or binding guardrails may return **202** with an `approval_id`. Approve via `1claw approval decide`, then resubmit with `--approval-id <uuid>` on `agent update` or `agent binding update`.
+
+Execution bindings support Convention 6 shadow mode via `--execution-enforcement log|enforce` on `agent create` / `agent update`.
+
+### Agent accounts & Safe (Phase 5, v0.56)
+
+Counterfactual Safe accounts derived from agent EOA owners. On-chain deploy/module broadcast is stubbed (501) pre-Guard audit.
+
+```bash
+1claw agent accounts list <agent-id>
+1claw agent accounts migrate <agent-id> --chain ethereum [--deprecate-eoa]
+1claw agent accounts deprecate-eoa <agent-id> --chain ethereum
+
+1claw safe module-registry ethereum         # Public Guard + Zodiac addresses
+1claw safe sync-allowances                  # Org admin: compile allowance drift report
+```
+
+### Human Factor Auth (HFA, v0.56)
+
+Step-up policies for treasury wallet send/swap/export. Configured per user via API; embedded clients call `GET /v1/treasury/wallets/auth-policy`.
+
+```bash
+# Via API (SDK/dashboard) — not yet a dedicated CLI subcommand:
+# PUT /v1/auth/human-factor-auth  { "policy": { "require_passkey": true } }
+# Passkey tx-assert: POST /v1/auth/passkeys/tx-assert/begin { "tx_digest", "action": "send"|"swap" }
+```
+
+Treasury sends accept `X-Auth-Confirm` (password) or `X-Passkey-Token` (from tx-assert ceremony).
 
 ### Bankr dynamic key vending
 
