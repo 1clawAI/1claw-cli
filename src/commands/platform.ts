@@ -250,8 +250,15 @@ platformCommand
                 if (!confirm) return;
             }
 
-            await api(`/platform/apps/${appId}`, { method: "DELETE" });
-            printSuccess("Platform app deleted.");
+            const result = await api<{
+                id: string;
+                slug: string;
+                deleted_at: string;
+                slug_released?: boolean;
+            }>(`/platform/apps/${appId}`, { method: "DELETE" });
+            printSuccess(
+                `Platform app deleted (slug ${result.slug} released).`,
+            );
         } catch (err) {
             handleError(err);
         }
@@ -794,6 +801,105 @@ platformCommand
                 return;
             }
             printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-approvals <connectionId>")
+    .description("List approvals for a platform connection (plt_ auth)")
+    .option("--status <status>", "Filter by status (pending, approved, rejected)")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const query: Record<string, string> = {};
+            if (opts.status) query.status = opts.status;
+            const result = await api<{ approvals: unknown[]; total: number }>(
+                `/platform/connections/${connectionId}/approvals`,
+                { query },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printKeyValue([["Total", String(result.total)]]);
+            printJson(result.approvals);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-spend-policy <connectionId>")
+    .description("Get effective spend policy for a connection (plt_ auth)")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/spend-policy`,
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-pending-approvals <connectionId>")
+    .description("List consensus pending approvals for a connection (plt_ auth)")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const result = await api<{
+                pending_approvals: unknown[];
+                total: number;
+            }>(`/platform/connections/${connectionId}/pending-approvals`);
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printKeyValue([["Total", String(result.total)]]);
+            printJson(result.pending_approvals);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("transfer-ownership <appId>")
+    .description("Transfer platform app to another org (step-up auth required)")
+    .requiredOption("--target-org-id <uuid>", "Destination organization UUID")
+    .option("--confirm-token <token>", "X-Auth-Confirm re-auth token")
+    .option("--json", "Output as JSON")
+    .action(async (appId, opts) => {
+        try {
+            requireToken();
+            const headers: Record<string, string> = {};
+            if (opts.confirmToken) {
+                headers["X-Auth-Confirm"] = opts.confirmToken;
+            }
+            const result = await api<{
+                app_id: string;
+                former_org_id: string;
+                new_org_id: string;
+            }>(`/platform/apps/${appId}/transfer-ownership`, {
+                method: "POST",
+                body: { target_org_id: opts.targetOrgId },
+                headers,
+            });
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printSuccess(`App ${appId} transferred to org ${result.new_org_id}.`);
         } catch (err) {
             handleError(err);
         }
