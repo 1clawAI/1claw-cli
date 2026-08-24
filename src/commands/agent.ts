@@ -87,6 +87,7 @@ interface Agent {
     allow_erc4337?: boolean;
     allow_eip7702?: boolean;
     auto_suspended?: boolean;
+    address_screening_policy?: { mode?: string };
 }
 
 export const agentCommand = new Command("agent").description("Manage agents");
@@ -184,6 +185,7 @@ agentCommand
     .option('--tx-daily-limit-usd <amount>', 'Rolling 24h USD spend cap')
     .option('--raw-signing-policy <mode>', 'Raw digest signing: allow, deny, or approve (HITL)')
     .option('--personal-sign-policy <json>', 'personal_sign guardrails JSON')
+    .option('--address-screening-policy <mode>', 'Recipient screening: off, deny, or approve')
     .option('--allow-erc4337', 'Allow ERC-4337 gasless UserOperations')
     .option('--allow-eip7702', 'Allow EIP-7702 type-4 transactions')
     .option("--environment <env>", "Named environment tag (production, preview, development, or custom)")
@@ -261,6 +263,13 @@ agentCommand
                 body.allow_erc4337 = true;
             if (opts.allowEip7702)
                 body.allow_eip7702 = true;
+            if (opts.addressScreeningPolicy) {
+                const mode = opts.addressScreeningPolicy as string;
+                if (!["off", "deny", "approve"].includes(mode)) {
+                    throw new Error("address-screening-policy must be off, deny, or approve");
+                }
+                body.address_screening_policy = { mode };
+            }
             if (opts.environment) body.environment = opts.environment;
             if (opts.environmentLocked) body.environment_locked = true;
             if (opts.envAutoResolve) body.env_auto_resolve = true;
@@ -719,6 +728,7 @@ agentCommand
     .option('--tx-daily-limit-usd <amount>', 'Rolling 24h USD cap (use "" to clear)')
     .option('--raw-signing-policy <mode>', 'Raw digest: allow, deny, or approve')
     .option('--personal-sign-policy <json>', 'personal_sign guardrails JSON (use "" to clear)')
+    .option('--address-screening-policy <mode>', 'Recipient screening: off, deny, or approve')
     .option('--allow-erc4337 <bool>', 'Allow ERC-4337 gasless (true/false)')
     .option('--allow-eip7702 <bool>', 'Allow EIP-7702 type-4 (true/false)')
     .option('--clear-auto-suspended', 'Clear circuit-breaker auto-suspension (owner/admin)')
@@ -875,6 +885,13 @@ agentCommand
                     opts.personalSignPolicy === ""
                         ? null
                         : JSON.parse(opts.personalSignPolicy);
+            }
+            if (opts.addressScreeningPolicy !== undefined) {
+                const mode = opts.addressScreeningPolicy as string;
+                if (!["off", "deny", "approve"].includes(mode)) {
+                    throw new Error("address-screening-policy must be off, deny, or approve");
+                }
+                body.address_screening_policy = { mode };
             }
             if (opts.allowErc4337 !== undefined) {
                 body.allow_erc4337 = opts.allowErc4337 === "true";
