@@ -1,4 +1,4 @@
-# @1claw/cli (v0.57.0)
+# @1claw/cli (v0.58.1)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -13,7 +13,7 @@ Use the CLI when you want vault and agent operations from a terminal, a CI pipel
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install 1clawAI/tap/oneclaw
+brew install 1clawAI/tap/1claw
 ```
 
 ### npm
@@ -805,6 +805,23 @@ Manage platform apps for developers building multi-tenant applications on top of
 
 # Audit
 1claw platform audit <app-id>                  # View platform audit events
+
+# Platform API expansion (v0.57+)
+1claw platform siwe-challenge                  # SIWE nonce for wallet-native user provisioning (plt_ auth)
+1claw platform get-connection <connection-id>  # Connection detail, claim status, entitlements
+1claw platform connection-usage <connection-id>  # Per-connection LLM inference spend (UTC month)
+1claw platform list-entitlements <connection-id> # On-chain entitlement evaluations
+1claw platform preview-template <app-id> <template-id> \
+  --parameters '{"agent_name":"demo"}'         # Dry-run template with {{params.*}} substitution
+
+# Platform control plane (v0.58+)
+1claw platform transfer-ownership <app-id> \
+  --target-org-id <uuid>                       # Transfer app to another org (step-up auth)
+1claw platform get-spend-policy <app-id> <policy-id>
+1claw platform get-connection-spend-policy <connection-id>
+1claw platform list-connection-approvals <connection-id>
+1claw platform get-connection-approval <connection-id> <approval-id>
+1claw platform list-connection-pending-approvals <connection-id>
 ```
 
 ### Approvals
