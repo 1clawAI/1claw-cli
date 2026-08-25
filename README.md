@@ -847,6 +847,15 @@ Create, manage, and trigger automation workflows for agents.
 1claw automation delete <id>                   # Delete automation
 ```
 
+**Agent-scoped create** (agent JWT only; simple manual/webhook workflows):
+
+```bash
+1claw agent automation create <agent-id> my-reminder \
+  --workflow '{"steps":[{"type":"log","message":"done"}]}' \
+  --api-key ocv_...
+# Or: ONECLAW_AGENT_TOKEN=... 1claw agent automation create <agent-id> ...
+```
+
 `workflow_spec` is required on create (`--workflow` JSON or `@file`). For cron
 triggers, `--cron` is required. Dashboard `schedule` is accepted by the API as
 an alias for `cron`.

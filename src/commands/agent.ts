@@ -2131,3 +2131,76 @@ accountsCommand
     });
 
 registerAgentBindingCommands(agentCommand);
+
+const automationAgentCommand = agentCommand
+    .command("automation")
+    .description("Agent-scoped automation commands (requires agent JWT)");
+
+automationAgentCommand
+    .command("create <agent-id> <name>")
+    .description("Create a simple automation for the calling agent (manual/webhook; log/notify/memory/wait steps)")
+    .option("--trigger <type>", "manual or webhook", "manual")
+    .option("--workflow <json-or-file>", "Workflow spec JSON or @file path", '{"steps":[{"type":"log","message":"hello"}]}')
+    .option("--auto-trigger", "Trigger immediately after create (manual only)")
+    .option("--token <jwt>", "Agent JWT (or set ONECLAW_AGENT_TOKEN)")
+    .option("--api-key <key>", "Agent API key to exchange (or ONECLAW_AGENT_API_KEY)")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, name: string, opts: {
+        trigger: string;
+        workflow: string;
+        autoTrigger?: boolean;
+        token?: string;
+        apiKey?: string;
+        json?: boolean;
+    }) => {
+        try {
+            let agentToken = opts.token ?? process.env.ONECLAW_AGENT_TOKEN ?? "";
+            if (!agentToken) {
+                const apiKey = opts.apiKey ?? process.env.ONECLAW_AGENT_API_KEY ?? "";
+                if (!apiKey) {
+                    throw new Error("Provide --token, ONECLAW_AGENT_TOKEN, --api-key, or ONECLAW_AGENT_API_KEY");
+                }
+                const exchanged = await api<{ access_token: string }>("/auth/agent-token", {
+                    method: "POST",
+                    body: { agent_id: agentId, api_key: apiKey },
+                    token: undefined,
+                });
+                agentToken = exchanged.access_token;
+            }
+
+            let workflowSpec: unknown;
+            if (opts.workflow.startsWith("@")) {
+                workflowSpec = JSON.parse(readFileSync(opts.workflow.slice(1), "utf8"));
+            } else {
+                workflowSpec = JSON.parse(opts.workflow);
+            }
+
+            const result = await api<{ automation?: Record<string, unknown> } & Record<string, unknown>>(
+                `/agents/${agentId}/automations`,
+                {
+                    method: "POST",
+                    token: agentToken,
+                    body: {
+                        name,
+                        trigger_type: opts.trigger,
+                        workflow_spec: workflowSpec,
+                        auto_trigger: Boolean(opts.autoTrigger),
+                    },
+                },
+            );
+
+            const automation = (result.automation ?? result) as Record<string, unknown>;
+
+            if (opts.json) {
+                printJson(automation);
+                return;
+            }
+
+            printSuccess(`Agent automation created: ${String(automation.name ?? name)} (${String(automation.id ?? "")})`);
+            if (typeof result.webhook_url === "string") {
+                printKeyValue([["Webhook URL", result.webhook_url]]);
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
