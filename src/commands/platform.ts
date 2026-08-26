@@ -443,6 +443,31 @@ templatesCommand
     });
 
 templatesCommand
+    .command("get <appId> <templateId>")
+    .description("Get a platform app template by ID")
+    .option("--json", "Output as JSON")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+            const template = await api<Template>(
+                `/platform/apps/${appId}/templates/${templateId}`,
+            );
+            if (opts.json) {
+                printJson(template);
+                return;
+            }
+            printKeyValue([
+                ["ID", template.id],
+                ["Name", template.name],
+                ["Version", String(template.version)],
+                ["Active", template.is_active ? "yes" : "no"],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+templatesCommand
     .command("create <appId> <name>")
     .description("Create a template for a platform app")
     .requiredOption("--spec <file>", "Path to JSON file with template spec")
@@ -868,6 +893,180 @@ platformCommand
             }
             printKeyValue([["Total", String(result.total)]]);
             printJson(result.pending_approvals);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-spend-policy-set <connectionId>")
+    .description("Set spend policy for a platform connection (plt_ auth)")
+    .requiredOption("--policy <file>", "Path to JSON spend policy file")
+    .option("--idempotency-key <key>", "Optional Idempotency-Key header")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const policyPath = opts.policy as string;
+            if (!existsSync(policyPath)) {
+                throw new Error(`Policy file not found: ${policyPath}`);
+            }
+            const body = JSON.parse(readFileSync(policyPath, "utf8"));
+            const headers: Record<string, string> = {};
+            if (opts.idempotencyKey) {
+                headers["Idempotency-Key"] = opts.idempotencyKey;
+            }
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/spend-policy`,
+                { method: "PUT", body, headers },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printSuccess("Spend policy updated.");
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-runtime-create <connectionId>")
+    .description("Create a runtime for a connection agent (plt_ auth)")
+    .requiredOption("--name <name>", "Runtime name")
+    .option("--agent-id <uuid>", "Agent UUID (defaults to first connection agent)")
+    .option("--preset <preset>", "Runtime preset", "small")
+    .option("--template <template>", "Runtime template", "openclaw")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {
+                name: opts.name,
+                preset: opts.preset,
+                template: opts.template,
+            };
+            if (opts.agentId) body.agent_id = opts.agentId;
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/runtimes`,
+                { method: "POST", body },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printSuccess("Runtime created.");
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-agent-chat <connectionId> <agentId>")
+    .description("Chat with an agent on a platform connection (plt_ auth)")
+    .requiredOption("--message <text>", "Chat message")
+    .option("--conversation-id <uuid>", "Existing conversation ID")
+    .option("--model <model>", "LLM model override")
+    .option("--provider <provider>", "LLM provider override")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, agentId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = { message: opts.message };
+            if (opts.conversationId) body.conversation_id = opts.conversationId;
+            if (opts.model) body.model = opts.model;
+            if (opts.provider) body.provider = opts.provider;
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/agents/${agentId}/chat`,
+                { method: "POST", body },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-pending-approval-decide <connectionId> <approvalId>")
+    .description("Vote on a consensus pending approval (plt_ auth)")
+    .requiredOption("--decision <decision>", "approve|reject|approved|rejected")
+    .requiredOption("--payload-hash <hash>", "payload_hash from pending approval")
+    .option("--reason <text>", "Optional reason")
+    .option("--credential-type <type>", "Credential type (e.g. wallet_mandate)")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, approvalId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {
+                decision: opts.decision,
+                payload_hash: opts.payloadHash,
+            };
+            if (opts.reason) body.reason = opts.reason;
+            if (opts.credentialType) body.credential_type = opts.credentialType;
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/pending-approvals/${approvalId}/decide`,
+                { method: "POST", body },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-approval-decide <connectionId> <approvalId>")
+    .description("Decide a mobile approval for a connection (plt_ auth)")
+    .requiredOption("--decision <decision>", "approved|rejected|approve|reject")
+    .option("--reason <text>", "Optional reason")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, approvalId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = { decision: opts.decision };
+            if (opts.reason) body.reason = opts.reason;
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/approvals/${approvalId}/decide`,
+                { method: "POST", body },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-signing-key-deactivate <connectionId> <chain>")
+    .description("Deactivate a signing key for a connection agent (plt_ auth)")
+    .option("--agent-id <uuid>", "Agent UUID when connection has multiple agents")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, chain, opts) => {
+        try {
+            requireToken();
+            const query: Record<string, string> = {};
+            if (opts.agentId) query.agent_id = opts.agentId;
+            await api<void>(
+                `/platform/connections/${connectionId}/signing-keys/${encodeURIComponent(chain)}`,
+                { method: "DELETE", query },
+            );
+            if (opts.json) {
+                printJson({ status: "deactivated", chain });
+                return;
+            }
+            printSuccess(`Signing key deactivated for chain ${chain}.`);
         } catch (err) {
             handleError(err);
         }
