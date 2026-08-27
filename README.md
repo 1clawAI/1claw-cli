@@ -1,4 +1,4 @@
-# @1claw/cli (v0.58.1)
+# @1claw/cli (v0.59.0)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -822,6 +822,9 @@ Manage platform apps for developers building multi-tenant applications on top of
 1claw platform list-connection-approvals <connection-id>
 1claw platform get-connection-approval <connection-id> <approval-id>
 1claw platform list-connection-pending-approvals <connection-id>
+1claw platform connection-runtime-get <connection-id> <runtime-id>
+1claw platform connection-passkey-enroll-begin <connection-id>
+1claw platform connection-runtime-create <connection-id> --name my-rt --agent-id <uuid>
 ```
 
 ### Approvals

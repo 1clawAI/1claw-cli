@@ -932,6 +932,49 @@ platformCommand
     });
 
 platformCommand
+    .command("connection-runtime-get <connectionId> <runtimeId>")
+    .description("Get a runtime on a platform connection (plt_ auth)")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, runtimeId, opts) => {
+        try {
+            requireToken();
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/runtimes/${runtimeId}`,
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printSuccess("Runtime fetched.");
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-passkey-enroll-begin <connectionId>")
+    .description("Begin passkey enrollment for a connected user (plt_ auth)")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/passkeys/enroll/begin`,
+                { method: "POST", body: {} },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printSuccess("Passkey enrollment ceremony started.");
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
     .command("connection-runtime-create <connectionId>")
     .description("Create a runtime for a connection agent (plt_ auth)")
     .requiredOption("--name <name>", "Runtime name")
