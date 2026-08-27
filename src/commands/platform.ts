@@ -1092,6 +1092,78 @@ platformCommand
     });
 
 platformCommand
+    .command("connection-signing-keys <connectionId>")
+    .description("List signing keys for a connection agent (plt_ auth)")
+    .option("--agent-id <uuid>", "Agent UUID when connection has multiple agents")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const query: Record<string, string> = {};
+            if (opts.agentId) query.agent_id = opts.agentId;
+            const result = await api<{
+                agent_id: string;
+                keys: Array<{
+                    chain: string;
+                    address: string;
+                    public_key: string;
+                    curve: string;
+                }>;
+            }>(`/platform/connections/${connectionId}/signing-keys`, { query });
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            if (!result.keys.length) {
+                printSuccess("No active signing keys on this connection.");
+                return;
+            }
+            printTable(
+                ["Chain", "Address", "Curve"],
+                result.keys.map((k) => [k.chain, k.address, k.curve]),
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-signing-key <connectionId> <chain>")
+    .description("Get a signing key for a connection agent by chain (plt_ auth)")
+    .option("--agent-id <uuid>", "Agent UUID when connection has multiple agents")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, chain, opts) => {
+        try {
+            requireToken();
+            const query: Record<string, string> = {};
+            if (opts.agentId) query.agent_id = opts.agentId;
+            const result = await api<{
+                agent_id: string;
+                chain: string;
+                address: string;
+                public_key: string;
+                curve: string;
+            }>(
+                `/platform/connections/${connectionId}/signing-keys/${encodeURIComponent(chain)}`,
+                { query },
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printKeyValue([
+                ["Agent ID", result.agent_id],
+                ["Chain", result.chain],
+                ["Address", result.address],
+                ["Curve", result.curve],
+                ["Public Key", result.public_key],
+            ]);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
     .command("connection-signing-key-deactivate <connectionId> <chain>")
     .description("Deactivate a signing key for a connection agent (plt_ auth)")
     .option("--agent-id <uuid>", "Agent UUID when connection has multiple agents")
