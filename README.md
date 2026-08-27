@@ -1,4 +1,4 @@
-# @1claw/cli (v0.59.2)
+# @1claw/cli (v0.59.4)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -819,12 +819,34 @@ Manage platform apps for developers building multi-tenant applications on top of
   --target-org-id <uuid>                       # Transfer app to another org (step-up auth)
 1claw platform get-spend-policy <app-id> <policy-id>
 1claw platform get-connection-spend-policy <connection-id>
+1claw platform connection-spend-policy-set <connection-id> \
+  --policy ./spend-policy.json                 # PUT spend policy (optional --idempotency-key)
 1claw platform list-connection-approvals <connection-id>
 1claw platform get-connection-approval <connection-id> <approval-id>
+1claw platform connection-approval-decide <connection-id> <approval-id> \
+  --decision approved                          # Mobile approval queue (plt_ auth)
 1claw platform list-connection-pending-approvals <connection-id>
+1claw platform connection-pending-approval-decide <connection-id> <approval-id> \
+  --decision approve --payload-hash <sha256> # Consensus pending approval vote
 1claw platform connection-runtime-get <connection-id> <runtime-id>
 1claw platform connection-passkey-enroll-begin <connection-id>
 1claw platform connection-runtime-create <connection-id> --name my-rt --agent-id <uuid>
+1claw platform connection-agent-chat <connection-id> <agent-id> \
+  --message "Hello"                            # Connection-scoped chat (402 on billing errors)
+
+# Platform connection operations (v0.59.3–0.59.4)
+1claw platform connection-signing-keys <connection-id> \
+  --agent-id <uuid>                            # List agent signing keys (public metadata)
+1claw platform connection-signing-key <connection-id> ethereum \
+  --agent-id <uuid>                            # Single-chain address lookup
+1claw platform connection-signing-key-deactivate <connection-id> ethereum \
+  --agent-id <uuid>
+1claw platform connection-agent-patch <connection-id> <agent-id> \
+  --intents --system-prompt "You are a DeFi bot."  # Enable Intents without re-bootstrap
+
+# Connection portfolio, automations, memory, pending-approval create — use SDK or curl:
+# GET .../portfolio, POST .../pending-approvals, GET/POST .../automations,
+# GET/PUT/DELETE .../memory/{namespace}/{key}, POST /v1/shroud/inspect-content
 ```
 
 ### Approvals
