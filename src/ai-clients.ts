@@ -27,7 +27,7 @@ function resolveGlobalMcpBinary(): string {
     return "";
 }
 
-export function detectAiClients(): AiClient[] {
+export function detectAiClients(projectDir?: string): AiClient[] {
     const isMac = platform() === "darwin";
 
     const clients: AiClient[] = [
@@ -50,7 +50,9 @@ export function detectAiClients(): AiClient[] {
         {
             name: "Cursor",
             slug: "cursor",
-            configPath: "~/.cursor/mcp.json",
+            configPath: projectDir
+                ? join(projectDir, ".cursor", "mcp.json")
+                : "~/.cursor/mcp.json",
             configFormat: "mcpServers",
             detected: false,
         },
@@ -64,7 +66,9 @@ export function detectAiClients(): AiClient[] {
         {
             name: "VS Code",
             slug: "vscode",
-            configPath: "~/.vscode/mcp.json",
+            configPath: projectDir
+                ? join(projectDir, ".vscode", "mcp.json")
+                : "~/.vscode/mcp.json",
             configFormat: "servers",
             detected: false,
         },

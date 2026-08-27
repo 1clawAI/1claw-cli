@@ -1,4 +1,4 @@
-# @1claw/cli (v0.59.0)
+# @1claw/cli (v0.59.2)
 
 Command-line interface for [1Claw](https://1claw.xyz).
 
@@ -60,7 +60,7 @@ export ONECLAW_API_KEY="1ck_..."
 
 ```bash
 1claw login                # Authenticate via browser
-1claw setup                # Auto-configure Claude, Cursor, VS Code, etc.
+1claw setup                # Login + POST /v1/onboarding/provision + configure MCP clients
 1claw import .env          # Import secrets from a .env file into your vault
 ```
 
@@ -71,7 +71,7 @@ export ONECLAW_API_KEY="1ck_..."
 Auto-detect and configure AI clients (Claude Desktop, Cursor, VS Code, Zed, Windsurf, Claude Code, Continue.dev) to use the 1Claw MCP server for runtime secret access.
 
 ```bash
-1claw setup                            # Interactive: login, create agent + vault + policy, configure clients
+1claw setup                            # Interactive: login, onboarding provision (vault + agent + ** policy), configure clients
 1claw setup --client cursor            # Configure only Cursor
 1claw setup --agent-key ocv_...        # Use a specific agent API key (skips provisioning)
 1claw setup --project                  # Write MCP config to current project instead of global
