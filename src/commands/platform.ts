@@ -1119,8 +1119,16 @@ platformCommand
                 return;
             }
             printTable(
-                ["Chain", "Address", "Curve"],
-                result.keys.map((k) => [k.chain, k.address, k.curve]),
+                result.keys.map((k) => ({
+                    chain: k.chain,
+                    address: k.address,
+                    curve: k.curve,
+                })),
+                [
+                    { key: "chain", header: "Chain" },
+                    { key: "address", header: "Address", width: 44 },
+                    { key: "curve", header: "Curve" },
+                ],
             );
         } catch (err) {
             handleError(err);
