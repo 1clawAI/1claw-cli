@@ -1196,6 +1196,52 @@ platformCommand
     });
 
 platformCommand
+    .command("connection-agent-patch <connectionId> <agentId>")
+    .description("Update limited agent settings on a connection (plt_ auth)")
+    .option("--intents", "Enable Intents API")
+    .option("--no-intents", "Disable Intents API")
+    .option("--execution-intents", "Enable Execution Intents (Pro+ on user org)")
+    .option("--no-execution-intents", "Disable Execution Intents")
+    .option("--system-prompt <text>", "Default system prompt for agent chat")
+    .option("--clear-system-prompt", "Clear the default system prompt")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, agentId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.intents) body.intents_api_enabled = true;
+            if (opts.noIntents) body.intents_api_enabled = false;
+            if (opts.executionIntents) body.execution_intents_enabled = true;
+            if (opts.noExecutionIntents) body.execution_intents_enabled = false;
+            if (opts.systemPrompt !== undefined) body.system_prompt = opts.systemPrompt;
+            if (opts.clearSystemPrompt) body.system_prompt = null;
+            if (Object.keys(body).length === 0) {
+                throw new Error(
+                    "Provide at least one of --intents, --no-intents, --execution-intents, --system-prompt, or --clear-system-prompt",
+                );
+            }
+            const result = await api<{
+                agent_id: string;
+                intents_api_enabled: boolean;
+                execution_intents_enabled: boolean;
+                system_prompt?: string | null;
+            }>(`/platform/connections/${connectionId}/agents/${agentId}`, {
+                method: "PATCH",
+                body,
+            });
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printSuccess(
+                `Agent updated: intents=${result.intents_api_enabled} execution=${result.execution_intents_enabled}`,
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
     .command("transfer-ownership <appId>")
     .description("Transfer platform app to another org (step-up auth required)")
     .requiredOption("--target-org-id <uuid>", "Destination organization UUID")
