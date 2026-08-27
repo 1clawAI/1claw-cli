@@ -1242,6 +1242,118 @@ platformCommand
     });
 
 platformCommand
+    .command("connection-portfolio <connectionId>")
+    .description("Get portfolio/balances for connection agents (plt_ auth)")
+    .option("--chains <list>", "Comma-separated chains")
+    .option("--include-tokens", "Include ERC-20/SPL token balances")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const qs = new URLSearchParams();
+            if (opts.chains) qs.set("chains", opts.chains);
+            if (opts.includeTokens) qs.set("include_tokens", "true");
+            const query = qs.toString() ? `?${qs}` : "";
+            const result = await api<Record<string, unknown>>(
+                `/platform/connections/${connectionId}/portfolio${query}`,
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printJson(result);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-pending-approval-create <connectionId>")
+    .description("Submit a consensus pending approval for a connection agent (plt_ auth)")
+    .requiredOption("--payload <json>", "action_payload JSON (chain, to, value, ...)")
+    .option("--agent-id <uuid>", "Agent on connection (required when multiple agents)")
+    .option("--policy-id <uuid>", "Consensus policy UUID (optional — auto-resolved)")
+    .option("--action <kind>", "Action kind", "transaction")
+    .option("--summary <text>", "Human-readable summary for webhooks")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {
+                action: opts.action,
+                action_payload: JSON.parse(opts.payload),
+            };
+            if (opts.agentId) body.agent_id = opts.agentId;
+            if (opts.policyId) body.policy_id = opts.policyId;
+            if (opts.summary) body.summary = opts.summary;
+            const result = await api<{
+                pending_approval_id: string;
+                status: string;
+                message: string;
+            }>(`/platform/connections/${connectionId}/pending-approvals`, {
+                method: "POST",
+                body,
+            });
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printSuccess(`Pending approval ${result.pending_approval_id} (${result.status})`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("connection-automations <connectionId>")
+    .description("List automations for agents on a connection (plt_ auth)")
+    .option("--json", "Output as JSON")
+    .action(async (connectionId, opts) => {
+        try {
+            requireToken();
+            const result = await api<{ automations: unknown[] }>(
+                `/platform/connections/${connectionId}/automations`,
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printJson(result.automations ?? []);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
+    .command("webhooks-catalog <appId>")
+    .description("List platform webhook event types delivered to webhook_url (plt_ or user JWT)")
+    .option("--json", "Output as JSON")
+    .action(async (appId, opts) => {
+        try {
+            requireToken();
+            const result = await api<{
+                webhook_configured: boolean;
+                webhook_url_host?: string;
+                platform_events: string[];
+            }>(`/platform/apps/${appId}/webhooks`);
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            printKeyValue([
+                ["Configured", result.webhook_configured ? "yes" : "no"],
+                ["Host", result.webhook_url_host ?? "—"],
+                ["Events", String(result.platform_events?.length ?? 0)],
+            ]);
+            for (const ev of result.platform_events ?? []) {
+                console.log(`  • ${ev}`);
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+platformCommand
     .command("transfer-ownership <appId>")
     .description("Transfer platform app to another org (step-up auth required)")
     .requiredOption("--target-org-id <uuid>", "Destination organization UUID")
