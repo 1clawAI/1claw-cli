@@ -7,7 +7,7 @@
     "type": "git",
     "url": "https://github.com/1clawAI/1claw-cli"
   },
-  "homepage": "https://1claw.xyz",
+  "homepage": "https://1claw.co",
   "bin": {
     "1claw": "./dist/bin/1claw.js"
   },

@@ -1,6 +1,8 @@
 # @1claw/cli (v0.59.4)
 
-Command-line interface for [1Claw](https://1claw.xyz).
+> ⭐ **Star [1clawAI/agent-templates](https://github.com/1clawAI/agent-templates)** — ready-to-run agent templates wired to 1Claw. It is our single starred repo.
+
+Command-line interface for [1Claw](https://1claw.co).
 
 Use the CLI when you want vault and agent operations from a terminal, a CI pipeline, or a shell script. Create vaults, rotate secrets, provision agents, set policies, submit transactions, and import `.env` files without opening the dashboard.
 
@@ -36,7 +38,7 @@ npx @1claw/cli login
 1claw login
 ```
 
-Opens your browser to `1claw.xyz/cli/verify` where you confirm the login code. The CLI polls for approval and stores the token locally in `~/.config/1claw/`.
+Opens your browser to `1claw.co/cli/verify` where you confirm the login code. The CLI polls for approval and stores the token locally in `~/.config/1claw/`.
 
 ### Email/password login
 
@@ -130,7 +132,7 @@ Password reset only applies to **email/password** accounts (not Google/SSO-only)
 
 `set-password` is for Platform API users provisioned via OIDC who don't have a password yet. `change-email` sends a 6-digit verification code to the new address and prompts you to enter it inline.
 
-`auth federated-token` uses your current 1claw credential as the **subject_token** and asks 1claw (an OIDC issuer at `https://api.1claw.xyz`) for a short-lived **RS256** JWT scoped to the `audience`. The acting agent must have `federation_enabled = true` and the audience must be on its `federation_audiences` allowlist (set in the dashboard or via `agents.update`). Pair with `--raw` for shell pipelines, e.g. Anthropic Workload Identity Federation:
+`auth federated-token` uses your current 1claw credential as the **subject_token** and asks 1claw (an OIDC issuer at `https://api.1claw.co`) for a short-lived **RS256** JWT scoped to the `audience`. The acting agent must have `federation_enabled = true` and the audience must be on its `federation_audiences` allowlist (set in the dashboard or via `agents.update`). Pair with `--raw` for shell pipelines, e.g. Anthropic Workload Identity Federation:
 
 ```bash
 ANTHROPIC_OIDC=$(1claw auth federated-token -a https://api.anthropic.com --raw)
@@ -280,8 +282,8 @@ When Intents API is enabled, configure graduated human-in-the-loop thresholds an
   --clear-auto-suspended                     # Clear circuit-breaker suspension (owner/admin)
 
 # Org emergency stop (owner/admin)
-curl -X POST https://api.1claw.xyz/v1/org/freeze -H "Authorization: Bearer $ONECLAW_TOKEN"
-curl -X POST https://api.1claw.xyz/v1/org/unfreeze -H "Authorization: Bearer $ONECLAW_TOKEN"
+curl -X POST https://api.1claw.co/v1/org/freeze -H "Authorization: Bearer $ONECLAW_TOKEN"
+curl -X POST https://api.1claw.co/v1/org/unfreeze -H "Authorization: Bearer $ONECLAW_TOKEN"
 ```
 
 Matching transactions return **202** `awaiting_approval` with an `approval_id`. Approve via dashboard or `1claw approval decide <id> --decision approved`.
@@ -742,7 +744,7 @@ Supported events: `wallet.transfer.sent`, `wallet.transfer.received`, `proposal.
 1claw proxy                                    # Start a local OpenAI-compatible proxy → Shroud (default :11434)
 1claw proxy --port 8080                        # Use a specific port (auto-falls-forward if busy)
 1claw proxy --provider anthropic               # Force a provider instead of auto-detecting from model
-1claw proxy --shroud-url https://shroud.1claw.xyz   # Override Shroud endpoint
+1claw proxy --shroud-url https://shroud.1claw.co   # Override Shroud endpoint
 1claw proxy -v                                 # Verbose: log each proxied request
 ```
 
@@ -1012,7 +1014,7 @@ Configure AI clients to use the daemon instead of the cloud API:
 1claw setup --local
 ```
 
-This sets `ONECLAW_LOCAL_VAULT=true` and `ONECLAW_DAEMON_SOCKET` in the MCP config, so the MCP server connects to the local daemon instead of `api.1claw.xyz`. The model uses `proxy_request` to make API calls with secrets injected — the secret value never enters the model's context.
+This sets `ONECLAW_LOCAL_VAULT=true` and `ONECLAW_DAEMON_SOCKET` in the MCP config, so the MCP server connects to the local daemon instead of `api.1claw.co`. The model uses `proxy_request` to make API calls with secrets injected — the secret value never enters the model's context.
 
 ### Architecture
 
@@ -1038,7 +1040,7 @@ AI Client (Claude, Cursor, etc.)
 1claw init --docker --list-modules           # List available modules
 ```
 
-When the cloud is reachable, `init` provisions an agent + vault + read policy and stores the agent key in your local vault (the daemon injects it toward `*.1claw.xyz`). With `--local`, nothing touches the cloud. The base image is built from bundled assets if it isn't already present, so the flow works offline.
+When the cloud is reachable, `init` provisions an agent + vault + read policy and stores the agent key in your local vault (the daemon injects it toward `*.1claw.co`). With `--local`, nothing touches the cloud. The base image is built from bundled assets if it isn't already present, so the flow works offline.
 
 ### Chat with an LLM through Shroud
 
@@ -1279,7 +1281,7 @@ Config is stored in `~/.config/1claw/config.json`. Keys:
 
 | Key             | Default                 | Description                                 |
 | --------------- | ----------------------- | ------------------------------------------- |
-| `api-url`       | `https://api.1claw.xyz` | API base URL                                |
+| `api-url`       | `https://api.1claw.co` | API base URL                                |
 | `output-format` | `table`                 | Default output: `table`, `json`, or `plain` |
 | `default-vault` | (none)                  | Default vault ID for commands               |
 
