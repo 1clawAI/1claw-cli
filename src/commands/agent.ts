@@ -1341,7 +1341,10 @@ keysCommand
 keysCommand
     .command("create <agent-id>")
     .description("Create a signing key for an agent")
-    .requiredOption("--chain <chain>", "Chain name (e.g. ethereum, solana, bitcoin)")
+    .requiredOption(
+      "--chain <chain>",
+      "ethereum | bitcoin | solana | xrp | cardano | tron | midnight (Preprod only)",
+    )
     .option("--json", "Output as JSON")
     .action(async (agentId, opts) => {
         try {
@@ -1373,7 +1376,10 @@ keysCommand
 keysCommand
     .command("rotate <agent-id>")
     .description("Rotate a signing key for a chain")
-    .requiredOption("--chain <chain>", "Chain name to rotate key for")
+    .requiredOption(
+      "--chain <chain>",
+      "Chain to rotate. Not supported for midnight — derivation lives in the signer sidecar, so there is no local keygen",
+    )
     .option("--json", "Output as JSON")
     .action(async (agentId, opts) => {
         try {
