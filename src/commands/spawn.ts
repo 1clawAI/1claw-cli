@@ -275,7 +275,7 @@ async function spawnAction(
             value: agentApiKey,
             type: "api_key",
             policy: {
-                allowed_hosts: ["api.1claw.xyz", "*.1claw.xyz"],
+                allowed_hosts: ["api.1claw.co", "api.1claw.xyz", "*.1claw.co", "*.1claw.xyz"],
                 inject_as: "bearer",
             },
         });
@@ -289,7 +289,7 @@ async function spawnAction(
             value: shroudAgentKey,
             type: "api_key",
             policy: {
-                allowed_hosts: ["shroud.1claw.xyz", "*.1claw.xyz"],
+                allowed_hosts: ["shroud.1claw.co", "shroud.1claw.xyz", "*.1claw.co", "*.1claw.xyz"],
                 inject_as: "header",
                 header_name: "X-Shroud-Agent-Key",
             },
@@ -300,7 +300,7 @@ async function spawnAction(
     const llmProvider = opts.llmProvider || "openai";
     const keyStore = (opts.llmKeyStore || "cloud").toLowerCase();
     const byokPolicy = {
-        allowed_hosts: ["shroud.1claw.xyz", "*.1claw.xyz"],
+        allowed_hosts: ["shroud.1claw.co", "shroud.1claw.xyz", "*.1claw.co", "*.1claw.xyz"],
         inject_as: "header" as const,
         header_name: "X-Shroud-Api-Key",
     };
@@ -440,7 +440,7 @@ async function spawnAction(
             opts.llmModel || defaultModelForProvider(llmProvider);
         env.ONECLAW_LLM_VIA_SHROUD = "true";
         env.ONECLAW_SHROUD_URL =
-            process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.xyz";
+            process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.co";
         env.ONECLAW_SHROUD_SECRET = shroudSecretPath!;
         env.ONECLAW_SHROUD_PROVIDER = llmProvider;
         env.ONECLAW_SHROUD_MODEL = model;

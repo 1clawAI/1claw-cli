@@ -31,7 +31,7 @@ const MODE = process.env.ONECLAW_MODE
 // header toward Shroud and returns only the model's response. The raw key never
 // enters this process.
 const LLM_VIA_SHROUD = process.env.ONECLAW_LLM_VIA_SHROUD === "true";
-const SHROUD_URL = (process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.xyz").replace(/\/+$/, "");
+const SHROUD_URL = (process.env.ONECLAW_SHROUD_URL || "https://shroud.1claw.co").replace(/\/+$/, "");
 const SHROUD_SECRET = process.env.ONECLAW_SHROUD_SECRET || "";
 // Optional BYOK provider key secret. When set, the daemon also injects it as
 // the X-Shroud-Api-Key header (the container never sees the value).

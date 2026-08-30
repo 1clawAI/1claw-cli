@@ -4,7 +4,7 @@ description: >
   Multi-chain signing and Intents API tooling. Adds transaction submission,
   signing-key management, and on-chain intent helpers.
 author: 1Claw
-homepage: https://1claw.xyz
+homepage: https://1claw.co
 
 docker:
   packages:

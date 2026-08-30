@@ -4,7 +4,7 @@ description: >
   ElizaOS character runtime with vault-backed secrets. Adds the ElizaOS core
   so character agents can run with 1Claw-managed credentials.
 author: 1Claw
-homepage: https://1claw.xyz
+homepage: https://1claw.co
 
 docker:
   packages:

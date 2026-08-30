@@ -31,7 +31,7 @@ const config = new Conf<ConfigSchema>({
     cwd: configDir,
     defaults: {
         auth: null,
-        apiUrl: "https://api.1claw.xyz",
+        apiUrl: "https://api.1claw.co",
         projectLinks: {},
         defaultVaultId: null,
         outputFormat: "table",

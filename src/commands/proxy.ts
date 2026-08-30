@@ -12,7 +12,7 @@ import { resolveAgentKeyFromInput } from "../lib/agent-key.js";
 import { printError, printInfo, printSuccess } from "../output.js";
 
 const DEFAULT_PORT = 11434;
-const DEFAULT_SHROUD_URL = "https://shroud.1claw.xyz";
+const DEFAULT_SHROUD_URL = "https://shroud.1claw.co";
 /** If the preferred port is busy (e.g. Ollama on 11434), try this many consecutive ports. */
 const MAX_PORT_TRIES = 32;
 

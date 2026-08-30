@@ -4,7 +4,7 @@ description: >
   LangChain / LangGraph agent runtime with Shroud-routed LLM calls. Adds the
   core LangChain packages for building tool-using agents.
 author: 1Claw
-homepage: https://1claw.xyz
+homepage: https://1claw.co
 
 docker:
   packages:

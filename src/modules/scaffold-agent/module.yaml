@@ -4,7 +4,7 @@ description: >
   Scaffold-ETH 2 integration for full-stack dApp agents. Adds tooling to
   interact with SE-2 contracts using 1Claw-managed signing keys.
 author: 1Claw
-homepage: https://1claw.xyz
+homepage: https://1claw.co
 
 docker:
   packages:

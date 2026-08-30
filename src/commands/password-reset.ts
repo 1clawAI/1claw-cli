@@ -44,11 +44,11 @@ export const forgotPasswordCommand = new Command("forgot-password")
                 printError(res.message || "No account found with that email.");
             } else if (res.status === "social_account") {
                 printInfo(res.message || "This account uses social sign-in.");
-                printInfo("Open the dashboard to sign in: " + chalk.dim("1claw.xyz/login"));
+                printInfo("Open the dashboard to sign in: " + chalk.dim("1claw.co/login"));
             } else {
                 printSuccess(res.message || "Check your email for reset instructions.");
                 printInfo(
-                    `Open the link in the email in your browser (${chalk.dim("1claw.xyz/reset-password")}).`,
+                    `Open the link in the email in your browser (${chalk.dim("1claw.co/reset-password")}).`,
                 );
             }
         } catch (err) {

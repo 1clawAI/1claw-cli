@@ -135,7 +135,7 @@ async function runSetup(opts: {
                 "Supported clients: " +
                     allClients.map((c) => c.name).join(", "),
             );
-            printInfo("You can manually configure MCP — see https://docs.1claw.xyz/mcp");
+            printInfo("You can manually configure MCP — see https://docs.1claw.co/mcp");
             return;
         }
 
