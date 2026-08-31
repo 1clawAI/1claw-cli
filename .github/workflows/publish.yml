@@ -36,6 +36,16 @@ jobs:
                   node-version: 22
                   registry-url: https://registry.npmjs.org
 
+            # Node 22 bundles npm 10.x, which cannot do Trusted Publishing: it
+            # sends no credential, and npm reports the failed auth as a 404 on
+            # the package. Every publish from this workflow has failed that way.
+            # The range enforces the floor the feature actually requires rather
+            # than trusting whatever @latest happens to be.
+            - name: Upgrade npm to a Trusted-Publishing-capable version
+              run: |
+                  npm install -g "npm@>=11.5.1"
+                  npm --version
+
             - run: npm publish --provenance --access public
 
             - name: Extract version
