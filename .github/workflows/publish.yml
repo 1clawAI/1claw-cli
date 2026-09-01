@@ -43,7 +43,14 @@ jobs:
             # than trusting whatever @latest happens to be.
             - name: Upgrade npm to a Trusted-Publishing-capable version
               run: |
-                  npm install -g "npm@>=11.5.1"
+                  # Pinned exactly, not @latest or a range. This runs in a job holding
+                  # id-token: write and an npm environment, immediately before
+                  # publishing public packages -- so whatever this resolves to
+                  # executes with the credential that publishes them. A floating
+                  # version makes that an unreviewed third-party input on every run.
+                  # Bump deliberately: raise the number here, in one commit, across
+                  # every publish workflow.
+                  npm install -g npm@11.5.1
                   npm --version
 
             - run: npm publish --provenance --access public
