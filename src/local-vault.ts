@@ -13,6 +13,7 @@ import {
     createDecipheriv,
     randomBytes,
     pbkdf2Sync,
+    scryptSync,
     createHash,
 } from "node:crypto";
 import { homedir } from "node:os";
@@ -28,8 +29,29 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 const SALT_LENGTH = 16;
+/**
+ * v1 used PBKDF2-SHA256 at 100k iterations. Still read, never written.
+ *
+ * This file sits on a laptop and its whole security is the passphrase, so the
+ * cost of one guess is the only thing between someone holding the file and
+ * every secret in it. 100k SHA-256 rounds is a few milliseconds on a GPU, and
+ * a GPU does not get tired; the browser bridge's own vault file already used
+ * scrypt for exactly this reason, which left two encrypted files in one product
+ * with very different resistance to the same attack.
+ */
 const PBKDF2_ITERATIONS = 100_000;
-const FILE_VERSION = 1;
+
+/**
+ * v2: scrypt, matching the browser bridge's vault file.
+ *
+ * N=2^17 with r=8 is ~128MB and a few hundred milliseconds per attempt —
+ * memory-hard, so the GPU advantage largely goes away. It is deliberately
+ * expensive: this runs when a human types a passphrase, not in a loop.
+ */
+const SCRYPT = { N: 1 << 17, r: 8, p: 1, keyLen: 32, maxmem: 256 * 1024 * 1024 } as const;
+
+const FILE_VERSION_PBKDF2 = 1;
+const FILE_VERSION = 2;
 
 export interface LocalSecret {
     value: string;
@@ -48,13 +70,30 @@ export interface LocalVaultData {
     secrets: Record<string, LocalSecret>;
 }
 
-function deriveKey(passphrase: string, salt: Buffer): Buffer {
-    return pbkdf2Sync(passphrase, salt, PBKDF2_ITERATIONS, 32, "sha256");
+/**
+ * Derive for a given file version.
+ *
+ * v1 files keep working — refusing to read them would lock people out of their
+ * own secrets to fix a strength problem, which is a worse outcome than the
+ * problem. They are re-encrypted as v2 the next time the vault is written, so
+ * a file in daily use upgrades itself without anyone being asked to do
+ * anything.
+ */
+function deriveKey(passphrase: string, salt: Buffer, version: number): Buffer {
+    if (version === FILE_VERSION_PBKDF2) {
+        return pbkdf2Sync(passphrase, salt, PBKDF2_ITERATIONS, 32, "sha256");
+    }
+    return scryptSync(passphrase, salt, SCRYPT.keyLen, {
+        N: SCRYPT.N,
+        r: SCRYPT.r,
+        p: SCRYPT.p,
+        maxmem: SCRYPT.maxmem,
+    });
 }
 
 function encrypt(plaintext: string, passphrase: string): Buffer {
     const salt = randomBytes(SALT_LENGTH);
-    const key = deriveKey(passphrase, salt);
+    const key = deriveKey(passphrase, salt, FILE_VERSION);
     const iv = randomBytes(IV_LENGTH);
 
     const cipher = createCipheriv(ALGORITHM, key, iv);
@@ -76,7 +115,7 @@ function encrypt(plaintext: string, passphrase: string): Buffer {
 
 function decrypt(data: Buffer, passphrase: string): string {
     const version = data[0];
-    if (version !== FILE_VERSION) {
+    if (version !== FILE_VERSION && version !== FILE_VERSION_PBKDF2) {
         throw new Error(`Unsupported vault file version: ${version}`);
     }
 
@@ -89,7 +128,7 @@ function decrypt(data: Buffer, passphrase: string): string {
     offset += TAG_LENGTH;
     const encrypted = data.subarray(offset);
 
-    const key = deriveKey(passphrase, salt);
+    const key = deriveKey(passphrase, salt, version);
     const decipher = createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(tag);
 

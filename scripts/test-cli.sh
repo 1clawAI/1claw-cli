@@ -249,5 +249,16 @@ else
 fi
 
 echo ""
+echo "=== 10. Local vault key derivation ==="
+# v1 files used PBKDF2 at 100k iterations, which a GPU eats. v2 is scrypt.
+# Both halves matter: a v1 file must still open, and nothing may be written as
+# v1 again — so a file in daily use upgrades itself without anyone being asked.
+if node scripts/test-local-vault-kdf.mjs; then
+  PASSED=$((PASSED + 1))
+else
+  FAILED=$((FAILED + 1))
+fi
+
+echo ""
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 [[ $FAILED -eq 0 ]]
