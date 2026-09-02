@@ -963,7 +963,9 @@ Browse the public agent directory and manage agent discoverability.
 
 ## Local Vault (Offline, Encrypted)
 
-Store secrets locally in an encrypted vault — no cloud required. Secrets are encrypted at rest with AES-256-GCM using a passphrase-derived key (PBKDF2, 100k iterations).
+Store secrets locally in an encrypted vault — no cloud required. Secrets are encrypted at rest with AES-256-GCM using a passphrase-derived key (**scrypt**, N=2^17, r=8).
+
+Files written before v0.59.10 used PBKDF2 at 100k iterations. They still open, and are rewritten with scrypt the next time the vault is saved — a vault in use upgrades itself. The change matters because this file sits on your disk and its whole security is the passphrase: 100k SHA-256 rounds is a few milliseconds on a GPU, while scrypt at these parameters costs ~128MB and a few hundred milliseconds per guess.
 
 ```bash
 1claw local init                   # Create local vault with passphrase
@@ -984,6 +986,44 @@ Store secrets locally in an encrypted vault — no cloud required. Secrets are e
 Vault file: `~/.config/1claw/local-vault.enc` (0600 permissions, safe to back up).
 
 **Forgot your passphrase?** The vault is encrypted with a passphrase-derived key, so there is no recovery of the contents. To start over, run `1claw local destroy --force` (no passphrase required — it also stops any running daemon holding the old vault), then `1claw local init`.
+
+## Browser Bridge (`browser`)
+
+Let an agent log into a site without ever giving it the password. The agent
+drives the browser; the bridge types the secret.
+
+```bash
+# Hosted — pair a machine, define what may be typed where
+1claw browser pair laptop --public-key "<bridge public key>"
+1claw browser devices                    # revoked devices are listed, not hidden
+1claw browser revoke <device-id>         # what makes a leaked credential stop working
+
+1claw browser binding create acme-login \
+  --vault <vault-id> --path acme/password \
+  --login-url https://app.acme.example/login \
+  --hosts app.acme.example                # exact match; wildcards are refused
+1claw browser binding list
+1claw browser binding rm <binding-id>
+
+# Local file — no 1Claw account needed
+export ONECLAW_BRIDGE_VAULT_PASSPHRASE='…'   # never a flag: argv shows up in ps
+1claw browser vault init ~/.1claw/bridge.json
+printf '%s' 'the-password' | 1claw browser vault add ~/.1claw/bridge.json \
+  --id acme --url https://app.acme.example/login --hosts app.acme.example
+1claw browser vault list ~/.1claw/bridge.json   # ids and rules, never a secret
+
+# Run it
+1claw browser start --vault ~/.1claw/bridge.json --chrome /path/to/chrome
+```
+
+This replaces `1claw-vault`, which shipped with `@1claw/browser-bridge`. That
+binary still works and prints a pointer; it goes in the next minor. It is the
+same file and the same format — `1claw browser vault` reads and writes through
+the bridge's own implementation rather than a second copy.
+
+The local-file subcommands need `@1claw/browser-bridge` installed (an optional
+dependency) and **no account**. The hosted subcommands need an account and no
+extra install.
 
 ## Local Daemon (Secret Proxy)
 

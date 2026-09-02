@@ -56,6 +56,7 @@ import { policyBackendCommand } from "./commands/policy-backend.js";
 import { guardrailsCommand } from "./commands/guardrails.js";
 import { contractAbiCommand } from "./commands/contract-abi.js";
 import { pendingApprovalCommand } from "./commands/pending-approval.js";
+import { browserCommand } from "./commands/browser.js";
 import { subOrgCommand } from "./commands/sub-org.js";
 import { portfolioCommand } from "./commands/portfolio.js";
 import { safeCommand } from "./commands/safe.js";
@@ -163,6 +164,7 @@ export function createProgram(): Command {
     program.addCommand(pendingApprovalCommand);
 
     // Sub-organizations
+    program.addCommand(browserCommand);
     program.addCommand(subOrgCommand);
 
     // Portfolio
