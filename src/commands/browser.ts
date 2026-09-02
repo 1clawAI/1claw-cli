@@ -26,6 +26,16 @@ import { printTable, printJson, printSuccess, printKeyValue, printInfo, printErr
 export const browserCommand = new Command("browser")
     .description("Browser bridge — pair devices, define bindings, run the bridge");
 
+/**
+ * The vault refuses a bridge it will not speak to, and the check is on the
+ * pairing route as well as the fill routes — server-side, so a known-vulnerable
+ * build can be turned away without waiting for anyone to upgrade.
+ *
+ * The CLI is not a bridge, but it pairs *on behalf of* one, so it has to name a
+ * version. This is the protocol version it writes, not the CLI's own.
+ */
+const BRIDGE_PROTOCOL_VERSION = "0.1.0";
+
 // ── Hosted: devices ─────────────────────────────────────────────────────────
 
 browserCommand
@@ -33,18 +43,26 @@ browserCommand
     .description("Pair this machine and mint its bridge credential (shown once)")
     .requiredOption("--public-key <pin>", "The bridge's public key, pinned on first use")
     .option("--bridge-version <v>", "Bridge version reported to the vault")
+    .option("-p, --password <password>", "Account password for the step-up re-auth")
     .option("--json", "Output as JSON")
     .action(async (label, opts) => {
         try {
             requireToken();
             const res = await api<{ device_id: string; label: string; credential: string }>(
-                "/v1/browser/devices",
+                "/browser/devices",
                 {
                     method: "POST",
+                    headers: {
+                        "x-1claw-bridge-version": opts.bridgeVersion ?? BRIDGE_PROTOCOL_VERSION,
+                        // Pairing is behind a step-up re-auth, deliberately: the
+                        // device being paired is the one that will type secrets
+                        // into pages, so a stolen session must not be enough.
+                        ...(opts.password ? { "X-Auth-Confirm": opts.password } : {}),
+                    },
                     body: {
                         label,
                         public_key_pin: opts.publicKey,
-                        ...(opts.bridgeVersion ? { bridge_version: opts.bridgeVersion } : {}),
+                        bridge_version: opts.bridgeVersion ?? BRIDGE_PROTOCOL_VERSION,
                     },
                 },
             );
@@ -68,7 +86,7 @@ browserCommand
         try {
             requireToken();
             const res = await api<{ devices: Array<Record<string, string | null>> }>(
-                "/v1/browser/devices",
+                "/browser/devices",
             );
             if (opts.json) return printJson(res);
             // Revoked devices are listed rather than hidden: "was this machine
@@ -100,7 +118,7 @@ browserCommand
     .action(async (deviceId) => {
         try {
             requireToken();
-            await api(`/v1/browser/devices/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+            await api(`/browser/devices/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
             printSuccess(`Revoked ${deviceId}. It opens no sessions and authorises no fills.`);
         } catch (err) {
             handleError(err);
@@ -125,7 +143,7 @@ binding
     .action(async (name, opts) => {
         try {
             requireToken();
-            const res = await api("/v1/browser/credentials", {
+            const res = await api("/browser/credentials", {
                 method: "POST",
                 body: {
                     name,
@@ -153,7 +171,7 @@ binding
         try {
             requireToken();
             const res = await api<{ credentials: Array<Record<string, unknown>> }>(
-                "/v1/browser/credentials",
+                "/browser/credentials",
             );
             if (opts.json) return printJson(res);
             printTable(
@@ -181,7 +199,7 @@ binding
     .action(async (id) => {
         try {
             requireToken();
-            await api(`/v1/browser/credentials/${encodeURIComponent(id)}`, { method: "DELETE" });
+            await api(`/browser/credentials/${encodeURIComponent(id)}`, { method: "DELETE" });
             printSuccess(`Deleted binding ${id}.`);
         } catch (err) {
             handleError(err);
