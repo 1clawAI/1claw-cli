@@ -1,4 +1,4 @@
-# @1claw/cli (v0.59.4)
+# @1claw/cli (v0.59.9)
 
 > ⭐ **Star [1clawAI/agent-templates](https://github.com/1clawAI/agent-templates)** — ready-to-run agent templates wired to 1Claw. It is our single starred repo.
 
