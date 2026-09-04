@@ -429,6 +429,7 @@ envCommand
     .command("add <key> [environment]")
     .description("Add an env var to the vault")
     .option("-v, --vault <id>", "Vault ID")
+    .option("--all", "Write to production, preview and development at once")
     .option("--sensitive", "Mark as sensitive (write-only)")
     .option("--no-sensitive", "Explicitly not sensitive")
     .action(async (key, environment, opts) => {
@@ -437,7 +438,21 @@ envCommand
             const vaultId = resolveVaultId(opts);
             const env = validateEnvironment(environment);
 
-            const environments = env ? [env] : DEFAULT_ENVIRONMENTS;
+            // Without -e this used to write to production, preview and
+            // development at once — the same default that put local .env values
+            // into production from the dashboard importer. Ask instead of
+            // guessing wide; --all is there for the case where that is meant.
+            let environments: string[];
+            if (env) {
+                environments = [env];
+            } else if (opts.all) {
+                environments = [...DEFAULT_ENVIRONMENTS];
+            } else {
+                throw new Error(
+                    "Specify an environment (e.g. `1claw env add KEY development`), or pass --all " +
+                        "to write to production, preview and development at once.",
+                );
+            }
 
             let sensitive: boolean;
             if (opts.sensitive === true) {
@@ -484,6 +499,67 @@ envCommand
     });
 
 // --- env rm ---
+
+envCommand
+    .command("set <key>")
+    .description("Change which environments an existing env var applies to")
+    .option("-v, --vault <id>", "Vault ID")
+    .requiredOption(
+        "-e, --environments <list>",
+        "Comma-separated environments the variable should apply to (e.g. production,preview)",
+    )
+    .option("--branch <name>", "Git branch scope (only valid alongside preview)")
+    .option("--no-branch", "Clear the git branch scope")
+    .option("--comment <text>", "Update the comment")
+    .option("--json", "Output as JSON")
+    .action(async (key, opts) => {
+        try {
+            requireToken();
+            const vaultId = resolveVaultId(opts);
+
+            const environments = String(opts.environments)
+                .split(",")
+                .map((e: string) => e.trim())
+                .filter(Boolean);
+            if (environments.length === 0) {
+                throw new Error(
+                    "At least one environment is required — a variable in none of them cannot be read by anything.",
+                );
+            }
+
+            // git_branch only means something alongside preview. Send null to
+            // clear it rather than omitting the field, which would leave the old
+            // branch in place and make the next write fail validation.
+            const body: Record<string, unknown> = { environments };
+            if (opts.branch === false) {
+                body.git_branch = null;
+            } else if (typeof opts.branch === "string") {
+                if (!environments.includes("preview")) {
+                    throw new Error("--branch is only valid when environments includes 'preview'.");
+                }
+                body.git_branch = opts.branch;
+            } else if (!environments.includes("preview")) {
+                // Dropping preview drops the branch with it.
+                body.git_branch = null;
+            }
+            if (opts.comment !== undefined) body.comment = opts.comment;
+
+            const spinner = ora("Updating env var…").start();
+            const updated = await api(`/vaults/${vaultId}/env-vars/${encodeURIComponent(key)}`, {
+                method: "PATCH",
+                body,
+            });
+            spinner.stop();
+
+            if (opts.json) {
+                console.log(JSON.stringify(updated, null, 2));
+                return;
+            }
+            printSuccess(`${key} now applies to ${chalk.bold(environments.join(", "))}`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
 
 envCommand
     .command("rm <key> [environment]")
