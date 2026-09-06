@@ -27,6 +27,22 @@ interface ResourceAction {
     reason?: string;
 }
 
+interface AppliedResource {
+    kind: string;
+    name: string;
+    result: "created" | "unchanged" | "skipped" | "refused" | "awaiting_approval" | "failed";
+    id?: string;
+    detail?: string;
+}
+
+interface ApplyResponse {
+    chart_name: string;
+    resources: AppliedResource[];
+    warnings: string[];
+    applied_state: Record<string, unknown>;
+    needs_attention: boolean;
+}
+
 interface DiffResponse {
     chart_name: string;
     actions: ResourceAction[];
@@ -174,11 +190,58 @@ export const applyCommand = new Command("apply")
                 return;
             }
 
-            // Writing apply is the next step; until it exists, saying so beats
-            // reporting a success that did not happen.
-            printInfo(
-                "Applying is not enabled yet — this preview is the diff. Re-run with --dry-run to silence this.",
-            );
+            const applied = await api<ApplyResponse>("/org/apply", {
+                method: "POST",
+                body: { chart, applied_state: loadAppliedState() },
+            });
+
+            console.log("");
+            for (const r of applied.resources) {
+                const label = `${r.kind}/${r.name}`;
+                switch (r.result) {
+                    case "created":
+                        console.log(`  ${chalk.green("✓")} created ${label}`);
+                        break;
+                    case "unchanged":
+                        console.log(`  ${chalk.dim("=")} ${chalk.dim(`${label} unchanged`)}`);
+                        break;
+                    case "awaiting_approval":
+                        console.log(
+                            `  ${chalk.yellow("⏸")} ${label} ${chalk.yellow(r.detail ?? "needs approval")}`,
+                        );
+                        break;
+                    case "skipped":
+                        console.log(`  ${chalk.yellow("!")} ${label} ${chalk.yellow(r.detail ?? "skipped")}`);
+                        break;
+                    case "refused":
+                        console.log(`  ${chalk.red("✗")} ${label} ${chalk.red(r.detail ?? "refused")}`);
+                        break;
+                    case "failed":
+                        console.log(`  ${chalk.red("✗")} ${label} ${chalk.red(r.detail ?? "failed")}`);
+                        break;
+                }
+            }
+
+            // Written even when something needs attention: the resources that
+            // were created still need recording, or the next run reports them
+            // as creates and makes duplicates.
+            writeAppliedState(applied.applied_state);
+
+            console.log("");
+            if (applied.warnings.length > 0) {
+                for (const w of applied.warnings) {
+                    console.log(`  ${chalk.yellow("warning:")} ${w}`);
+                }
+                console.log("");
+            }
+
+            if (applied.needs_attention) {
+                printInfo(
+                    "Applied, but not finished — something above is waiting on a person.",
+                );
+            } else {
+                printSuccess("Applied.");
+            }
         } catch (e) {
             handleError(e);
         }
