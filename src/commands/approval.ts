@@ -15,9 +15,22 @@ interface Approval {
     action: string;
     target_type: string;
     target_id: string;
-    risk_tier: string;
+    /**
+     * A number, 1-3. Typed as a string here for a long time, which made
+     * `riskBadge` call `.toLowerCase()` on it and throw as soon as any approval
+     * existed — and made it compare against "t1"/"t2"/"t3", which the API has
+     * never sent.
+     */
+    risk_tier: number;
+    declared_risk_tier?: number | null;
+    declared_below_floor?: boolean;
     status: string;
     agent_id: string;
+    summary?: Record<string, unknown>;
+    human_summary?: string | null;
+    payload?: Record<string, unknown>;
+    reason?: string | null;
+    decision_reason?: string | null;
     created_at: string;
     expires_at: string | null;
 }
@@ -53,7 +66,10 @@ approvalCommand
                 result.approvals.map((a) => ({
                     id: a.id,
                     action: a.action,
-                    target: `${a.target_type}/${a.target_id.slice(0, 8)}`,
+                    // The sentence if there is one; the raw target otherwise.
+                    target: a.human_summary
+                        ? truncate(a.human_summary, 40)
+                        : `${a.target_type}/${a.target_id.slice(0, 8)}`,
                     risk: riskBadge(a.risk_tier),
                     status: statusBadge(a.status),
                     agent: a.agent_id.slice(0, 8),
@@ -65,7 +81,7 @@ approvalCommand
                 [
                     { key: "id", header: "ID", width: 38 },
                     { key: "action", header: "Action", width: 18 },
-                    { key: "target", header: "Target", width: 22 },
+                    { key: "target", header: "Summary", width: 42 },
                     { key: "risk", header: "Risk" },
                     { key: "status", header: "Status" },
                     { key: "agent", header: "Agent" },
@@ -118,17 +134,36 @@ approvalCommand
                 printJson(a);
                 return;
             }
-            printKeyValue([
+            const rows: [string, string][] = [
                 ["ID", a.id],
                 ["Action", a.action],
+            ];
+            if (a.human_summary) rows.push(["Summary", a.human_summary]);
+            rows.push(
                 ["Target Type", a.target_type],
                 ["Target ID", a.target_id],
-                ["Risk Tier", a.risk_tier],
-                ["Status", a.status],
-                ["Agent ID", a.agent_id],
+                ["Risk Tier", riskBadge(a.risk_tier)],
+            );
+            // Only worth a line when the two disagree — otherwise it is noise.
+            if (a.declared_below_floor) {
+                rows.push([
+                    "Requested Tier",
+                    chalk.yellow(
+                        `${a.declared_risk_tier} (raised to ${a.risk_tier} by policy)`,
+                    ),
+                ]);
+            }
+            rows.push(["Status", statusBadge(a.status)], ["Agent ID", a.agent_id]);
+            if (a.payload && Object.keys(a.payload).length > 0) {
+                rows.push(["Payload", JSON.stringify(a.payload)]);
+            }
+            if (a.reason) rows.push(["Reason", a.reason]);
+            if (a.decision_reason) rows.push(["Decision Reason", a.decision_reason]);
+            rows.push(
                 ["Created", new Date(a.created_at).toLocaleDateString()],
                 ["Expires", a.expires_at ? new Date(a.expires_at).toLocaleDateString() : "—"],
-            ]);
+            );
+            printKeyValue(rows);
         } catch (e) {
             handleError(e);
         }
@@ -159,16 +194,20 @@ approvalCommand
         }
     });
 
-function riskBadge(tier: string): string {
-    switch (tier.toLowerCase()) {
-        case "t1":
+function truncate(s: string, max: number): string {
+    return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+function riskBadge(tier: number): string {
+    switch (tier) {
+        case 1:
             return chalk.green("T1");
-        case "t2":
+        case 2:
             return chalk.yellow("T2");
-        case "t3":
+        case 3:
             return chalk.red("T3");
         default:
-            return tier;
+            return String(tier);
     }
 }
 
