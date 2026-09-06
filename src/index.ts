@@ -37,6 +37,7 @@ import { webhookCommand } from "./commands/webhook.js";
 import { platformCommand } from "./commands/platform.js";
 import { deviceCommand } from "./commands/device.js";
 import { approvalCommand } from "./commands/approval.js";
+import { connectorCommand } from "./commands/connector.js";
 import { initCommand } from "./commands/init.js";
 import { spawnCommand } from "./commands/spawn.js";
 import { publishCommand } from "./commands/publish.js";
@@ -141,6 +142,7 @@ export function createProgram(): Command {
     // Mobile companion
     program.addCommand(deviceCommand);
     program.addCommand(approvalCommand);
+    program.addCommand(connectorCommand);
 
     // Automations, Memory & Runtimes
     program.addCommand(automationCommand);
