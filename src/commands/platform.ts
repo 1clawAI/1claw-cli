@@ -1971,3 +1971,346 @@ platformCommand
             handleError(err);
         }
     });
+
+// ── Fleets ──────────────────────────────────────────────────────────────
+//
+// Every agent one template provisioned, as one cohort. Each of these commands
+// applies to all of them at once — which is the point, and also why the
+// mutating ones confirm by default and print the blast radius first.
+
+interface FleetSummary {
+    template_id: string;
+    template_name: string;
+    current_version: number;
+    spec_hash?: string | null;
+    total_agents: number;
+    version_skew: { template_version: number | null; agents: number }[];
+    agents_on_current_version: number;
+    agents_behind: number;
+    drifted_agents: number;
+    bulk_patchable_fields: string[];
+}
+
+interface FleetRolloutResult {
+    job_id: string | null;
+    to_version: number;
+    dry_run: boolean;
+    forced: boolean;
+    total_agents: number;
+    synced: number;
+    already_current: number;
+    skipped_drifted: number;
+    outcomes: {
+        outcome: string;
+        agent_id: string;
+        fields?: string[];
+        drift_fields?: string[];
+    }[];
+}
+
+async function confirmOrExit(message: string, skip: boolean): Promise<boolean> {
+    if (skip) return true;
+    const inquirer = await import("inquirer");
+    const { confirm } = await inquirer.default.prompt([
+        { type: "confirm", name: "confirm", message, default: false },
+    ]);
+    return confirm;
+}
+
+const fleetCommand = platformCommand
+    .command("fleet")
+    .description("Manage every agent a template provisioned, as one cohort");
+
+fleetCommand
+    .command("status <appId> <templateId>")
+    .description("Show version skew and drift for a template's fleet")
+    .option("--json", "Output as JSON")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+            const f = await api<FleetSummary>(
+                `/platform/apps/${appId}/fleets/${templateId}`,
+            );
+            if (opts.json) {
+                printJson(f);
+                return;
+            }
+            printKeyValue([
+                ["Template", `${f.template_name} (${f.template_id})`],
+                ["Current version", String(f.current_version)],
+                ["Spec hash", f.spec_hash ? f.spec_hash.slice(0, 16) : chalk.dim("(none)")],
+                ["Agents", String(f.total_agents)],
+                ["On current version", String(f.agents_on_current_version)],
+                [
+                    "Behind",
+                    f.agents_behind > 0
+                        ? chalk.yellow(String(f.agents_behind))
+                        : String(f.agents_behind),
+                ],
+                [
+                    "Drifted",
+                    f.drifted_agents > 0
+                        ? chalk.yellow(`${f.drifted_agents} (hand-edited, rollout skips these)`)
+                        : "0",
+                ],
+            ]);
+
+            if (f.version_skew.length) {
+                console.log("");
+                printTable(
+                    f.version_skew.map((b) => ({
+                        version: b.template_version === null ? "(unstamped)" : String(b.template_version),
+                        agents: String(b.agents),
+                        current: b.template_version === f.current_version ? chalk.green("✓") : "",
+                    })),
+                    [
+                        { key: "version", header: "Provisioned from" },
+                        { key: "agents", header: "Agents" },
+                        { key: "current", header: "Current" },
+                    ],
+                );
+            }
+
+            console.log("");
+            console.log(
+                chalk.dim(
+                    `Bulk-patchable: ${f.bulk_patchable_fields.join(", ")}`,
+                ),
+            );
+            console.log(
+                chalk.dim(
+                    "Guardrails and capability flags are not on that list — they stay per-agent.",
+                ),
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+fleetCommand
+    .command("agents <appId> <templateId>")
+    .description("List the agents in a fleet")
+    .option("--limit <n>", "Page size (max 500)", "50")
+    .option("--offset <n>", "Offset", "0")
+    .option("--drifted", "Show only agents a rollout has skipped")
+    .option("--json", "Output as JSON")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+            const res = await api<{
+                agents: {
+                    agent_id: string;
+                    name: string;
+                    provisioned_from_version: number | null;
+                    drift_fields: string[];
+                    is_active: boolean;
+                    is_current: boolean;
+                }[];
+                current_version: number;
+            }>(`/platform/apps/${appId}/fleets/${templateId}/agents`, {
+                query: { limit: opts.limit, offset: opts.offset },
+            });
+
+            let agents = res.agents ?? [];
+            if (opts.drifted) agents = agents.filter((a) => a.drift_fields.length > 0);
+
+            if (opts.json) {
+                printJson(agents);
+                return;
+            }
+            if (!agents.length) {
+                console.log(chalk.dim("No agents in this fleet."));
+                return;
+            }
+            printTable(
+                agents.map((a) => ({
+                    id: a.agent_id,
+                    name: a.name,
+                    version: a.provisioned_from_version === null
+                        ? chalk.dim("—")
+                        : String(a.provisioned_from_version),
+                    current: a.is_current ? chalk.green("✓") : chalk.yellow("behind"),
+                    drift: a.drift_fields.length ? chalk.yellow(a.drift_fields.join(",")) : "",
+                    active: a.is_active ? "✓" : chalk.dim("paused"),
+                })),
+                [
+                    { key: "id", header: "Agent", width: 36 },
+                    { key: "name", header: "Name", width: 20 },
+                    { key: "version", header: "Ver" },
+                    { key: "current", header: "State" },
+                    { key: "drift", header: "Drift" },
+                    { key: "active", header: "Active" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+fleetCommand
+    .command("patch <appId> <templateId>")
+    .description("Set a field on every agent in the fleet")
+    .requiredOption(
+        "--set <key=value...>",
+        "Field to set, repeatable. Guardrails and capability flags are refused.",
+    )
+    .option("-y, --yes", "Skip confirmation")
+    .option("--json", "Output as JSON")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+
+            const patch: Record<string, unknown> = {};
+            for (const pair of opts.set as string[]) {
+                const eq = pair.indexOf("=");
+                if (eq < 1) {
+                    console.error(chalk.red(`Not a key=value pair: ${pair}`));
+                    process.exitCode = 1;
+                    return;
+                }
+                const key = pair.slice(0, eq);
+                const raw = pair.slice(eq + 1);
+                // Only booleans are coerced; everything else stays a string so a
+                // prompt that happens to look like a number is not silently
+                // retyped on its way to a thousand agents.
+                patch[key] = raw === "true" ? true : raw === "false" ? false : raw;
+            }
+
+            // Say how many agents this touches before asking, not after.
+            const f = await api<FleetSummary>(
+                `/platform/apps/${appId}/fleets/${templateId}`,
+            );
+            const ok = await confirmOrExit(
+                `Set ${Object.keys(patch).join(", ")} on all ${f.total_agents} agent(s) in "${f.template_name}"?`,
+                opts.yes,
+            );
+            if (!ok) return;
+
+            const res = await api<{
+                fields_applied: string[];
+                agents_matched: number;
+                agents_updated: number;
+            }>(`/platform/apps/${appId}/fleets/${templateId}/bulk-patch`, {
+                method: "POST",
+                body: { patch },
+            });
+            if (opts.json) {
+                printJson(res);
+                return;
+            }
+            printSuccess(
+                `Set ${res.fields_applied.join(", ")} on ${res.agents_updated} of ${res.agents_matched} agent(s).`,
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+fleetCommand
+    .command("rollout <appId> <templateId>")
+    .description("Bring the fleet up to the template's current version")
+    .option("--dry-run", "Report the plan without applying it")
+    .option(
+        "--force",
+        "Overwrite hand edits. Still cannot carry a guardrail or capability flag.",
+    )
+    .option("-y, --yes", "Skip confirmation")
+    .option("--json", "Output as JSON")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+
+            if (!opts.dryRun) {
+                const f = await api<FleetSummary>(
+                    `/platform/apps/${appId}/fleets/${templateId}`,
+                );
+                const forceNote = opts.force
+                    ? ` This will OVERWRITE ${f.drifted_agents} hand-edited agent(s).`
+                    : "";
+                const ok = await confirmOrExit(
+                    `Roll "${f.template_name}" v${f.current_version} out to ${f.total_agents} agent(s)?${forceNote}`,
+                    opts.yes,
+                );
+                if (!ok) return;
+            }
+
+            const res = await api<FleetRolloutResult>(
+                `/platform/apps/${appId}/fleets/${templateId}/rollout`,
+                {
+                    method: "POST",
+                    body: { force: !!opts.force, dry_run: !!opts.dryRun },
+                },
+            );
+            if (opts.json) {
+                printJson(res);
+                return;
+            }
+
+            if (res.dry_run) {
+                console.log(chalk.cyan("Dry run — nothing was changed."));
+            }
+            printKeyValue([
+                ["To version", String(res.to_version)],
+                ["Agents", String(res.total_agents)],
+                ["Synced", String(res.synced)],
+                ["Already current", String(res.already_current)],
+                [
+                    "Skipped (drifted)",
+                    res.skipped_drifted > 0
+                        ? chalk.yellow(String(res.skipped_drifted))
+                        : "0",
+                ],
+                ["Job", res.job_id ?? chalk.dim("(none — dry run)")],
+            ]);
+
+            const skipped = res.outcomes.filter((o) => o.outcome === "skipped_drifted");
+            if (skipped.length) {
+                console.log("");
+                console.log(
+                    chalk.yellow(
+                        "Skipped because they were changed outside fleet control:",
+                    ),
+                );
+                for (const s of skipped.slice(0, 20)) {
+                    console.log(
+                        `  ${s.agent_id}  ${chalk.dim((s.drift_fields ?? []).join(", "))}`,
+                    );
+                }
+                if (skipped.length > 20) {
+                    console.log(chalk.dim(`  … and ${skipped.length - 20} more`));
+                }
+                console.log("");
+                console.log(
+                    chalk.dim("Re-run with --force to overwrite them."),
+                );
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+fleetCommand
+    .command("pause <appId> <templateId>")
+    .description("Deactivate every agent in the fleet")
+    .option("-y, --yes", "Skip confirmation")
+    .action(async (appId, templateId, opts) => {
+        try {
+            requireToken();
+            const f = await api<FleetSummary>(
+                `/platform/apps/${appId}/fleets/${templateId}`,
+            );
+            const ok = await confirmOrExit(
+                `Deactivate all ${f.total_agents} agent(s) in "${f.template_name}"? They stop immediately.`,
+                opts.yes,
+            );
+            if (!ok) return;
+
+            const res = await api<{ agents_paused: number }>(
+                `/platform/apps/${appId}/fleets/${templateId}/pause`,
+                { method: "POST", body: {} },
+            );
+            printSuccess(`Paused ${res.agents_paused} agent(s).`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
