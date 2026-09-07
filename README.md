@@ -773,6 +773,18 @@ Manage platform apps for developers building multi-tenant applications on top of
 1claw platform reissue-claim <connection-id>   # Reissue a claim URL (no re-provisioning)
 1claw platform app-stats <app-id>              # Connection/bootstrap/grant statistics
 1claw platform marketplace                     # Browse the public platform marketplace
+
+# Fleets — every agent one template provisioned, as one cohort.
+# Each of these acts on all of them at once, so the mutating ones confirm
+# first and print how many agents they are about to touch.
+1claw platform fleet status <app-id> <template-id>    # Version skew and drift
+1claw platform fleet agents <app-id> <template-id>    # List them (--drifted to filter)
+1claw platform fleet patch <app-id> <template-id> \
+  --set system_prompt="You are..."                    # Guardrails/capability flags refused
+1claw platform fleet rollout <app-id> <template-id> \
+  --dry-run                                           # Plan; changes nothing, claims no job
+1claw platform fleet rollout <app-id> <template-id>   # Apply; skips hand-edited agents
+1claw platform fleet pause <app-id> <template-id>     # Deactivate the whole cohort
 1claw platform upsert-user \
   --email user@example.com                     # Provision or find a user (platform-only)
 1claw platform upsert-user \
