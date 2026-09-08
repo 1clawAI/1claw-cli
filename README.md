@@ -774,6 +774,18 @@ Manage platform apps for developers building multi-tenant applications on top of
 1claw platform app-stats <app-id>              # Connection/bootstrap/grant statistics
 1claw platform marketplace                     # Browse the public platform marketplace
 
+# Pay an x402 paywall. The vault decides what may be signed; this holds the
+# connection and nothing else.
+1claw pay --agent <id> https://api.example.com/premium          # passkey per payment
+1claw pay --agent <id> --mode session https://api.example.com/premium   # one touch, a capped window
+
+# Enable it first (human only) — pay is off until someone turns it on:
+#   PATCH /v1/agents/{id}/pay/settings {"pay_enabled":true,"pay_max_usd":"1.00"}
+# and the agent needs an Ethereum signing key funded with USDC on Base.
+#
+# Try it without spending anything — examples/x402-pay-cli has a mock paywall:
+#   node paywall.mjs & ONECLAW_PAY_DEV=1 1claw pay --agent any http://localhost:4022/premium
+
 # Fleets — every agent one template provisioned, as one cohort.
 # Each of these acts on all of them at once, so the mutating ones confirm
 # first and print how many agents they are about to touch.
