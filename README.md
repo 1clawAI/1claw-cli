@@ -779,6 +779,9 @@ Manage platform apps for developers building multi-tenant applications on top of
 1claw pay --agent <id> https://api.example.com/premium          # passkey per payment
 1claw pay --agent <id> --mode session https://api.example.com/premium   # one touch, a capped window
 
+# USDC/USDT on Base, Optimism, Avalanche, BNB Chain and Solana. An asset the
+# registry does not know is refused rather than priced by guess.
+#
 # Enable it first (human only) — pay is off until someone turns it on:
 #   PATCH /v1/agents/{id}/pay/settings {"pay_enabled":true,"pay_max_usd":"1.00"}
 # and the agent needs an Ethereum signing key funded with USDC on Base.
