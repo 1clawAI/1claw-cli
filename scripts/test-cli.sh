@@ -82,6 +82,42 @@ run_fail_contains() {
 
 echo "=== 1. Version and help (smoke) ==="
 run --version
+# ── 1claw pay, end to end against the mock paywall ──────────────────────────
+#
+# The dev signer never contacts the vault and produces a header no paywall would
+# honour, so this exercises the flow — challenge capture, the paid retry, the
+# refetch cap — without a funded agent or a chain. The cap in particular has a
+# real failure mode (an endless authorize prompt) and cannot be checked against
+# a signer that always succeeds.
+pay_e2e() {
+  local root; root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+  local paywall="$root/examples/x402-pay-cli/paywall.mjs"
+  [[ -f "$paywall" ]] || { echo "  SKIP pay e2e (example missing)"; return 0; }
+
+  PORT=4122 node "$paywall" >/tmp/1claw-paywall.log 2>&1 &
+  local pid=$!
+  sleep 1
+
+  local out
+  out=$(ONECLAW_PAY_DEV=1 $CLI pay --agent smoke http://localhost:4122/premium 2>&1 || true)
+  if grep -q "the answer is 42" <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS pay: 402 → sign → paid retry"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL pay e2e: $out"
+  fi
+
+  out=$(ONECLAW_PAY_DEV=1 ONECLAW_PAY_DEV_EXPIRE=5 $CLI pay --agent smoke \
+        http://localhost:4122/premium 2>&1 || true)
+  if grep -q "closed 2 times" <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS pay: gives up after 2 refetch cycles"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL pay refetch cap: $out"
+  fi
+
+  kill $pid 2>/dev/null || true
+}
+pay_e2e
+
 run --help
 run login --help
 run logout --help
@@ -105,6 +141,7 @@ run agent bankr-key --help
 run agent bankr-key lease --help
 run agent bankr-key list --help
 run agent bankr-key revoke --help
+run pay --help
 run policy --help
 run policy list --help
 run share --help
