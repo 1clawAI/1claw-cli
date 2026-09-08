@@ -5,7 +5,8 @@ import open from "open";
 import ora from "ora";
 
 import { handleError, requireToken } from "../../middleware.js";
-import { fetchResource } from "./challenge.js";
+import { getApiUrl, getToken } from "../../config.js";
+import { fetchResource, mayForwardToken } from "./challenge.js";
 import {
     MAX_REFETCH_CYCLES,
     challengeExpiredMessage,
@@ -132,6 +133,12 @@ export const payCommand = new Command("pay")
     .action(async (url: string, opts) => {
         try {
             const signer = resolveSigner();
+            // Paying an org's own overage is a call to the 1claw API, which
+            // still authenticates. Scoped to that origin so the token never
+            // reaches a third-party paywall.
+            const authToken = mayForwardToken(url, getApiUrl())
+                ? (getToken() ?? undefined)
+                : undefined;
             // The dev signer never calls the vault, so it needs no session.
             // Everything else does, and finding that out before fetching a
             // paywall is kinder than finding out after.
@@ -148,6 +155,7 @@ export const payCommand = new Command("pay")
                 const first = await fetchResource(url, {
                     method: opts.method,
                     body: opts.body,
+                    authToken,
                 });
 
                 if (first.status !== 402) {
@@ -187,6 +195,7 @@ export const payCommand = new Command("pay")
                 method: opts.method,
                 body: opts.body,
                 paymentHeader: paid.header,
+                authToken,
             });
 
             // Advisory only. It moves the audit trail; it never returns limit

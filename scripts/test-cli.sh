@@ -297,5 +297,38 @@ else
 fi
 
 echo ""
+echo "=== 11. pay: session token goes to the API origin only ==="
+# A payment clears the paywall; it is not a login. The paid retry must still
+# authenticate, or an org paying its own overage gets a 401 after paying.
+# The token must never reach a third-party paywall.
+if node -e '
+import("./dist/src/commands/pay/challenge.js").then((m) => {
+  const API = "https://api.1claw.co";
+  const cases = [
+    ["https://api.1claw.co/v1/vaults", true, "own API: needed, or the paid retry 401s"],
+    ["https://api.1claw.co:443/v1/vaults", true, "default port is the same origin"],
+    ["http://api.1claw.co/v1/vaults", false, "scheme differs: not the same origin"],
+    ["https://api.1claw.co.evil.test/x", false, "prefix confusion: must not leak"],
+    ["https://evil.test/?u=https://api.1claw.co", false, "url in query: must not leak"],
+    ["https://paywall.example/article", false, "stranger paywall: must not leak"],
+    ["not a url", false, "unparseable: must not leak"],
+  ];
+  let bad = 0;
+  for (const [url, want, why] of cases) {
+    const got = m.mayForwardToken(url, API);
+    if (got !== want) { console.error("  " + url + " -> " + got + ", want " + want + " (" + why + ")"); bad++; }
+  }
+  process.exit(bad ? 1 : 0);
+}).catch((e) => { console.error(e.message); process.exit(1); });
+' 2>/tmp/cli_err; then
+  echo "  OK   mayForwardToken origin rule"
+  ((PASSED++)) || true
+else
+  echo "  FAIL mayForwardToken origin rule"
+  head -8 /tmp/cli_err
+  ((FAILED++)) || true
+fi
+
+echo ""
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 [[ $FAILED -eq 0 ]]

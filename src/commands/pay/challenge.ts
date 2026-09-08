@@ -13,13 +13,41 @@ export interface FetchOutcome {
     headers: Headers;
 }
 
+/**
+ * Whether the session token may travel to this resource.
+ *
+ * True only for the configured 1claw API's own origin. Paying an org's overage
+ * means calling that API, which authenticates as usual — a payment clears the
+ * paywall, it does not stand in for a login, so a paid retry without the token
+ * earns a 401. Every other origin is a stranger's paywall, and a bearer token
+ * that opens the caller's vault has no business being sent there.
+ *
+ * Compared by parsed origin, not `startsWith`: `https://api.1claw.co.evil.test`
+ * has the API's URL as a prefix and must not receive the token.
+ */
+export function mayForwardToken(url: string, apiUrl: string): boolean {
+    try {
+        return new URL(url).origin === new URL(apiUrl).origin;
+    } catch {
+        return false; // unparseable target: never forward
+    }
+}
+
 export async function fetchResource(
     url: string,
-    opts: { method: string; body?: string; paymentHeader?: string },
+    opts: {
+        method: string;
+        body?: string;
+        paymentHeader?: string;
+        authToken?: string;
+    },
 ): Promise<FetchOutcome> {
     const headers: Record<string, string> = {};
     if (opts.body) headers["Content-Type"] = "application/json";
     if (opts.paymentHeader) headers["X-PAYMENT"] = opts.paymentHeader;
+    // Sent on the unpaid probe too: the 402 an authenticated caller is served
+    // is the one their payment must satisfy.
+    if (opts.authToken) headers["Authorization"] = `Bearer ${opts.authToken}`;
 
     const res = await fetch(url, {
         method: opts.method,
