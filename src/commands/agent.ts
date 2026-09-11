@@ -160,6 +160,11 @@ agentCommand
     .option("--intents-require-tee", "Enforce TEE-only transaction signing (Business+)")
     .option("--execution-require-tee", "Enforce TEE-only execution and block all direct secret reads (Business+)")
     .option("--shroud", "Enable Shroud LLM Proxy")
+    .option("--memory", "Enable durable agent memory (required before memory reads/writes)")
+    .option(
+        "--memory-namespaces <names>",
+        "Comma-separated namespaces this agent may use (default: unrestricted)",
+    )
     .option(
         "--tx-to-allowlist <addrs>",
         "Comma-separated allowed destination addresses",
@@ -226,6 +231,16 @@ agentCommand
             if (opts.intentsRequireTee) body.intents_require_tee = true;
             if (opts.executionRequireTee) body.execution_require_tee = true;
             if (opts.shroud) body.shroud_enabled = true;
+            // Without this the agent is created memory-disabled and every
+            // memory write returns 403. The API has always accepted the field;
+            // the CLI had a flag for every other capability except this one.
+            if (opts.memory) body.memory_enabled = true;
+            if (opts.memoryNamespaces) {
+                body.memory_namespace_allowlist = opts.memoryNamespaces
+                    .split(",")
+                    .map((s: string) => s.trim())
+                    .filter(Boolean);
+            }
             if (opts.txToAllowlist)
                 body.tx_to_allowlist = opts.txToAllowlist
                     .split(",")
@@ -702,6 +717,11 @@ agentCommand
     .option("--intents-require-tee <bool>", "Enforce TEE-only transaction signing (true/false; Business+)")
     .option("--execution-require-tee <bool>", "Enforce TEE-only execution (true/false; Business+)")
     .option("--shroud <bool>", "Enable/disable Shroud LLM Proxy (true/false)")
+    .option("--memory <bool>", "Enable/disable durable agent memory (true/false)")
+    .option(
+        "--memory-namespaces <names>",
+        "Comma-separated namespaces this agent may use (empty string clears the restriction)",
+    )
     .option(
         "--tx-to-allowlist <addrs>",
         'Comma-separated allowed destination addresses (use "" to clear)',
@@ -766,6 +786,17 @@ agentCommand
                 body.intents_api_enabled = opts.intentsApi === "true";
             if (opts.executionIntents !== undefined)
                 body.execution_intents_enabled = opts.executionIntents === "true";
+            // The flag a user needs after creating an agent without --memory:
+            // memory writes 403 until this is true.
+            if (opts.memory !== undefined) {
+                body.memory_enabled = opts.memory === "true";
+            }
+            if (opts.memoryNamespaces !== undefined) {
+                body.memory_namespace_allowlist = opts.memoryNamespaces
+                    .split(",")
+                    .map((s: string) => s.trim())
+                    .filter(Boolean);
+            }
             if (opts.executionGuardrails !== undefined || opts.executionEnforcement !== undefined) {
                 const parsed =
                     opts.executionGuardrails === undefined
