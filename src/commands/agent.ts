@@ -160,6 +160,22 @@ agentCommand
     .option("--intents-require-tee", "Enforce TEE-only transaction signing (Business+)")
     .option("--execution-require-tee", "Enforce TEE-only execution and block all direct secret reads (Business+)")
     .option("--shroud", "Enable Shroud LLM Proxy")
+    .option(
+        "--auth-method <method>",
+        "api_key (default), oidc_client_credentials, or mtls",
+    )
+    .option(
+        "--oidc-issuer <url>",
+        "OIDC issuer for --auth-method oidc_client_credentials (e.g. https://token.actions.githubusercontent.com)",
+    )
+    .option(
+        "--oidc-client-id <aud>",
+        "Audience the OIDC token must carry, checked against the agent record",
+    )
+    .option(
+        "--client-cert-fingerprint <sha256>",
+        "SHA-256 of the client certificate, for --auth-method mtls",
+    )
     .option("--memory", "Enable durable agent memory (required before memory reads/writes)")
     .option(
         "--memory-namespaces <names>",
@@ -234,6 +250,14 @@ agentCommand
             // Without this the agent is created memory-disabled and every
             // memory write returns 403. The API has always accepted the field;
             // the CLI had a flag for every other capability except this one.
+            // Without these an agent can only ever be api_key, and the API has
+            // accepted all three since auth_method existed.
+            if (opts.authMethod) body.auth_method = opts.authMethod;
+            if (opts.oidcIssuer) body.oidc_issuer = opts.oidcIssuer;
+            if (opts.oidcClientId) body.oidc_client_id = opts.oidcClientId;
+            if (opts.clientCertFingerprint) {
+                body.client_cert_fingerprint = opts.clientCertFingerprint;
+            }
             if (opts.memory) body.memory_enabled = true;
             if (opts.memoryNamespaces) {
                 body.memory_namespace_allowlist = opts.memoryNamespaces
