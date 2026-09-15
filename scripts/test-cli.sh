@@ -421,5 +421,49 @@ else
 fi
 
 echo ""
+# ── session token file mode, and a group-shared daemon socket ───────────────
+#
+# The config file holds the cloud session token. conf writes it atomically, so
+# a chmod after login used to be undone by the next unrelated write; the mode
+# is conf's own now. And --socket-group lets an agent run as its own user with
+# access to the daemon but not to that file.
+session_file_mode() {
+  local cfg; cfg="$(mktemp -d)"
+  local mode
+  mode=$(ONECLAW_CONFIG_DIR="$cfg" node --input-type=module -e '
+    import { setAuth, setDefaultVaultId } from "./dist/src/config.js";
+    import { statSync } from "node:fs";
+    setAuth({ token: "t", email: "e", userId: "u", orgId: "o" });
+    setDefaultVaultId("v");
+    console.log((statSync(process.env.ONECLAW_CONFIG_DIR + "/config.json").mode & 0o777).toString(8));')
+  if [[ "$mode" == "600" ]]; then
+    PASSED=$((PASSED+1)); echo "  PASS config: session file stays 0600 across writes"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL config: session file mode after a second write is $mode"
+  fi
+  rm -rf "$cfg"
+}
+session_file_mode
+
+daemon_socket_group() {
+  local cfg; cfg="$(mktemp -d)"
+  export ONECLAW_CONFIG_DIR="$cfg" ONECLAW_VAULT_PASSPHRASE="test-passphrase-123" ONECLAW_DAEMON_SOCKET="$cfg/daemon.sock"
+  node "$(dirname "${BASH_SOURCE[0]}")/seed-local-vault.mjs" >/dev/null
+  $CLI daemon start --foreground --socket-group "$(id -g)" >/tmp/1claw-daemon-grp.log 2>&1 &
+  local d_pid=$!
+  for i in $(seq 1 20); do [[ -S "$ONECLAW_DAEMON_SOCKET" ]] && break; sleep 0.25; done
+  local mode
+  mode=$(stat -f '%Lp' "$ONECLAW_DAEMON_SOCKET" 2>/dev/null || stat -c '%a' "$ONECLAW_DAEMON_SOCKET")
+  if [[ "$mode" == "660" ]]; then
+    PASSED=$((PASSED+1)); echo "  PASS daemon: --socket-group sets the socket to 0660"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL daemon --socket-group: socket mode $mode"; tail -3 /tmp/1claw-daemon-grp.log
+  fi
+  kill $d_pid 2>/dev/null || true
+  unset ONECLAW_CONFIG_DIR ONECLAW_VAULT_PASSPHRASE ONECLAW_DAEMON_SOCKET
+  rm -rf "$cfg"
+}
+daemon_socket_group
+
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 [[ $FAILED -eq 0 ]]

@@ -5,7 +5,8 @@ import {
     type IncomingMessage,
     type ServerResponse,
 } from "node:http";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync, chownSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import chalk from "chalk";
@@ -47,6 +48,26 @@ const SOCKET_PATH =
     process.env.ONECLAW_DAEMON_SOCKET || join(CONFIG_DIR, "daemon.sock");
 const PID_FILE = join(CONFIG_DIR, "daemon.pid");
 
+/** Numeric gid for a group name (or a number passed through). */
+function resolveGid(group: string): number {
+    if (/^\d+$/.test(group)) return Number(group);
+    try {
+        const out = execFileSync("getent", ["group", group], { encoding: "utf8" });
+        const gid = out.split(":")[2];
+        if (gid) return Number(gid);
+    } catch {
+        // macOS has no getent; fall through to dscl
+    }
+    try {
+        const out = execFileSync("dscl", [".", "-read", `/Groups/${group}`, "PrimaryGroupID"], { encoding: "utf8" });
+        const m = out.match(/PrimaryGroupID:\s*(\d+)/);
+        if (m) return Number(m[1]);
+    } catch {
+        // not macOS either
+    }
+    throw new Error(`Unknown group: ${group}`);
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
@@ -78,6 +99,10 @@ daemonCommand
     .description("Start the local secret daemon on a Unix socket")
     .option("--foreground", "Run in the foreground (don't daemonize)")
     .option("--socket <path>", "Custom socket path")
+    .option(
+        "--socket-group <group>",
+        "Unix group allowed to use the socket (mode 0660). For running the agent as a separate user from the one who owns the vault and the CLI session.",
+    )
     .action(async (opts) => {
         try {
             if (!vaultExists()) {
@@ -145,10 +170,21 @@ daemonCommand
             });
 
             server.listen(socketPath, () => {
+                // Owner-only by default. With --socket-group the agent can run
+                // as its own Unix user: it reaches the daemon (and so the
+                // policy-gated secrets) but not the human's ~/.config/1claw,
+                // where the cloud session token lives.
                 try {
-                    chmodSync(socketPath, 0o600);
-                } catch {
-                    // best-effort
+                    if (opts.socketGroup) {
+                        const gid = resolveGid(opts.socketGroup);
+                        chownSync(socketPath, process.getuid?.() ?? -1, gid);
+                        chmodSync(socketPath, 0o660);
+                    } else {
+                        chmodSync(socketPath, 0o600);
+                    }
+                } catch (err) {
+                    printError(`Could not set socket permissions: ${err instanceof Error ? err.message : String(err)}`);
+                    process.exit(1);
                 }
 
                 writeFileSync(PID_FILE, String(process.pid));

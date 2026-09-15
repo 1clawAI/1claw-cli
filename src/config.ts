@@ -29,6 +29,11 @@ const configDir =
 const config = new Conf<ConfigSchema>({
     projectName: "1claw",
     cwd: configDir,
+    // The file holds the cloud session token. `conf` writes it atomically
+    // (temp file + rename), so a chmod after login was undone by the next
+    // unrelated write: `default vault`, a project link, the output format
+    // each recreated it world-readable. The mode has to be conf's own.
+    configFileMode: 0o600,
     defaults: {
         auth: null,
         apiUrl: "https://api.1claw.co",

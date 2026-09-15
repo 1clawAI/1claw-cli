@@ -1,6 +1,9 @@
 import { Command } from "commander";
 import inquirer from "inquirer";
 import chalk from "chalk";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import {
     loginWithDevice,
     loginWithCredentials,
@@ -12,6 +15,7 @@ import {
     printError,
     printKeyValue,
     printInfo,
+    printWarning,
 } from "../output.js";
 import { handleError } from "../middleware.js";
 
@@ -57,21 +61,40 @@ export const loginCommand = new Command("login")
                     );
                     if (!finalAuth) return;
                     printSuccess(`Logged in as ${chalk.bold(finalAuth.email)}`);
+                    noteSessionOnAgentHost();
                     return;
                 }
 
                 printSuccess(`Logged in as ${chalk.bold(result.email)}`);
+                noteSessionOnAgentHost();
                 return;
             }
 
             const auth = await loginWithDevice();
             if (auth) {
                 printSuccess(`Logged in as ${chalk.bold(auth.email)}`);
+                noteSessionOnAgentHost();
             }
         } catch (err) {
             handleError(err);
         }
     });
+
+/**
+ * The session token is written to the config file, readable by this Unix
+ * user. On a machine where an agent runs as the same user, the agent can
+ * read it too — the local vault and daemon policy do not cover it. Say so
+ * when the machine looks like one (a local vault or daemon is present).
+ */
+function noteSessionOnAgentHost(): void {
+    const configDir = process.env.ONECLAW_CONFIG_DIR ?? join(homedir(), ".config", "1claw");
+    const agentHost = existsSync(join(configDir, "daemon.sock")) || existsSync(join(configDir, "daemon.pid")) || existsSync(process.env.ONECLAW_LOCAL_VAULT ?? join(configDir, "local-vault.enc"));
+    if (!agentHost) return;
+    printWarning(
+        "This session token is stored in the CLI config, readable by this Unix user. An agent running as the same user can use it; the local vault policy does not cover it.",
+    );
+    printInfo("Run `1claw logout` when you are done here, or run the agent as its own user (`1claw daemon start --socket-group <group>`).");
+}
 
 export const logoutCommand = new Command("logout")
     .description("Clear stored credentials")

@@ -1072,6 +1072,10 @@ The daemon serves secrets over a Unix socket and injects them into HTTP requests
 # Start the daemon (unlocks vault, listens on socket)
 1claw daemon start
 
+# Run the agent as its own Unix user: it can reach the daemon (mode 0660, this
+# group) but not your ~/.config/1claw, where the CLI's cloud session token lives.
+1claw daemon start --socket-group agents
+
 # Manage per-secret policies (which hosts can receive each secret)
 1claw daemon policy add STRIPE_KEY --hosts api.stripe.com --inject-as bearer
 1claw daemon policy add OPENAI_KEY --hosts api.openai.com,*.openai.com --inject-as bearer
