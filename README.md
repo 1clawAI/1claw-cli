@@ -439,6 +439,14 @@ Manage named credential handles and execute HTTP/GraphQL intents through the Vau
   --binding github-api --intent-type http \
   --params '{"method":"GET","path":"/user"}'
 
+# Local proxy: run a vendor CLI/SDK through a binding with no key on this machine.
+# Each request becomes an execute call; the tool's own credential is dropped, the
+# vault injects the binding's. 403 on a policy refusal, 502 if the vault is unreachable.
+1claw agent binding proxy bankr --agent-key "$AGENT_ID:$AGENT_KEY" --port 8787
+#   export BANKR_API_URL=http://127.0.0.1:8787
+#   export BANKR_API_KEY=managed-by-1claw   # placeholder, never forwarded
+#   rm -f ~/.bankr/config.json
+
 1claw agent binding executions <agent-id>   # Audit log
 ```
 

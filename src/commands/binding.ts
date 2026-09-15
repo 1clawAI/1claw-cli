@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { Command } from "commander";
 import chalk from "chalk";
 import { api } from "../client.js";
+import { registerBindingProxyCommand } from "./binding-proxy.js";
 import { requireToken, handleError } from "../middleware.js";
 import {
     printTable,
@@ -137,6 +138,8 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
     const bindingCommand = agentCommand
         .command("binding")
         .description("Execution Intents — manage bindings and execute HTTP/GraphQL intents");
+
+    registerBindingProxyCommand(bindingCommand);
 
     bindingCommand
         .command("create <agent-id>")

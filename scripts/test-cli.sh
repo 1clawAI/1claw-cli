@@ -118,6 +118,52 @@ pay_e2e() {
 }
 pay_e2e
 
+# ── 1claw agent binding proxy, against a mock vault ─────────────────────────
+#
+# The proxy exists so a vendor CLI can run with no key on the machine. The
+# properties that matter: the tool's own credential is dropped, not relayed;
+# a vault refusal comes back as 403; a vault that is unreachable comes back as
+# 502 (the tool stops); and an upstream response passes through with its
+# status and body.
+binding_proxy_e2e() {
+  local mock="$(dirname "${BASH_SOURCE[0]}")/mock-execute-vault.mjs"
+  PORT=4123 node "$mock" >/tmp/1claw-mockvault.log 2>&1 &
+  local mock_pid=$!
+  sleep 1
+  ONECLAW_API_URL=http://127.0.0.1:4123 $CLI agent binding proxy bankr \
+    --agent-key "00000000-0000-0000-0000-000000000001:ocv_test_key" --port 4124 >/tmp/1claw-bproxy.log 2>&1 &
+  local proxy_pid=$!
+  sleep 1
+
+  local out
+  out=$(curl -s -X POST http://127.0.0.1:4124/agent/prompt \
+        -H "X-API-Key: THIS_MUST_NOT_LEAK" -H "Authorization: Bearer nope" \
+        -H "Content-Type: application/json" -d '{"prompt":"hi"}')
+  if grep -q '"leaked_credential":false' <<<"$out" && grep -q '"path":"/agent/prompt"' <<<"$out" && grep -q '"binding":"bankr"' <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS binding proxy: request relayed through the binding, tool credential dropped"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL binding proxy relay: $out"
+  fi
+
+  local code
+  code=$(curl -s -o /tmp/bproxy_denied.json -w "%{http_code}" http://127.0.0.1:4124/agent/denied)
+  if [[ "$code" == "403" ]] && grep -q refused_by_1claw /tmp/bproxy_denied.json; then
+    PASSED=$((PASSED+1)); echo "  PASS binding proxy: vault refusal → 403"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL binding proxy refusal: HTTP $code $(cat /tmp/bproxy_denied.json)"
+  fi
+
+  kill $mock_pid 2>/dev/null || true; sleep 0.5
+  code=$(curl -s -o /tmp/bproxy_down.json -w "%{http_code}" http://127.0.0.1:4124/agent/prompt)
+  if [[ "$code" == "502" ]] && grep -q vault_unreachable /tmp/bproxy_down.json; then
+    PASSED=$((PASSED+1)); echo "  PASS binding proxy: vault unreachable → 502 (the tool stops)"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL binding proxy vault-down: HTTP $code $(cat /tmp/bproxy_down.json)"
+  fi
+  kill $proxy_pid 2>/dev/null || true
+}
+binding_proxy_e2e
+
 run --help
 run login --help
 run logout --help
