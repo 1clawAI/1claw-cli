@@ -164,6 +164,51 @@ binding_proxy_e2e() {
 }
 binding_proxy_e2e
 
+# ── 1claw daemon proxy, against a real daemon and a mock upstream ───────────
+#
+# Local flavour of the binding proxy: the running daemon does the host
+# allowlist and the injection from the local vault. Asserts the upstream saw
+# the vault's key and not the tool's, and that a host outside the policy is
+# refused.
+daemon_proxy_e2e() {
+  local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local cfg; cfg="$(mktemp -d)"
+  export ONECLAW_CONFIG_DIR="$cfg" ONECLAW_VAULT_PASSPHRASE="test-passphrase-123" ONECLAW_DAEMON_SOCKET="$cfg/daemon.sock"
+  node "$here/seed-local-vault.mjs" >/dev/null || { echo "  FAIL daemon proxy: could not seed local vault"; FAILED=$((FAILED+1)); return; }
+  PORT=4125 node "$here/mock-upstream.mjs" >/tmp/1claw-upstream.log 2>&1 &
+  local up_pid=$!
+  $CLI daemon start --foreground >/tmp/1claw-daemon.log 2>&1 &
+  local d_pid=$!
+  for i in $(seq 1 20); do [[ -S "$ONECLAW_DAEMON_SOCKET" ]] && break; sleep 0.25; done
+  $CLI daemon proxy bankr-api-key --base-url http://127.0.0.1:4125 --port 4126 >/tmp/1claw-dproxy.log 2>&1 &
+  local p_pid=$!
+  sleep 1
+
+  local out
+  out=$(curl -s -X POST http://127.0.0.1:4126/agent/prompt -H "X-API-Key: THIS_MUST_NOT_LEAK" -H "Content-Type: application/json" -d '{"prompt":"hi"}')
+  if grep -q '"x_api_key":"bk_usr_FROM_THE_VAULT"' <<<"$out" && grep -q '"path":"/agent/prompt"' <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS daemon proxy: upstream got the vault's key, not the tool's"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL daemon proxy relay: $out"; tail -3 /tmp/1claw-dproxy.log /tmp/1claw-daemon.log
+  fi
+
+  $CLI daemon proxy bankr-api-key --base-url http://localhost:4125 --port 4127 >/tmp/1claw-dproxy2.log 2>&1 &
+  local p2_pid=$!
+  sleep 1
+  local code
+  code=$(curl -s -o /tmp/dproxy_denied.json -w "%{http_code}" http://127.0.0.1:4127/agent/prompt)
+  if [[ "$code" == "403" ]] && grep -q refused_by_1claw /tmp/dproxy_denied.json; then
+    PASSED=$((PASSED+1)); echo "  PASS daemon proxy: host outside the policy → 403"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL daemon proxy policy: HTTP $code $(cat /tmp/dproxy_denied.json)"
+  fi
+
+  kill $p_pid $p2_pid $d_pid $up_pid 2>/dev/null || true
+  unset ONECLAW_CONFIG_DIR ONECLAW_VAULT_PASSPHRASE ONECLAW_DAEMON_SOCKET
+  rm -rf "$cfg"
+}
+daemon_proxy_e2e
+
 run --help
 run login --help
 run logout --help

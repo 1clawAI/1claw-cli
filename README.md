@@ -447,6 +447,10 @@ Manage named credential handles and execute HTTP/GraphQL intents through the Vau
 #   export BANKR_API_KEY=managed-by-1claw   # placeholder, never forwarded
 #   rm -f ~/.bankr/config.json
 
+# Same thing against the local daemon (offline, local vault + `daemon policy`):
+1claw daemon policy add bankr-api-key --hosts api.bankr.bot --inject-as header --header-name X-API-Key
+1claw daemon proxy bankr-api-key --base-url https://api.bankr.bot --port 8787
+
 1claw agent binding executions <agent-id>   # Audit log
 ```
 

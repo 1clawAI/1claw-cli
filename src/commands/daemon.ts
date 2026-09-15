@@ -39,6 +39,7 @@ import {
     type PolicyFile,
 } from "../local-policy.js";
 import { proxyRequest, type ProxyRequest } from "../secret-proxy.js";
+import { registerDaemonProxyCommand } from "./binding-proxy.js";
 
 const CONFIG_DIR =
     process.env.ONECLAW_CONFIG_DIR || join(homedir(), ".config", "1claw");
@@ -67,6 +68,8 @@ function jsonResponse(
 export const daemonCommand = new Command("daemon").description(
     "Local daemon — serves secrets over a Unix socket without exposing values",
 );
+
+registerDaemonProxyCommand(daemonCommand, SOCKET_PATH);
 
 // ── daemon start ─────────────────────────────────────────
 
