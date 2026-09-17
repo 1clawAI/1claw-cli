@@ -442,14 +442,17 @@ Manage named credential handles and execute HTTP/GraphQL intents through the Vau
 # Local proxy: run a vendor CLI/SDK through a binding with no key on this machine.
 # Each request becomes an execute call; the tool's own credential is dropped, the
 # vault injects the binding's. 403 on a policy refusal, 502 if the vault is unreachable.
-1claw agent binding proxy bankr --agent-key "$AGENT_ID:$AGENT_KEY" --port 8787
+# The proxy prints a per-run token; the tool must present it where its real key
+# would go (Authorization: Bearer or X-API-Key) — anything else on the host gets 401.
+# Pin it with --token or ONECLAW_PROXY_TOKEN; --no-auth turns the check off.
+1claw agent binding proxy bankr --agent-key "$AGENT_ID:$AGENT_KEY" --port 8787 --token "$PROXY_TOKEN"
 #   export BANKR_API_URL=http://127.0.0.1:8787
-#   export BANKR_API_KEY=managed-by-1claw   # placeholder, never forwarded
+#   export BANKR_API_KEY=$PROXY_TOKEN        # the proxy token, never forwarded upstream
 #   rm -f ~/.bankr/config.json
 
 # Same thing against the local daemon (offline, local vault + `daemon policy`):
 1claw daemon policy add bankr-api-key --hosts api.bankr.bot --inject-as header --header-name X-API-Key
-1claw daemon proxy bankr-api-key --base-url https://api.bankr.bot --port 8787
+1claw daemon proxy bankr-api-key --base-url https://api.bankr.bot --port 8787 --token "$PROXY_TOKEN"
 
 1claw agent binding executions <agent-id>   # Audit log
 ```

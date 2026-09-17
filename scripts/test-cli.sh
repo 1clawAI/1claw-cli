@@ -131,13 +131,25 @@ binding_proxy_e2e() {
   local mock_pid=$!
   sleep 1
   ONECLAW_API_URL=http://127.0.0.1:4123 $CLI agent binding proxy bankr \
-    --agent-key "00000000-0000-0000-0000-000000000001:ocv_test_key" --port 4124 >/tmp/1claw-bproxy.log 2>&1 &
+    --agent-key "00000000-0000-0000-0000-000000000001:ocv_test_key" --port 4124 --token 1cp_testtoken >/tmp/1claw-bproxy.log 2>&1 &
   local proxy_pid=$!
   sleep 1
 
+  # BINDPROXY-M1: the port is only reachable with the per-run proxy token.
+  local code
+  code=$(curl -s -o /tmp/bproxy_noauth.json -w "%{http_code}" -X POST http://127.0.0.1:4124/agent/prompt \
+        -H "X-API-Key: THIS_MUST_NOT_LEAK" -H "Content-Type: application/json" -d '{"prompt":"hi"}')
+  if [[ "$code" == "401" ]] && grep -q proxy_unauthorized /tmp/bproxy_noauth.json; then
+    PASSED=$((PASSED+1)); echo "  PASS binding proxy: no proxy token → 401, nothing forwarded"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL binding proxy no-token: HTTP $code $(cat /tmp/bproxy_noauth.json)"
+  fi
+
   local out
+  # The tool puts the proxy token where its real key would go; the vault's
+  # binding credential replaces it upstream and the tool's headers are dropped.
   out=$(curl -s -X POST http://127.0.0.1:4124/agent/prompt \
-        -H "X-API-Key: THIS_MUST_NOT_LEAK" -H "Authorization: Bearer nope" \
+        -H "X-API-Key: 1cp_testtoken" \
         -H "Content-Type: application/json" -d '{"prompt":"hi"}')
   if grep -q '"leaked_credential":false' <<<"$out" && grep -q '"path":"/agent/prompt"' <<<"$out" && grep -q '"binding":"bankr"' <<<"$out"; then
     PASSED=$((PASSED+1)); echo "  PASS binding proxy: request relayed through the binding, tool credential dropped"
@@ -146,7 +158,7 @@ binding_proxy_e2e() {
   fi
 
   local code
-  code=$(curl -s -o /tmp/bproxy_denied.json -w "%{http_code}" http://127.0.0.1:4124/agent/denied)
+  code=$(curl -s -o /tmp/bproxy_denied.json -w "%{http_code}" -H "Authorization: Bearer 1cp_testtoken" http://127.0.0.1:4124/agent/denied)
   if [[ "$code" == "403" ]] && grep -q refused_by_1claw /tmp/bproxy_denied.json; then
     PASSED=$((PASSED+1)); echo "  PASS binding proxy: vault refusal → 403"
   else
@@ -154,7 +166,7 @@ binding_proxy_e2e() {
   fi
 
   kill $mock_pid 2>/dev/null || true; sleep 0.5
-  code=$(curl -s -o /tmp/bproxy_down.json -w "%{http_code}" http://127.0.0.1:4124/agent/prompt)
+  code=$(curl -s -o /tmp/bproxy_down.json -w "%{http_code}" -H "Authorization: Bearer 1cp_testtoken" http://127.0.0.1:4124/agent/prompt)
   if [[ "$code" == "502" ]] && grep -q vault_unreachable /tmp/bproxy_down.json; then
     PASSED=$((PASSED+1)); echo "  PASS binding proxy: vault unreachable → 502 (the tool stops)"
   else
@@ -180,23 +192,23 @@ daemon_proxy_e2e() {
   $CLI daemon start --foreground >/tmp/1claw-daemon.log 2>&1 &
   local d_pid=$!
   for i in $(seq 1 20); do [[ -S "$ONECLAW_DAEMON_SOCKET" ]] && break; sleep 0.25; done
-  $CLI daemon proxy bankr-api-key --base-url http://127.0.0.1:4125 --port 4126 >/tmp/1claw-dproxy.log 2>&1 &
+  ONECLAW_PROXY_TOKEN=1cp_daemontest $CLI daemon proxy bankr-api-key --base-url http://127.0.0.1:4125 --port 4126 >/tmp/1claw-dproxy.log 2>&1 &
   local p_pid=$!
   sleep 1
 
   local out
-  out=$(curl -s -X POST http://127.0.0.1:4126/agent/prompt -H "X-API-Key: THIS_MUST_NOT_LEAK" -H "Content-Type: application/json" -d '{"prompt":"hi"}')
+  out=$(curl -s -X POST http://127.0.0.1:4126/agent/prompt -H "X-API-Key: 1cp_daemontest" -H "Content-Type: application/json" -d '{"prompt":"hi"}')
   if grep -q '"x_api_key":"bk_usr_FROM_THE_VAULT"' <<<"$out" && grep -q '"path":"/agent/prompt"' <<<"$out"; then
     PASSED=$((PASSED+1)); echo "  PASS daemon proxy: upstream got the vault's key, not the tool's"
   else
     FAILED=$((FAILED+1)); echo "  FAIL daemon proxy relay: $out"; tail -3 /tmp/1claw-dproxy.log /tmp/1claw-daemon.log
   fi
 
-  $CLI daemon proxy bankr-api-key --base-url http://localhost:4125 --port 4127 >/tmp/1claw-dproxy2.log 2>&1 &
+  ONECLAW_PROXY_TOKEN=1cp_daemontest $CLI daemon proxy bankr-api-key --base-url http://localhost:4125 --port 4127 >/tmp/1claw-dproxy2.log 2>&1 &
   local p2_pid=$!
   sleep 1
   local code
-  code=$(curl -s -o /tmp/dproxy_denied.json -w "%{http_code}" http://127.0.0.1:4127/agent/prompt)
+  code=$(curl -s -o /tmp/dproxy_denied.json -w "%{http_code}" -H "X-API-Key: 1cp_daemontest" http://127.0.0.1:4127/agent/prompt)
   if [[ "$code" == "403" ]] && grep -q refused_by_1claw /tmp/dproxy_denied.json; then
     PASSED=$((PASSED+1)); echo "  PASS daemon proxy: host outside the policy → 403"
   else

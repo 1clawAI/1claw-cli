@@ -14,6 +14,7 @@
  * is the point.
  */
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Command } from "commander";
 import chalk from "chalk";
 import { api, ApiError } from "../client.js";
@@ -168,6 +169,42 @@ function unixSocketPost(socketPath: string, path: string, body: string): Promise
 interface ProxyDeps {
     forward: Forwarder;
     verbose: boolean;
+    /**
+     * Per-run bearer the tool must present (as `Authorization: Bearer` or
+     * `X-API-Key`, i.e. wherever it would have put its real key). Undefined
+     * only under `--no-auth`. Without it, anything on the host that can
+     * reach the port can drive the binding (BINDPROXY-M1).
+     */
+    token?: string;
+}
+
+/** A fresh, unguessable proxy token for this run. */
+export function newProxyToken(): string {
+    return `1cp_${randomBytes(24).toString("base64url")}`;
+}
+
+/** Read the credential the tool presented, from whichever header it used. */
+export function presentedCredential(headers: IncomingMessage["headers"]): string | undefined {
+    const auth = headers["authorization"];
+    if (typeof auth === "string") {
+        const m = /^Bearer\s+(.+)$/i.exec(auth.trim());
+        if (m) return m[1].trim();
+    }
+    const pa = headers["proxy-authorization"];
+    if (typeof pa === "string") {
+        const m = /^Bearer\s+(.+)$/i.exec(pa.trim());
+        if (m) return m[1].trim();
+    }
+    const key = headers["x-api-key"];
+    if (typeof key === "string" && key.trim()) return key.trim();
+    return undefined;
+}
+
+export function credentialMatches(presented: string | undefined, expected: string): boolean {
+    if (!presented) return false;
+    const a = Buffer.from(presented);
+    const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** Handle one request. Exported for the test harness. */
@@ -178,6 +215,14 @@ export async function handleProxyRequest(
 ): Promise<void> {
     const method = (req.method ?? "GET").toUpperCase();
     const path = req.url ?? "/";
+    if (deps.token !== undefined && !credentialMatches(presentedCredential(req.headers), deps.token)) {
+        if (deps.verbose) console.log(chalk.yellow(`  ${method} ${path} → 401 (proxy token missing or wrong)`));
+        send(res, 401, { "www-authenticate": "Bearer realm=\"1claw-proxy\"" }, JSON.stringify({
+            error: "proxy_unauthorized",
+            detail: "Send the proxy token printed at startup as the tool's API key (Authorization: Bearer or X-API-Key).",
+        }));
+        return;
+    }
     const raw = await readBody(req);
     const shape: ProxyRequestShape = { method, path, headers: relayableHeaders(req.headers), body: parseBody(raw) };
     const f = await deps.forward(shape);
@@ -207,6 +252,22 @@ export async function handleProxyRequest(
     }
 }
 
+
+/** `--no-auth` → undefined; else `--token`, `ONECLAW_PROXY_TOKEN`, or a fresh one. */
+function proxyTokenFor(opts: { auth?: boolean; token?: string }): string | undefined {
+    if (opts.auth === false) return undefined;
+    const pinned = opts.token?.trim() || process.env.ONECLAW_PROXY_TOKEN?.trim();
+    return pinned || newProxyToken();
+}
+
+function announceToken(token: string | undefined): void {
+    if (token === undefined) {
+        printInfo(chalk.yellow("--no-auth: any local process that can reach this port can use the binding."));
+        return;
+    }
+    printInfo(`Proxy token (give it to the tool as its API key): ${chalk.bold(token)}`);
+}
+
 /** Bind and announce. Shared by the cloud and local commands. */
 export function listenProxy(deps: ProxyDeps, host: string, port: number, banner: (base: string) => void): void {
     const server = createServer((req, res) => {
@@ -230,6 +291,8 @@ export function registerBindingProxyCommand(bindingCommand: Command): void {
         .option("--agent-key <key>", "agent_id:ocv_... or key-only ocv_... (else ONECLAW_AGENT_API_KEY / ONECLAW_AGENT_ID)")
         .option("-p, --port <port>", `Local port (default ${DEFAULT_PORT}; 0 for OS-assigned)`, String(DEFAULT_PORT))
         .option("--host <host>", "Bind address", "127.0.0.1")
+        .option("--token <token>", "Proxy token the tool must present (default: generated per run; env ONECLAW_PROXY_TOKEN)")
+        .option("--no-auth", "Accept requests from anything that can reach the port (not recommended)")
         .option("-v, --verbose", "Log each proxied request", false)
         .action(async (binding: string, opts) => {
             const port = parseInt(opts.port, 10);
@@ -256,9 +319,11 @@ export function registerBindingProxyCommand(bindingCommand: Command): void {
             const deps: ProxyDeps = {
                 forward: cloudBindingForwarder(resolved.agentId, resolved.apiKey, binding),
                 verbose: Boolean(opts.verbose),
+                token: proxyTokenFor(opts),
             };
             listenProxy(deps, opts.host, port, (base) => {
                 printSuccess(`Binding proxy for ${chalk.bold(binding)} listening on ${base}`);
+                announceToken(deps.token);
                 printInfo(`Agent ${resolved.agentId}. Credentials sent by the tool are dropped here; the vault injects the binding's.`);
                 console.log();
                 console.log(chalk.bold("  Point the vendor tool at it, with a placeholder key:"));
@@ -283,6 +348,8 @@ export function registerDaemonProxyCommand(daemonCommand: Command, defaultSocket
         .option("-p, --port <port>", `Local port (default ${DEFAULT_PORT}; 0 for OS-assigned)`, String(DEFAULT_PORT))
         .option("--host <host>", "Bind address", "127.0.0.1")
         .option("--socket <path>", "Daemon socket path", process.env.ONECLAW_DAEMON_SOCKET || defaultSocket)
+        .option("--token <token>", "Proxy token the tool must present (default: generated per run; env ONECLAW_PROXY_TOKEN)")
+        .option("--no-auth", "Accept requests from anything that can reach the port (not recommended)")
         .option("-v, --verbose", "Log each proxied request", false)
         .action((secret: string, opts) => {
             const port = parseInt(opts.port, 10);
@@ -300,9 +367,11 @@ export function registerDaemonProxyCommand(daemonCommand: Command, defaultSocket
             const deps: ProxyDeps = {
                 forward: localDaemonForwarder(opts.socket, secret, baseUrl.toString()),
                 verbose: Boolean(opts.verbose),
+                token: proxyTokenFor(opts),
             };
             listenProxy(deps, opts.host, port, (base) => {
                 printSuccess(`Daemon proxy for ${chalk.bold(secret)} → ${baseUrl.origin} listening on ${base}`);
+                announceToken(deps.token);
                 printInfo(`Policy: 1claw daemon policy add ${secret} --hosts ${baseUrl.hostname} --inject-as header --header-name X-API-Key`);
                 console.log();
                 console.log(chalk.bold("  Point the vendor tool at it, with a placeholder key:"));
