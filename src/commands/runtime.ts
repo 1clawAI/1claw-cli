@@ -28,7 +28,10 @@ interface Runtime {
     created_at: string;
 }
 
-const VALID_PRESETS = ["micro", "small", "medium", "large", "xlarge", "xxlarge", "cc_small", "cc_medium", "cc_large"];
+// Mirrors the vault's VALID_PRESETS (handlers/runtimes.rs). The old list here
+// ("micro", "xlarge", "cc_small"…) named presets the vault never accepted.
+const VALID_PRESETS = ["small", "medium", "large", "small-cc", "medium-cc", "large-cc"];
+const TEMPLATES = ["python", "node", "hermes", "openclaw", "openclaude", "opencode", "claude-code", "codex", "amp", "binary"];
 
 export const runtimeCommand = new Command("runtime")
     .alias("rt")
@@ -150,11 +153,14 @@ runtimeCommand
     .command("create <name>")
     .description("Create a new runtime")
     .requiredOption("--agent-id <id>", "Agent ID")
-    .option("--template <tpl>", "Runtime template", "base")
-    .option("--preset <preset>", `Preset: ${VALID_PRESETS.join(", ")}`, "small")
-    .option("--image <image>", "Custom Docker image")
+    .option("--template <tpl>", `Runtime template: ${TEMPLATES.join(", ")} (omit with --image)`)
+    .option("--preset <preset>", `Preset: ${VALID_PRESETS.join(", ")}. Pro+ plans include one small/medium runtime free`, "small")
+    .option("--image <image>", "Custom Docker image (instead of a template)")
     .option("--idle-timeout <secs>", "Idle timeout in seconds", "1800")
-    .option("--env <key=value...>", "Environment variables (repeatable)")
+    .option("--env <key=value...>", "Environment variables (repeatable). binary template: BINARY_URL, BINARY_SHA256")
+    .option("--source-repo <url>", "Git repository to clone at start")
+    .option("--source-branch <branch>", "Branch of --source-repo")
+    .option("--startup-command <cmd>", "Command to run after clone/setup")
     .option("--json", "Output as JSON")
     .action(async (name, opts) => {
         try {
@@ -175,12 +181,15 @@ runtimeCommand
             const body: Record<string, unknown> = {
                 name,
                 agent_id: opts.agentId,
-                template: opts.template,
                 preset: opts.preset,
                 idle_timeout_secs: parseInt(opts.idleTimeout, 10),
             };
+            if (opts.template) body.template = opts.template;
             if (opts.image) body.image = opts.image;
             if (envPublic) body.env_public = envPublic;
+            if (opts.sourceRepo) body.source_repo = opts.sourceRepo;
+            if (opts.sourceBranch) body.source_branch = opts.sourceBranch;
+            if (opts.startupCommand) body.startup_command = opts.startupCommand;
 
             const r = await api<Runtime>("/runtimes", {
                 method: "POST",
