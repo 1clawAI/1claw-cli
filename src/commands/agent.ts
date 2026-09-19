@@ -52,6 +52,9 @@ interface ShroudConfig {
     sanitization_mode?: string;
     threat_logging?: boolean;
     flagged_request_retention_days?: number;
+    streaming_inspection_mode?: "rolling" | "holdback";
+    streaming_holdback_chars?: number;
+    max_concurrent_streams?: number;
 }
 
 interface Agent {
@@ -710,6 +713,20 @@ agentCommand
                     rows.push([
                         "  Flagged retention",
                         `${agent.shroud_config.flagged_request_retention_days} days`,
+                    ]);
+                }
+                if (agent.shroud_config.streaming_inspection_mode) {
+                    const mode = agent.shroud_config.streaming_inspection_mode;
+                    const detail =
+                        mode === "holdback"
+                            ? ` (${agent.shroud_config.streaming_holdback_chars ?? 512} chars)`
+                            : "";
+                    rows.push(["  Streaming inspection", `${mode}${detail}`]);
+                }
+                if (agent.shroud_config.max_concurrent_streams != null) {
+                    rows.push([
+                        "  Max open streams",
+                        String(agent.shroud_config.max_concurrent_streams),
                     ]);
                 }
             }
