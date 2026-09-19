@@ -235,6 +235,10 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
   --execution-intents true \                   # Enable/disable Execution Intents (Pro+)
   --execution-guardrails '{"allowed_hosts":["api.example.com"]}'
 1claw agent delete <id>                        # Delete an agent
+1claw agent children <parent-id>               # Child agents (vault ≥ 0.61.30)
+1claw agent create-child <parent-id> summariser-7 \
+  --scopes secrets:read --namespaces child:doc-7 # Sub-agent: own key/memory/approval policy, subset of the
+                                               # parent's vaults+scopes, inherits its policies, free of the agent cap
 1claw agent token <id>                         # Generate agent JWT (api_key only)
 1claw agent token <id> --quiet                 # Raw token (for piping)
 1claw agent enroll my-agent \
@@ -294,6 +298,22 @@ Matching transactions return **202** `awaiting_approval` with an `approval_id`. 
 The CLI's `agent create` always uses `auth_method=api_key` (default; returns an `ocv_` API key). To register an `mtls` or `oidc_client_credentials` agent, use the SDK or `POST /v1/agents` directly — those auth methods don't generate an API key.
 
 All agents automatically receive an Ed25519 SSH keypair for future A2A messaging. The public key is shown in `agent get` output.
+
+### Connectors (pre-built bindings)
+
+```bash
+1claw connector presets                        # Catalogue: gmail, slack, github, stripe, hubspot, … + event_sources
+1claw connector list <agent-id>                # Installed on an agent, and whether each is signed in
+1claw connector install <agent-id> gmail \
+  --scopes https://www.googleapis.com/auth/gmail.readonly   # Narrow scopes; prints the sign-in URL
+1claw connector install <agent-id> api-token \
+  --name crm --host api.example.com --token $TOKEN          # Any HTTPS API with a pasted token
+1claw connector subscribe <agent-id> <binding-id> gmail.message.received   # Polled event source →
+                                               # automation events (trigger_type: event); first poll primes
+1claw connector subscriptions <agent-id>       # State, emitted count, last error
+1claw connector poll <agent-id> <sub-id>       # Poll now
+1claw connector unsubscribe <agent-id> <sub-id>
+```
 
 ### Agent Delegation
 

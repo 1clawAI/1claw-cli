@@ -1113,6 +1113,72 @@ agentCommand
         }
     });
 
+// ── Child agents (vault ≥ 0.61.30) ──────────────────────────────────
+
+agentCommand
+    .command("children <parent-id>")
+    .description("List an agent's child agents")
+    .option("--json", "Output as JSON")
+    .action(async (parentId: string, opts) => {
+        try {
+            requireToken();
+            const result = await api<{ agents: Agent[] }>(`/agents/${parentId}/children`);
+            const items = result.agents ?? [];
+            if (opts.json) {
+                printJson(items);
+                return;
+            }
+            if (items.length === 0) {
+                console.log(chalk.dim("No child agents. Create one with `1claw agent create-child`."));
+                return;
+            }
+            printTable(
+                items.map((a) => ({ id: a.id, name: a.name, scopes: a.scopes.join(",") })),
+                [
+                    { key: "id", header: "ID", width: 36 },
+                    { key: "name", header: "Name", width: 28 },
+                    { key: "scopes", header: "Scopes" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+agentCommand
+    .command("create-child <parent-id> <name>")
+    .description(
+        "Create a cheap sub-agent under a parent: its own API key, memory and approval policy; a subset of the parent's vaults/scopes; inherits the parent's policies; does not count against the plan's agent cap (human users only)",
+    )
+    .option("--description <text>", "Description")
+    .option("--scopes <scopes>", "Comma-separated subset of the parent's scopes (default: the parent's)")
+    .option("--vault-ids <ids>", "Comma-separated subset of the parent's vault ids (default: the parent's)")
+    .option("--namespaces <ns>", "Comma-separated memory namespaces (default: child:{id})")
+    .option("--json", "Output as JSON")
+    .action(async (parentId: string, name: string, opts) => {
+        try {
+            requireToken();
+            const split = (v?: string) => (v ? String(v).split(",").map((x) => x.trim()).filter(Boolean) : undefined);
+            const body: Record<string, unknown> = { name };
+            if (opts.description) body.description = opts.description;
+            if (opts.scopes) body.scopes = split(opts.scopes);
+            if (opts.vaultIds) body.vault_ids = split(opts.vaultIds);
+            if (opts.namespaces) body.memory_namespace_allowlist = split(opts.namespaces);
+            const r = await api<{ agent: Agent; api_key: string }>(`/agents/${parentId}/children`, {
+                method: "POST",
+                body,
+            });
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            printSuccess(`Child agent created: ${chalk.bold(r.agent.name)} (${r.agent.id})`);
+            console.log(`  ${chalk.yellow("API key (shown once):")} ${r.api_key}`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 agentCommand
     .command("delete <id>")
     .description("Delete an agent")

@@ -143,12 +143,16 @@ connectorCommand
         "--scopes <scopes>",
         "Comma-separated subset of the connector's scopes (may narrow, never extend)",
     )
+    .option("--host <host>", "api-token connector only: the HTTPS host the binding may call (e.g. api.example.com)")
+    .option("--token <token>", "api-token connector only: bearer token to store in the vault on install")
     .option("--json", "Output as JSON")
     .action(async (agentId: string, slug: string, opts) => {
         try {
             requireToken();
             const body: Record<string, unknown> = {};
             if (opts.name) body.binding_name = opts.name;
+            if (opts.host) body.host = opts.host;
+            if (opts.token) body.token = opts.token;
             if (opts.scopes) {
                 body.scopes = String(opts.scopes)
                     .split(",")
@@ -189,3 +193,123 @@ function statusLabel(c: InstalledConnector): string {
     if (!c.is_active) return chalk.dim("inactive");
     return chalk.green("connected");
 }
+
+// ── Polled event sources → automation events (vault ≥ 0.61.32) ──────
+
+interface EventSubscription {
+    id: string;
+    binding_id: string;
+    event_type: string;
+    interval_secs: number;
+    is_active: boolean;
+    primed: boolean;
+    next_poll_at: string;
+    last_error?: string | null;
+    consecutive_errors: number;
+    events_emitted: number;
+}
+
+connectorCommand
+    .command("subscribe <agent-id> <binding-id> <event-type>")
+    .description(
+        "Subscribe an installed connector binding to one of its event sources (see `presets`); new items become automation events (human users only)",
+    )
+    .option("--interval <secs>", "Poll interval in seconds (defaults to the source's minimum)")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, bindingId: string, eventType: string, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = { binding_id: bindingId, event_type: eventType };
+            if (opts.interval) body.interval_secs = parseInt(opts.interval, 10);
+            const sub = await api<EventSubscription>(`/agents/${agentId}/event-subscriptions`, {
+                method: "POST",
+                body,
+            });
+            if (opts.json) {
+                printJson(sub);
+                return;
+            }
+            printSuccess(
+                `Subscribed ${chalk.bold(sub.event_type)} every ${sub.interval_secs}s (${sub.id}). ` +
+                    `The first poll primes it and emits nothing; trigger an automation with event_filter.event_type = "${sub.event_type}".`,
+            );
+        } catch (e) {
+            handleError(e);
+        }
+    });
+
+connectorCommand
+    .command("subscriptions <agent-id>")
+    .description("List an agent's event subscriptions")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts) => {
+        try {
+            requireToken();
+            const result = await api<{ subscriptions: EventSubscription[] }>(
+                `/agents/${agentId}/event-subscriptions`,
+            );
+            if (opts.json) {
+                printJson(result);
+                return;
+            }
+            const subs = result.subscriptions ?? [];
+            if (subs.length === 0) {
+                printInfo("No event subscriptions. Run `1claw connector subscribe` after installing a connector.");
+                return;
+            }
+            printTable(
+                subs.map((s) => ({
+                    id: s.id,
+                    event: s.event_type,
+                    every: `${s.interval_secs}s`,
+                    state: !s.is_active ? chalk.red("off") : s.primed ? chalk.green("live") : chalk.yellow("priming"),
+                    emitted: String(s.events_emitted),
+                    errors: s.consecutive_errors ? chalk.yellow(`${s.consecutive_errors}: ${(s.last_error ?? "").slice(0, 40)}`) : chalk.dim("0"),
+                })),
+                [
+                    { key: "id", header: "ID", width: 36 },
+                    { key: "event", header: "Event", width: 30 },
+                    { key: "every", header: "Every", width: 8 },
+                    { key: "state", header: "State", width: 9 },
+                    { key: "emitted", header: "Emitted", width: 8 },
+                    { key: "errors", header: "Errors" },
+                ],
+            );
+        } catch (e) {
+            handleError(e);
+        }
+    });
+
+connectorCommand
+    .command("poll <agent-id> <subscription-id>")
+    .description("Poll an event subscription now instead of waiting for its interval (human users only)")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, subId: string, opts) => {
+        try {
+            requireToken();
+            const r = await api<{ emitted: number; subscription: EventSubscription }>(
+                `/agents/${agentId}/event-subscriptions/${subId}/poll`,
+                { method: "POST" },
+            );
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            printSuccess(`Polled: ${r.emitted} event(s) emitted; ${r.subscription.primed ? "primed" : "not primed"}, next at ${r.subscription.next_poll_at}`);
+        } catch (e) {
+            handleError(e);
+        }
+    });
+
+connectorCommand
+    .command("unsubscribe <agent-id> <subscription-id>")
+    .description("Delete an event subscription (human users only)")
+    .action(async (agentId: string, subId: string) => {
+        try {
+            requireToken();
+            await api(`/agents/${agentId}/event-subscriptions/${subId}`, { method: "DELETE" });
+            printSuccess("Unsubscribed.");
+        } catch (e) {
+            handleError(e);
+        }
+    });
