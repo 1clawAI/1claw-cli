@@ -54,6 +54,53 @@ memoryCommand
     });
 
 memoryCommand
+    .command("search <agent-id>")
+    .description("Semantic search over an agent's memory (semantic tier)")
+    .requiredOption("-q, --query <text>", "What to look for")
+    .option("-n, --namespace <ns>", "Namespace to search", "default")
+    .option("--top-k <n>", "Max results", "10")
+    .option("--json", "Output as JSON")
+    .action(async (agentId, opts) => {
+        try {
+            requireToken();
+            const res = await api<{ results: Array<{ key: string; value: unknown; score: number; namespace: string; tier: string; updated_at: string }> }>(
+                `/agents/${agentId}/memory/search`,
+                { method: "POST", body: { namespace: opts.namespace, query: opts.query, top_k: parseInt(opts.topK, 10) } },
+            );
+            const results = res.results ?? [];
+            if (opts.json) {
+                printJson(results);
+                return;
+            }
+            if (results.length === 0) {
+                console.log(chalk.dim("No matches."));
+                return;
+            }
+            printTable(
+                results.map((r) => {
+                    const v = typeof r.value === "string" ? r.value : JSON.stringify(r.value);
+                    return {
+                        score: r.score.toFixed(3),
+                        namespace: r.namespace,
+                        key: r.key,
+                        value: v.length > 40 ? v.slice(0, 40) + "…" : v,
+                        updated: formatDate(r.updated_at),
+                    };
+                }),
+                [
+                    { key: "score", header: "Score", width: 7 },
+                    { key: "namespace", header: "Namespace", width: 16 },
+                    { key: "key", header: "Key", width: 24 },
+                    { key: "value", header: "Value", width: 42 },
+                    { key: "updated", header: "Updated" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+memoryCommand
     .command("list <agent-id>")
     .alias("ls")
     .description("List memory entries for an agent")
@@ -136,6 +183,7 @@ memoryCommand
     .description("Store a memory entry")
     .option("-n, --namespace <ns>", "Namespace", "default")
     .option("--ttl <seconds>", "Time-to-live in seconds")
+    .option("--tier <tier>", "Storage tier: scratch (TTL), durable (default), semantic (embedded, searchable)")
     .option("--json", "Output as JSON")
     .action(async (agentId, key, value, opts) => {
         try {
@@ -146,6 +194,7 @@ memoryCommand
                 value,
             };
             if (opts.ttl) body.ttl_seconds = parseInt(opts.ttl, 10);
+            if (opts.tier) body.tier = opts.tier;
 
             const entry = await api<MemoryEntry>(
                 `/agents/${agentId}/memory`,

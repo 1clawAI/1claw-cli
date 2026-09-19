@@ -81,6 +81,31 @@ runtimeCommand
     });
 
 runtimeCommand
+    .command("slug-check <slug>")
+    .description("Check whether a public runtime slug ({slug}.run.1claw.co) is available")
+    .option("--json", "Output as JSON")
+    .action(async (slug, opts) => {
+        try {
+            requireToken();
+            const r = await api<{ slug: string; available: boolean; reason?: string }>(
+                `/runtimes/slug-check/${encodeURIComponent(slug)}`,
+            );
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            if (r.available) {
+                printSuccess(`${chalk.bold(r.slug)} is available → https://${r.slug}.run.1claw.co`);
+            } else {
+                console.log(chalk.yellow(`${r.slug} is not available${r.reason ? `: ${r.reason}` : ""}`));
+                process.exitCode = 1;
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+runtimeCommand
     .command("get <runtime-id>")
     .description("Get runtime details")
     .option("--json", "Output as JSON")

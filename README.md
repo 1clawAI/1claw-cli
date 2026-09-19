@@ -855,24 +855,22 @@ Manage platform apps for developers building multi-tenant applications on top of
 
 # Platform API expansion (v0.57+)
 1claw platform siwe-challenge                  # SIWE nonce for wallet-native user provisioning (plt_ auth)
-1claw platform get-connection <connection-id>  # Connection detail, claim status, entitlements
-1claw platform connection-usage <connection-id>  # Per-connection LLM inference spend (UTC month)
-1claw platform list-entitlements <connection-id> # On-chain entitlement evaluations
-1claw platform preview-template <app-id> <template-id> \
+1claw platform connection <connection-id>      # Connection detail, claim status, entitlements
+1claw platform connection <connection-id> --usage          # Per-connection LLM inference spend (UTC month)
+1claw platform connection <connection-id> --entitlements   # On-chain entitlement evaluations
+1claw platform template-preview <app-id> <template-id> \
   --parameters '{"agent_name":"demo"}'         # Dry-run template with {{params.*}} substitution
 
 # Platform control plane (v0.58+)
 1claw platform transfer-ownership <app-id> \
   --target-org-id <uuid>                       # Transfer app to another org (step-up auth)
-1claw platform get-spend-policy <app-id> <policy-id>
-1claw platform get-connection-spend-policy <connection-id>
+1claw platform connection-spend-policy <connection-id>      # Effective spend policy (plt_ auth)
 1claw platform connection-spend-policy-set <connection-id> \
   --policy ./spend-policy.json                 # PUT spend policy (optional --idempotency-key)
-1claw platform list-connection-approvals <connection-id>
-1claw platform get-connection-approval <connection-id> <approval-id>
+1claw platform connection-approvals <connection-id> [--status pending]
 1claw platform connection-approval-decide <connection-id> <approval-id> \
   --decision approved                          # Mobile approval queue (plt_ auth)
-1claw platform list-connection-pending-approvals <connection-id>
+1claw platform connection-pending-approvals <connection-id>
 1claw platform connection-pending-approval-decide <connection-id> <approval-id> \
   --decision approve --payload-hash <sha256> # Consensus pending approval vote
 1claw platform connection-runtime-get <connection-id> <runtime-id>
@@ -979,12 +977,12 @@ stop/start, or the server auto-reconciles the sidecar on connect.
 Store and retrieve agent memory (scratch, durable, semantic).
 
 ```bash
-1claw memory put <agent-id> context/user-prefs '{"theme":"dark"}'
-1claw memory get <agent-id> context/user-prefs
-1claw memory list <agent-id>                   # List namespaces
-1claw memory list <agent-id> context           # List entries in namespace
-1claw memory delete <agent-id> context/user-prefs
-1claw memory search <agent-id> context "user preferences for dark mode"
+1claw memory put <agent-id> user-prefs '{"theme":"dark"}' -n context [--ttl 3600]
+1claw memory get <agent-id> user-prefs -n context
+1claw memory namespaces <agent-id>             # List namespaces
+1claw memory list <agent-id> -n context        # List entries in a namespace
+1claw memory delete <agent-id> user-prefs -n context
+1claw memory search <agent-id> -n context -q "user preferences for dark mode" [--top-k 10]
 ```
 
 ### Discovery
