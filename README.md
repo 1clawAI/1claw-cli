@@ -239,6 +239,11 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
 1claw agent create-child <parent-id> summariser-7 \
   --scopes secrets:read --namespaces child:doc-7 # Sub-agent: own key/memory/approval policy, subset of the
                                                # parent's vaults+scopes, inherits its policies, free of the agent cap
+1claw agent router-keys <id>                   # sk-shroud-v1 router keys (vault ≥ 0.61.31)
+1claw agent create-router-key <id> --name sdk \
+  --max-streams 5                              # Static Bearer for a stock OpenAI/Anthropic SDK pointed at
+                                               # the Shroud gateway; shown once; revoke lands within 60 s
+1claw agent revoke-router-key <id> <key-id>
 1claw agent token <id>                         # Generate agent JWT (api_key only)
 1claw agent token <id> --quiet                 # Raw token (for piping)
 1claw agent enroll my-agent \

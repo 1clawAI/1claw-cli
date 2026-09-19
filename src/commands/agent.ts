@@ -1196,6 +1196,109 @@ agentCommand
         }
     });
 
+// ── Router keys (sk-shroud-v1, vault ≥ 0.61.31) ─────────────────────
+
+interface RouterKey {
+    id: string;
+    agent_id: string;
+    name: string;
+    key_prefix: string;
+    max_concurrent_streams?: number | null;
+    spend_cap_usd?: number | null;
+    created_at: string;
+    last_used_at?: string | null;
+    revoked_at?: string | null;
+}
+
+agentCommand
+    .command("router-keys <agent-id>")
+    .description("List an agent's sk-shroud-v1 router keys (live and revoked; prefix only)")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts) => {
+        try {
+            requireToken();
+            const result = await api<{ keys: RouterKey[] }>(`/agents/${agentId}/router-keys`);
+            const items = result.keys ?? [];
+            if (opts.json) {
+                printJson(items);
+                return;
+            }
+            if (items.length === 0) {
+                console.log(chalk.dim("No router keys. Mint one with `1claw agent create-router-key`."));
+                return;
+            }
+            printTable(
+                items.map((k) => ({
+                    id: k.id,
+                    name: k.name,
+                    prefix: `${k.key_prefix}…`,
+                    streams: k.max_concurrent_streams != null ? String(k.max_concurrent_streams) : "20",
+                    status: k.revoked_at ? "revoked" : "live",
+                })),
+                [
+                    { key: "id", header: "ID", width: 36 },
+                    { key: "name", header: "Name", width: 16 },
+                    { key: "prefix", header: "Key", width: 24 },
+                    { key: "streams", header: "Streams", width: 8 },
+                    { key: "status", header: "Status" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+agentCommand
+    .command("create-router-key <agent-id>")
+    .description(
+        "Mint an sk-shroud-v1 router key: a static Bearer a stock OpenAI/Anthropic SDK sends to the Shroud gateway (shown once; human users only; agent must have Shroud enabled)",
+    )
+    .option("--name <name>", "Key name (default: default)")
+    .option("--max-streams <n>", "Open streaming responses this key may hold at once (1–1000; default 20)")
+    .option("--spend-cap <usd>", "Spend cap in USD")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.name) body.name = opts.name;
+            if (opts.maxStreams) body.max_concurrent_streams = parseInt(String(opts.maxStreams), 10);
+            if (opts.spendCap) body.spend_cap_usd = parseFloat(String(opts.spendCap));
+            const r = await api<RouterKey & { router_key: string; base_url: string }>(
+                `/agents/${agentId}/router-keys`,
+                { method: "POST", body },
+            );
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            printSuccess(`Router key created: ${chalk.bold(r.name)} (${r.id})`);
+            console.log(`  ${chalk.yellow("Key (shown once):")} ${r.router_key}`);
+            console.log(`  ${chalk.dim("base_url:")} ${r.base_url}/v1`);
+            console.log(chalk.dim(`  OpenAI(api_key="${r.router_key.slice(0, 20)}…", base_url="${r.base_url}/v1", default_headers={"X-Shroud-Provider": "openai"})`));
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+agentCommand
+    .command("revoke-router-key <agent-id> <key-id>")
+    .description("Revoke a router key; the gateway refuses it within 60 s (human users only)")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, keyId: string, opts) => {
+        try {
+            requireToken();
+            const r = await api<RouterKey>(`/agents/${agentId}/router-keys/${keyId}`, { method: "DELETE" });
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            printSuccess(`Router key ${r.key_prefix}… revoked`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 agentCommand
     .command("delete <id>")
     .description("Delete an agent")
