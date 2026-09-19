@@ -955,8 +955,12 @@ Deploy and manage cloud runtime containers for agents.
 1claw runtime list                             # List all runtimes
 1claw runtime create my-runtime \
   --agent-id <uuid> \
-  --template python-agent \
-  --preset small                               # 0.5 vCPU / 512 MB
+  --template python \                          # python, node, hermes, openclaw, openclaude, opencode, claude-code, codex, amp, binary
+  --preset small                               # small 0.5 vCPU/512 MB · medium 1 vCPU/2 GB · large · *-cc (TEE); Pro+ includes one small/medium free
+1claw runtime create bot --agent-id <uuid> --template binary \
+  --env BINARY_URL=https://github.com/acme/bot/releases/download/v1/bot-linux-amd64 \
+  --env BINARY_SHA256=<sha256>                 # A compiled program, pinned
+1claw runtime slug-check my-bot                # Is {slug}.run.1claw.co available?
 1claw runtime get <id>                         # Get runtime details + status
 1claw runtime update <id> --idle-timeout 600   # Update idle timeout
 1claw runtime start <id>                       # Start a stopped runtime
