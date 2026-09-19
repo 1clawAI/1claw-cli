@@ -30,9 +30,11 @@ interface ResourceAction {
 interface AppliedResource {
     kind: string;
     name: string;
-    result: "created" | "unchanged" | "skipped" | "refused" | "awaiting_approval" | "failed";
+    result: "created" | "patched" | "unchanged" | "skipped" | "refused" | "awaiting_approval" | "failed";
     id?: string;
     detail?: string;
+    /** Connectors only: where a person signs in to finish the install. */
+    authorization_url?: string;
 }
 
 interface ApplyResponse {
@@ -201,6 +203,12 @@ export const applyCommand = new Command("apply")
                 switch (r.result) {
                     case "created":
                         console.log(`  ${chalk.green("✓")} created ${label}`);
+                        if (r.authorization_url) {
+                            console.log(`      ${chalk.yellow("sign in to finish:")} ${r.authorization_url}`);
+                        }
+                        break;
+                    case "patched":
+                        console.log(`  ${chalk.green("~")} patched ${label}${r.detail ? chalk.dim(` (${r.detail})`) : ""}`);
                         break;
                     case "unchanged":
                         console.log(`  ${chalk.dim("=")} ${chalk.dim(`${label} unchanged`)}`);
