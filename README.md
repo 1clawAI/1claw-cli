@@ -239,6 +239,9 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
 1claw agent token <id> --quiet                 # Raw token (for piping)
 1claw agent enroll my-agent \
   --email human@example.com                    # Self-enroll (no auth needed)
+1claw agent enroll my-agent --pair             # Pair: prints an SSH-style fingerprint the human
+                                               # compares on the approval page; collects the API
+                                               # key here on approval (no key in email)
 1claw agent create my-agent \
   --shroud \                                   # Enable Shroud LLM proxy
   --execution-intents \                        # Enable Execution Intents (Pro+)
