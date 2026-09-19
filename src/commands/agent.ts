@@ -371,20 +371,43 @@ agentCommand
         "Email of a human with a 1Claw account (optional; omit for approval URL only)",
     )
     .option("--description <desc>", "Agent description")
+    .option(
+        "--pair",
+        "Pairing ceremony: generate an identity key, show its fingerprint for the human to verify, and wait for approval to collect the API key here (no email, no copy-paste)",
+    )
+    .option("--timeout <seconds>", "How long --pair waits for a decision", "900")
     .action(async (name, opts) => {
         try {
             const body: {
                 name: string;
                 description?: string;
                 human_email?: string;
+                public_key?: string;
             } = { name };
             if (opts.description) body.description = opts.description;
             if (opts.email) body.human_email = opts.email;
+
+            let identity: { publicKeyB64: string; privateKeyPem: string } | null = null;
+            if (opts.pair) {
+                const { generateKeyPairSync } = await import("node:crypto");
+                const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+                // Raw 32-byte key: the last 32 bytes of the SPKI DER.
+                const spki = publicKey.export({ type: "spki", format: "der" }) as Buffer;
+                identity = {
+                    publicKeyB64: spki.subarray(spki.length - 32).toString("base64"),
+                    privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }) as string,
+                };
+                body.public_key = identity.publicKeyB64;
+            }
 
             const res = await apiNoAuth<{
                 agent_id: string;
                 message: string;
                 approval_url?: string;
+                pairing_id?: string;
+                fingerprint?: string;
+                poll_token?: string;
+                expires_at?: string;
             }>("/agents/enroll", {
                 method: "POST",
                 body,
@@ -403,10 +426,62 @@ agentCommand
                     ),
                 );
             }
+
+            if (res.pairing_id && res.poll_token && res.fingerprint) {
+                console.log();
+                console.log(chalk.bold("  Fingerprint (the human must see exactly this on the approval page):"));
+                console.log();
+                console.log("    " + chalk.cyan.bold(res.fingerprint));
+                console.log();
+                console.log(chalk.dim("  Waiting for the account holder to allow or deny…"));
+                const deadline = Date.now() + Number(opts.timeout) * 1000;
+                while (Date.now() < deadline) {
+                    await new Promise((r) => setTimeout(r, 3000));
+                    const st = await apiNoAuth<{
+                        status: string;
+                        agent_id?: string;
+                        api_key?: string;
+                        vault_ids?: string[];
+                    }>(
+                        `/agents/enroll/${res.pairing_id}/status?poll=${encodeURIComponent(res.poll_token)}`,
+                    );
+                    if (st.status === "pending") continue;
+                    if (st.status === "approved" && st.api_key) {
+                        printSuccess("Paired. This agent's API key was delivered here and nowhere else.");
+                        printKeyValue([
+                            ["Agent ID", st.agent_id ?? ""],
+                            ["API key", st.api_key],
+                        ]);
+                        if (identity) {
+                            const { writeFileSync, mkdirSync } = await import("node:fs");
+                            const { join } = await import("node:path");
+                            const { homedir } = await import("node:os");
+                            const dir = process.env.ONECLAW_CONFIG_DIR || join(homedir(), ".config", "1claw");
+                            mkdirSync(dir, { recursive: true });
+                            const keyPath = join(dir, `agent-${st.agent_id}.identity.pem`);
+                            writeFileSync(keyPath, identity.privateKeyPem, { mode: 0o600 });
+                            console.log(chalk.dim(`  Identity key saved to ${keyPath}`));
+                        }
+                        console.log();
+                        console.log(chalk.dim("  export ONECLAW_API_KEY=" + st.api_key));
+                        return;
+                    }
+                    if (st.status === "approved") {
+                        printSuccess("Approved; the key was already collected.");
+                        return;
+                    }
+                    console.log(chalk.red(`  Pairing ${st.status}.`));
+                    process.exitCode = 1;
+                    return;
+                }
+                console.log(chalk.yellow("  Timed out waiting for a decision; the link is still valid until " + (res.expires_at ?? "it expires") + "."));
+                process.exitCode = 1;
+                return;
+            }
             console.log();
             console.log(
                 chalk.dim(
-                    "  After approval, the human receives the API key by email. They must create access policies before the agent can read secrets.",
+                    "  After approval, the human receives the API key by email. They must create access policies before the agent can read secrets. Use --pair to collect it here instead.",
                 ),
             );
         } catch (err) {
