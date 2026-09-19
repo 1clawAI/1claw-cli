@@ -947,6 +947,44 @@ Create, manage, and trigger automation workflows for agents.
 triggers, `--cron` is required. Dashboard `schedule` is accepted by the API as
 an alias for `cron`.
 
+### Declarative charts (`diff`, `apply`)
+
+One YAML file describes vaults, agents, policies, connectors and execution-intent
+bindings; the server reconciles it (there is no client-side logic — the CLI parses
+YAML, posts it, and renders the answer).
+
+```bash
+1claw diff  -f chart.yaml     # what would change, read-only
+1claw apply -f chart.yaml     # create what is missing, in dependency order
+```
+
+```yaml
+apiVersion: 1claw/v1
+kind: Chart
+metadata: { name: inbox-swarm }
+spec:
+  vaults: [{ name: inbox-vault }]
+  agents:
+    - name: inbox-triage
+      connectors: [{ preset: gmail }]
+      bindings:
+        - name: crm
+          binding_type: http
+          config: { base_url: https://crm.example.com }
+          guardrails: { allowed_hosts: [crm.example.com] }   # required, non-empty
+          credential: { vault_ref: inbox-vault, path: crm/token }   # a pointer, never a value
+  policies:
+    - { vault_ref: inbox-vault, principal_ref: agent:inbox-triage, paths: [integrations/**], permissions: [read] }
+```
+
+Per-resource results: `created`, `patched` (agent `description`/`system_prompt`
+only), `unchanged`, `skipped` (drifted, or waiting on a vault/agent consensus
+queued this run), `refused` (a change apply will not make in place — guardrails,
+policy permissions, binding config), `awaiting_approval`, `failed`. A connector
+install prints its sign-in URL; OAuth consent is the only human step. Apply writes
+`.1claw/apply-state.json` so the next run can tell drift from a first apply. Nothing
+is ever deleted.
+
 ### Runtimes
 
 Deploy and manage cloud runtime containers for agents.
