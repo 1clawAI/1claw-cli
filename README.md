@@ -244,6 +244,10 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
   --max-streams 5                              # Static Bearer for a stock OpenAI/Anthropic SDK pointed at
                                                # the Shroud gateway; shown once; revoke lands within 60 s
 1claw agent revoke-router-key <id> <key-id>
+1claw agent tool-bindings <id>                 # Rehydration policy (vault ≥ 0.61.33)
+1claw agent bind-secret <id> providers/stripe/api-key http_request \
+  --arg /headers/Authorization --hosts api.stripe.com  # The enclave may put this secret only here
+1claw agent unbind-secret <id> <binding-id>
 1claw agent token <id>                         # Generate agent JWT (api_key only)
 1claw agent token <id> --quiet                 # Raw token (for piping)
 1claw agent enroll my-agent \

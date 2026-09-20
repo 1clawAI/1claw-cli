@@ -1299,6 +1299,96 @@ agentCommand
         }
     });
 
+// ── Secret → tool bindings (rehydration policy, vault ≥ 0.61.33) ────
+
+interface SecretToolBinding {
+    id: string;
+    secret_path: string;
+    tool_name: string;
+    arg_path: string;
+    destination_hosts: string[];
+    created_at: string;
+}
+
+agentCommand
+    .command("tool-bindings <agent-id>")
+    .description("List which vault secrets the enclave may rehydrate into which tool arguments, and toward which hosts")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, opts) => {
+        try {
+            requireToken();
+            const result = await api<{ bindings: SecretToolBinding[] }>(`/agents/${agentId}/tool-bindings`);
+            const items = result.bindings ?? [];
+            if (opts.json) {
+                printJson(items);
+                return;
+            }
+            if (items.length === 0) {
+                console.log(chalk.dim("No tool bindings. Placeholders in TEE tool calls are refused until one exists (`1claw agent bind-secret`)."));
+                return;
+            }
+            printTable(
+                items.map((b) => ({
+                    id: b.id,
+                    secret: b.secret_path,
+                    tool: b.tool_name,
+                    arg: b.arg_path,
+                    hosts: b.destination_hosts.join(","),
+                })),
+                [
+                    { key: "id", header: "ID", width: 36 },
+                    { key: "secret", header: "Secret", width: 28 },
+                    { key: "tool", header: "Tool", width: 16 },
+                    { key: "arg", header: "Argument", width: 24 },
+                    { key: "hosts", header: "Destinations" },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+agentCommand
+    .command("bind-secret <agent-id> <secret-path> <tool-name>")
+    .description(
+        "Allow the enclave to rehydrate a secret's ⟦sk:…⟧ placeholder into a tool argument, only toward the named hosts (human users only)",
+    )
+    .requiredOption("--hosts <hosts>", "Comma-separated destination hosts (api.stripe.com, *.googleapis.com)")
+    .option("--arg <pointer>", "JSON pointer into the tool's arguments (/headers/Authorization, /body/*); default *")
+    .option("--json", "Output as JSON")
+    .action(async (agentId: string, secretPath: string, toolName: string, opts) => {
+        try {
+            requireToken();
+            const body: Record<string, unknown> = {
+                secret_path: secretPath,
+                tool_name: toolName,
+                destination_hosts: String(opts.hosts).split(",").map((h: string) => h.trim()).filter(Boolean),
+            };
+            if (opts.arg) body.arg_path = opts.arg;
+            const r = await api<SecretToolBinding>(`/agents/${agentId}/tool-bindings`, { method: "POST", body });
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            printSuccess(`Bound ${chalk.bold(r.secret_path)} → ${r.tool_name} ${r.arg_path} for ${r.destination_hosts.join(", ")} (${r.id})`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+agentCommand
+    .command("unbind-secret <agent-id> <binding-id>")
+    .description("Remove a secret → tool binding (human users only)")
+    .action(async (agentId: string, bindingId: string) => {
+        try {
+            requireToken();
+            await api<void>(`/agents/${agentId}/tool-bindings/${bindingId}`, { method: "DELETE" });
+            printSuccess(`Tool binding ${bindingId} removed`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
 agentCommand
     .command("delete <id>")
     .description("Delete an agent")
