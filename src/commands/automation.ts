@@ -240,12 +240,18 @@ automationCommand
 automationCommand
     .command("trigger <automation-id>")
     .description("Manually trigger an automation run")
+    .option("--input <json>", "Input JSON, exposed to steps as {{trigger.*}}")
+    .option("--idempotency-key <key>", "Same key twice returns the existing run instead of starting another")
     .option("--json", "Output as JSON")
     .action(async (automationId, opts) => {
         try {
             requireToken();
+            const body: Record<string, unknown> = {};
+            if (opts.input) body.input = JSON.parse(opts.input);
+            if (opts.idempotencyKey) body.idempotency_key = opts.idempotencyKey;
             const run = await api<AutomationRun>(`/automations/${automationId}/trigger`, {
                 method: "POST",
+                body: JSON.stringify(body),
             });
 
             if (opts.json) {
@@ -254,6 +260,65 @@ automationCommand
             }
 
             printSuccess(`Run started: ${run.id} (status: ${run.status})`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+automationCommand
+    .command("versions <automation-id>")
+    .description("List every workflow_spec version the automation has had")
+    .option("--json", "Output as JSON")
+    .action(async (automationId, opts) => {
+        try {
+            requireToken();
+            const res = await api<{
+                current_version: number;
+                versions: Array<{ version: number; spec_hash: string; created_by_type: string; note?: string | null; created_at: string; current: boolean }>;
+            }>(`/automations/${automationId}/versions`);
+            if (opts.json) {
+                printJson(res);
+                return;
+            }
+            printTable(
+                res.versions.map((v) => ({
+                    version: `${v.version}${v.current ? " *" : ""}`,
+                    hash: v.spec_hash.slice(0, 12),
+                    by: v.created_by_type,
+                    note: v.note ?? "",
+                    created: v.created_at,
+                })),
+                [
+                    { key: "version", header: "Version", width: 9 },
+                    { key: "hash", header: "Hash", width: 13 },
+                    { key: "by", header: "By", width: 8 },
+                    { key: "note", header: "Note", width: 30 },
+                    { key: "created", header: "Created", width: 26 },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+automationCommand
+    .command("rollback <automation-id> <version>")
+    .description("Publish an earlier spec version as the current one")
+    .option("--note <text>", "Note recorded on the new version")
+    .option("--approval-id <uuid>", "Control-plane approval if the rollback widens the automation")
+    .option("--json", "Output as JSON")
+    .action(async (automationId, version, opts) => {
+        try {
+            requireToken();
+            const a = await api<{ id: string; spec_version?: number }>(
+                `/automations/${automationId}/versions/${Number(version)}/rollback`,
+                { method: "POST", body: JSON.stringify({ note: opts.note, approval_id: opts.approvalId }) },
+            );
+            if (opts.json) {
+                printJson(a);
+                return;
+            }
+            printSuccess(`Rolled back; now at version ${a.spec_version}`);
         } catch (err) {
             handleError(err);
         }
