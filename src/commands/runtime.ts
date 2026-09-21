@@ -213,6 +213,10 @@ runtimeCommand
     .option("--name <name>", "New name")
     .option("--preset <preset>", "New preset")
     .option("--idle-timeout <secs>", "New idle timeout")
+    .option("--schedule-cron <expr>", "Scheduled start (5-field cron); pair with --schedule-tz / --stop-after")
+    .option("--schedule-tz <tz>", "IANA timezone for the schedule", "UTC")
+    .option("--stop-after <secs>", "Stop this many seconds after a scheduled start (60–86400)")
+    .option("--clear-schedule", "Remove the schedule")
     .option("--json", "Output as JSON")
     .action(async (runtimeId, opts) => {
         try {
@@ -221,6 +225,14 @@ runtimeCommand
             if (opts.name) body.name = opts.name;
             if (opts.preset) body.preset = opts.preset;
             if (opts.idleTimeout) body.idle_timeout_secs = parseInt(opts.idleTimeout, 10);
+            if (opts.clearSchedule) body.schedule = null;
+            else if (opts.scheduleCron) {
+                body.schedule = {
+                    start_cron: opts.scheduleCron,
+                    timezone: opts.scheduleTz,
+                    stop_after_secs: opts.stopAfter ? parseInt(opts.stopAfter, 10) : null,
+                };
+            }
 
             const r = await api<Runtime>(`/runtimes/${runtimeId}`, {
                 method: "PATCH",
@@ -233,6 +245,101 @@ runtimeCommand
             }
 
             printSuccess(`Runtime updated: ${chalk.bold(r.name)}`);
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+runtimeCommand
+    .command("provision <name>")
+    .description("Agent (new or existing) + keys + default-vault grant + runtime + start, in one call")
+    .option("--agent <id-or-name>", "Existing agent UUID, or a name to create a new agent")
+    .option("--template <template>", "Runtime template (python, node, binary, …)")
+    .option("--preset <preset>", "Runtime preset", "small")
+    .option("--env <key=value...>", "Public env vars", (v: string, acc: string[]) => acc.concat(v), [])
+    .option("--source-repo <url>", "Git repository to clone at start")
+    .option("--startup-command <cmd>", "Startup command")
+    .option("--no-start", "Create without starting")
+    .option("--json", "Output as JSON")
+    .action(async (name, opts) => {
+        try {
+            requireToken();
+            if (!opts.agent) throw new Error("--agent <id-or-name> is required");
+            const isUuid = /^[0-9a-f-]{36}$/i.test(opts.agent);
+            const env: Record<string, string> = {};
+            for (const kv of opts.env as string[]) {
+                const i = kv.indexOf("=");
+                if (i > 0) env[kv.slice(0, i)] = kv.slice(i + 1);
+            }
+            const r = await api<{ runtime: Runtime; agent_id: string; agent_api_key?: string; vault_id?: string; started: boolean }>(
+                "/runtimes/provision",
+                {
+                    method: "POST",
+                    body: {
+                        name,
+                        agent: isUuid ? { id: opts.agent } : { name: opts.agent },
+                        template: opts.template,
+                        preset: opts.preset,
+                        env_public: Object.keys(env).length ? env : undefined,
+                        source_repo: opts.sourceRepo,
+                        startup_command: opts.startupCommand,
+                        start: opts.start !== false,
+                    },
+                },
+            );
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            printSuccess(`Runtime ${chalk.bold(r.runtime.name)} (${r.runtime.id}) — ${statusColor(r.runtime.status)}; agent ${r.agent_id}${r.started ? ", started" : ""}`);
+            if (r.agent_api_key) {
+                console.log(`\nAgent API key (shown once): ${chalk.bold(r.agent_api_key)}`);
+            }
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+runtimeCommand
+    .command("env <runtime-id>")
+    .description("Every env var the container is started with, by source (secrets masked)")
+    .option("--json", "Output as JSON")
+    .action(async (runtimeId, opts) => {
+        try {
+            requireToken();
+            const r = await api<{ environment: string; entries: Array<{ key: string; source: string; value?: string; masked: boolean; overrides?: string | null }> }>(
+                `/runtimes/${runtimeId}/env/resolved`,
+            );
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            printTable(
+                r.entries.map((e) => ({ key: e.key, source: e.source + (e.overrides ? ` (overrides ${e.overrides})` : ""), value: e.masked ? "••••••" : (e.value ?? "") })),
+                [
+                    { key: "key", header: "Key", width: 34 },
+                    { key: "source", header: "Source", width: 26 },
+                    { key: "value", header: "Value", width: 50 },
+                ],
+            );
+        } catch (err) {
+            handleError(err);
+        }
+    });
+
+runtimeCommand
+    .command("rollback <runtime-id>")
+    .description("Restart on the previous resolved image")
+    .option("--json", "Output as JSON")
+    .action(async (runtimeId, opts) => {
+        try {
+            requireToken();
+            const r = await api<Runtime>(`/runtimes/${runtimeId}/rollback`, { method: "POST" });
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            printSuccess(`Rolling back ${chalk.bold(r.name)} — ${statusColor(r.status)}`);
         } catch (err) {
             handleError(err);
         }
