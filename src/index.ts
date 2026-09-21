@@ -50,6 +50,7 @@ import { deployCommand } from "./commands/deploy.js";
 import { automationCommand } from "./commands/automation.js";
 import { memoryCommand } from "./commands/memory.js";
 import { runtimeCommand } from "./commands/runtime.js";
+import { spendCommand } from "./commands/spend.js";
 import { directoryCommand } from "./commands/directory.js";
 import { chatCommand } from "./commands/chat.js";
 import { channelCommand } from "./commands/channel.js";
@@ -155,6 +156,7 @@ export function createProgram(): Command {
     program.addCommand(automationCommand);
     program.addCommand(memoryCommand);
     program.addCommand(runtimeCommand);
+    program.addCommand(spendCommand);
     program.addCommand(directoryCommand);
 
     // Agent Communication
