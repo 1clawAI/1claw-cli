@@ -1,3 +1,17 @@
+/**
+ * `1claw proxy` — a local OpenAI-compatible endpoint that forwards to Shroud
+ * with the agent's key injected, so IDE/CLI clients never hold it directly.
+ *
+ * Flags mirror these env vars (flag wins when both are set):
+ *   --agent-key <key>       ONECLAW_AGENT_API_KEY (+ optional ONECLAW_AGENT_ID)
+ *   --shroud-url <url>      ONECLAW_SHROUD_URL (default https://shroud.1claw.co)
+ *   --capture-dir <path>    ONECLAW_PROXY_CAPTURE_DIR — write every outgoing
+ *                           request (redacted) to this directory as JSON, to
+ *                           turn a real client failure into a permanent
+ *                           regression fixture (see
+ *                           shroud/tests/fixtures/clients/) without having to
+ *                           hand-reconstruct what the client actually sent.
+ */
 import { Command } from "commander";
 import {
     createServer,
@@ -7,6 +21,9 @@ import {
 } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { URL } from "node:url";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import chalk from "chalk";
 import { resolveAgentKeyFromInput } from "../lib/agent-key.js";
 import { printError, printInfo, printSuccess } from "../output.js";
@@ -130,6 +147,70 @@ interface ProxyOptions {
     provider?: string;
     shroudUrl: string;
     verbose: boolean;
+    /** When set, every outgoing request body is written here (redacted) before forwarding. */
+    captureDir?: string;
+}
+
+/**
+ * 1claw-shaped API keys this CLI ever handles: agent keys (ocv_), user keys
+ * (1ck_), platform keys (plt_), and provider keys under the sk- prefix
+ * (OpenAI-style). Same pattern already used to keep these out of generated
+ * template code — see packages/cli/scripts/test-spawn-templates.mjs's
+ * SECRET_PATTERN.
+ */
+const CAPTURE_SECRET_PATTERN = /sk-[a-zA-Z0-9]{20,}|1ck_[a-zA-Z0-9]+|ocv_[a-zA-Z0-9]+|plt_[a-zA-Z0-9]+/g;
+
+/** Headers whose value is never written to a capture file, only that it was present. */
+const CAPTURE_REDACTED_HEADERS = new Set(["authorization", "x-shroud-agent-key"]);
+
+function redactCaptureText(text: string): string {
+    return text.replace(CAPTURE_SECRET_PATTERN, "[REDACTED]");
+}
+
+/**
+ * Writes one outgoing request to `<dir>/<timestamp>-<random>.json`, headers
+ * and body redacted, for turning a real-world failure into a permanent
+ * fixture (see shroud/tests/fixtures/clients/) without hand-reconstructing
+ * what a client actually sent. Never throws — a capture failure must not
+ * break the proxy itself.
+ */
+function captureOutgoingRequest(
+    dir: string,
+    info: { method: string; url: string; headers: Record<string, string>; body: Buffer },
+): void {
+    try {
+        const redactedHeaders: Record<string, string> = {};
+        for (const [key, value] of Object.entries(info.headers)) {
+            redactedHeaders[key] = CAPTURE_REDACTED_HEADERS.has(key.toLowerCase())
+                ? "[REDACTED]"
+                : redactCaptureText(value);
+        }
+
+        let bodyField: unknown = redactCaptureText(info.body.toString("utf-8"));
+        try {
+            // Pretty-print when it's JSON, same redaction pass either way.
+            bodyField = JSON.parse(bodyField as string);
+        } catch {
+            // not JSON — keep as a redacted string
+        }
+
+        const record = {
+            captured_at: new Date().toISOString(),
+            method: info.method,
+            url: info.url,
+            headers: redactedHeaders,
+            body: bodyField,
+        };
+
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        const filename = `${Date.now()}-${randomBytes(4).toString("hex")}.json`;
+        writeFileSync(join(dir, filename), JSON.stringify(record, null, 2) + "\n", "utf-8");
+    } catch (err) {
+        console.error(
+            chalk.yellow("  capture failed (proxy continues normally):"),
+            (err as Error).message,
+        );
+    }
 }
 
 function forwardRequest(
@@ -169,6 +250,15 @@ function forwardRequest(
     };
     if (model) headers["X-Shroud-Model"] = model;
     if (body.length > 0) headers["Content-Length"] = String(body.length);
+
+    if (opts.captureDir) {
+        captureOutgoingRequest(opts.captureDir, {
+            method: req.method ?? "POST",
+            url: req.url ?? "/",
+            headers,
+            body,
+        });
+    }
 
     if (opts.verbose) {
         const ts = new Date().toISOString().slice(11, 19);
@@ -298,6 +388,11 @@ export const proxyCommand = new Command("proxy")
         process.env.ONECLAW_SHROUD_URL ?? DEFAULT_SHROUD_URL,
     )
     .option("-v, --verbose", "Log each proxied request", false)
+    .option(
+        "--capture-dir <path>",
+        "Write every outgoing request (redacted) to this directory as JSON — for building a permanent fixture from a real failure (else ONECLAW_PROXY_CAPTURE_DIR env)",
+        process.env.ONECLAW_PROXY_CAPTURE_DIR,
+    )
     .action(async (opts) => {
         const preferredPort = parseInt(opts.port, 10);
         if (
@@ -321,7 +416,13 @@ export const proxyCommand = new Command("proxy")
             provider: opts.provider,
             shroudUrl: opts.shroudUrl,
             verbose: opts.verbose,
+            captureDir: opts.captureDir,
         };
+
+        if (proxyOpts.captureDir) {
+            printInfo(`Capturing outgoing requests (redacted) to ${chalk.bold(proxyOpts.captureDir)}`);
+            console.log();
+        }
 
         const server = createServer(async (req, res) => {
             // CORS preflight
