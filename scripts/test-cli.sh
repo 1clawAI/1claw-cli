@@ -370,7 +370,18 @@ else
 fi
 
 echo ""
-echo "=== 9. Spawn Docker integration (optional) ==="
+echo "=== 9. AI client detection/config unit tests ==="
+if node --test scripts/test-ai-clients.mjs > /tmp/cli_ai_clients 2>&1; then
+  echo "  OK   node --test scripts/test-ai-clients.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test scripts/test-ai-clients.mjs"
+  ((FAILED++)) || true
+  tail -30 /tmp/cli_ai_clients
+fi
+
+echo ""
+echo "=== 10. Spawn Docker integration (optional) ==="
 if [[ "${ONECLAW_TEST_DOCKER:-}" == "1" ]]; then
   if docker info >/dev/null 2>&1; then
     if ONECLAW_TEST_DOCKER=1 node --test scripts/test-spawn-docker.mjs > /tmp/cli_spawn_docker 2>&1; then
@@ -389,7 +400,7 @@ else
 fi
 
 echo ""
-echo "=== 10. Local vault key derivation ==="
+echo "=== 11. Local vault key derivation ==="
 # v1 files used PBKDF2 at 100k iterations, which a GPU eats. v2 is scrypt.
 # Both halves matter: a v1 file must still open, and nothing may be written as
 # v1 again — so a file in daily use upgrades itself without anyone being asked.
@@ -400,7 +411,7 @@ else
 fi
 
 echo ""
-echo "=== 11. pay: session token goes to the API origin only ==="
+echo "=== 12. pay: session token goes to the API origin only ==="
 # A payment clears the paywall; it is not a login. The paid retry must still
 # authenticate, or an org paying its own overage gets a 401 after paying.
 # The token must never reach a third-party paywall.

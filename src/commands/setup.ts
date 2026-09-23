@@ -147,7 +147,8 @@ async function runSetup(opts: {
         }
         const notDetected = allClients.filter((c) => !c.detected);
         for (const c of notDetected) {
-            console.log(`    ${chalk.dim("○")} ${chalk.dim(c.name)} ${chalk.dim("(not found)")}`);
+            const hint = c.installHint ? chalk.dim(` — install: ${c.installHint}`) : "";
+            console.log(`    ${chalk.dim("○")} ${chalk.dim(c.name)} ${chalk.dim("(not found)")}${hint}`);
         }
         console.log();
 

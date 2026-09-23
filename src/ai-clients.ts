@@ -2,13 +2,16 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "
 import { homedir, platform } from "node:os";
 import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 export interface AiClient {
     name: string;
     slug: string;
     configPath: string;
-    configFormat: "mcpServers" | "servers" | "zed" | "claude-code";
+    configFormat: "mcpServers" | "servers" | "zed" | "claude-code" | "opencode" | "codex-toml";
     detected: boolean;
+    /** One-line install command shown next to "(not found)" — omitted for GUI apps with no single install command. */
+    installHint?: string;
 }
 
 function expandHome(p: string): string {
@@ -46,6 +49,25 @@ export function detectAiClients(projectDir?: string): AiClient[] {
             configPath: "",
             configFormat: "claude-code",
             detected: false,
+            installHint: "npm install -g @anthropic-ai/claude-code",
+        },
+        {
+            name: "Codex",
+            slug: "codex",
+            configPath: "~/.codex/config.toml",
+            configFormat: "codex-toml",
+            detected: false,
+            installHint: "npm install -g @openai/codex",
+        },
+        {
+            name: "OpenCode",
+            slug: "opencode",
+            configPath: projectDir
+                ? join(projectDir, "opencode.json")
+                : "~/.config/opencode/opencode.json",
+            configFormat: "opencode",
+            detected: false,
+            installHint: "curl -fsSL https://opencode.ai/v2/install | bash",
         },
         {
             name: "Cursor",
@@ -99,6 +121,30 @@ export function detectAiClients(projectDir?: string): AiClient[] {
             continue;
         }
 
+        // A binary install (curl script / npm -g) puts nothing on disk until
+        // the tool is actually run once, so config-path existence alone would
+        // miss a client someone just installed — check `which` first, same as
+        // Claude Code above, and only fall back to the config file/dir.
+        if (client.slug === "codex") {
+            try {
+                execSync("which codex 2>/dev/null", { encoding: "utf-8" });
+                client.detected = true;
+            } catch {
+                client.detected = existsSync(expandHome(client.configPath));
+            }
+            continue;
+        }
+        if (client.slug === "opencode") {
+            try {
+                execSync("which opencode 2>/dev/null", { encoding: "utf-8" });
+                client.detected = true;
+            } catch {
+                const expanded = expandHome(client.configPath);
+                client.detected = existsSync(expanded) || existsSync(dirname(expanded));
+            }
+            continue;
+        }
+
         const expanded = expandHome(client.configPath);
         if (client.slug === "cursor") {
             client.detected =
@@ -148,6 +194,9 @@ export function configureClient(
 ): { success: boolean; message: string } {
     if (client.configFormat === "claude-code") {
         return configureClaudeCode(entry);
+    }
+    if (client.configFormat === "codex-toml") {
+        return configureCodexToml(client, entry);
     }
 
     const configPath = expandHome(client.configPath);
@@ -209,6 +258,17 @@ export function configureClient(
             };
             break;
         }
+        case "opencode": {
+            if (!config.mcp || typeof config.mcp !== "object") {
+                config.mcp = {};
+            }
+            (config.mcp as Record<string, unknown>)["1claw"] = {
+                type: "local",
+                command: [entry.command, ...entry.args],
+                environment: entry.env,
+            };
+            break;
+        }
     }
 
     const tmpPath = configPath + ".1claw-tmp";
@@ -263,4 +323,49 @@ function configureClaudeCode(
             message: `Failed to configure Claude Code: ${(err as Error).message}`,
         };
     }
+}
+
+function configureCodexToml(
+    client: AiClient,
+    entry: McpServerEntry,
+): { success: boolean; message: string } {
+    const configPath = expandHome(client.configPath);
+
+    const dir = dirname(configPath);
+    if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+    }
+
+    let config: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+        try {
+            config = parseToml(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+        } catch {
+            return {
+                success: false,
+                message: `Failed to parse ${configPath}`,
+            };
+        }
+    }
+
+    if (!config.mcp_servers || typeof config.mcp_servers !== "object") {
+        config.mcp_servers = {};
+    }
+    (config.mcp_servers as Record<string, unknown>)["1claw"] = {
+        command: entry.command,
+        args: entry.args,
+        env: entry.env,
+    };
+
+    // Round-trips every other table in the file (e.g. a hand-added
+    // [model_providers.*] section) correctly, but re-serializes it —
+    // comments and original key ordering are not preserved.
+    const tmpPath = configPath + ".1claw-tmp";
+    writeFileSync(tmpPath, stringifyToml(config), "utf-8");
+    renameSync(tmpPath, configPath);
+
+    return {
+        success: true,
+        message: `Configured ${client.name} at ${configPath}`,
+    };
 }
