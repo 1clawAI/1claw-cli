@@ -583,5 +583,57 @@ run_agent_env() {
 }
 run_agent_env
 
+# ── provider/model namespace, and forwarding over plain HTTP ────────────────
+#
+# `anthropic/claude-opus-5` must route explicitly AND be stripped to the bare
+# id Shroud's catalog lists. Two things must NOT be stripped: openrouter/,
+# where the rest of the id is the real upstream model name, and an
+# unrecognised vendor prefix like meta-llama/, which is part of the model name
+# and not a provider we know. Asserted against an echo upstream so we see what
+# was really forwarded, not just what came back.
+#
+# This also covers forwarding to an http:// Shroud at all — node:https throws
+# ERR_INVALID_PROTOCOL on an http: URL, which made every request through a
+# local or self-hosted Shroud fail as "proxy internal error".
+model_namespace() {
+  local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  PORT=4599 node "$here/echo-upstream.mjs" >/tmp/1claw-echo.log 2>&1 &
+  local echo_pid=$!
+  $CLI proxy --agent-key "00000000-0000-0000-0000-000000000001:ocv_test_key" \
+    --shroud-url http://127.0.0.1:4599 --port 4143 >/tmp/1claw-nsproxy.log 2>&1 &
+  local proxy_pid=$!
+  for i in $(seq 1 40); do
+    curl -sf -o /dev/null http://127.0.0.1:4143/health && break; sleep 0.25
+  done
+
+  _ns_case() { # sent-model, expected-provider, expected-forwarded-model
+    local sent="$1" want_p="$2" want_m="$3" got
+    got=$(curl -s -X POST http://127.0.0.1:4143/v1/chat/completions \
+          -H "Content-Type: application/json" \
+          -d "{\"model\":\"$sent\",\"messages\":[]}" \
+      | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+          try{const d=JSON.parse(s);const b=JSON.parse(d.body);
+            console.log(`${d.provider}|${b.model}`);}catch(e){console.log("PARSE_FAIL|"+s.slice(0,80));}})')
+    if [[ "$got" == "$want_p|$want_m" ]]; then
+      PASSED=$((PASSED+1)); echo "  PASS models: $sent → $want_p / $want_m"
+    else
+      FAILED=$((FAILED+1)); echo "  FAIL models: $sent → got '$got', want '$want_p|$want_m'"
+    fi
+  }
+
+  _ns_case "anthropic/claude-opus-5" anthropic claude-opus-5
+  _ns_case "openai/gpt-5"            openai    gpt-5
+  _ns_case "google/gemini-2.5-pro"   google    gemini-2.5-pro
+  # Bare names keep inferring exactly as before.
+  _ns_case "claude-sonnet-5"         anthropic claude-sonnet-5
+  _ns_case "gpt-4o"                  openai    gpt-4o
+  # Must NOT be stripped.
+  _ns_case "openrouter/anthropic/claude-3.5" openrouter "openrouter/anthropic/claude-3.5"
+  _ns_case "meta-llama/Llama-3-70B"  openai    "meta-llama/Llama-3-70B"
+
+  kill $proxy_pid $echo_pid 2>/dev/null || true
+}
+model_namespace
+
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 [[ $FAILED -eq 0 ]]

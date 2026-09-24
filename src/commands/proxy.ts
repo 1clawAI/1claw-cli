@@ -193,6 +193,45 @@ async function getModelsList(shroudUrl: string): Promise<string> {
     return body;
 }
 
+/**
+ * Providers that may be named as a `provider/model` prefix, OpenRouter-style,
+ * so one namespace works across every client: `anthropic/claude-opus-5` and
+ * `openai/gpt-5` route explicitly instead of relying on the name-prefix
+ * inference in PROVIDER_FROM_MODEL, which cannot express "this exact model,
+ * from this provider" and has nothing to say about an ambiguous name.
+ *
+ * An explicit set, not "anything before a slash": real model ids do contain
+ * slashes (OpenRouter's own are `vendor/model`), and treating an unrecognised
+ * prefix as a provider would silently route those somewhere that does not
+ * exist. `openrouter` is deliberately absent — PROVIDER_FROM_MODEL already
+ * maps the `openrouter/` prefix, and there the rest of the id IS the upstream
+ * model name, so stripping it would break a working path.
+ */
+const NAMESPACE_PROVIDERS = new Set([
+    "openai",
+    "anthropic",
+    "google",
+    "mistral",
+    "cohere",
+]);
+
+/**
+ * Split `anthropic/claude-opus-5` into its provider and the bare model id
+ * Shroud's catalog actually lists. Returns null when there is no recognised
+ * provider prefix, in which case the model is passed through untouched.
+ */
+export function splitNamespacedModel(
+    model: string,
+): { provider: string; model: string } | null {
+    const slash = model.indexOf("/");
+    if (slash <= 0) return null;
+    const provider = model.slice(0, slash).toLowerCase();
+    if (!NAMESPACE_PROVIDERS.has(provider)) return null;
+    const bare = model.slice(slash + 1);
+    if (!bare) return null;
+    return { provider, model: bare };
+}
+
 function detectProvider(model: string): string {
     const lower = model.toLowerCase();
     for (const [prefix, provider] of Object.entries(PROVIDER_FROM_MODEL)) {
@@ -295,6 +334,17 @@ function forwardRequest(
             const parsed = JSON.parse(body.toString()) as { model?: string };
             if (parsed.model) {
                 model = parsed.model;
+                const namespaced = splitNamespacedModel(model);
+                if (namespaced) {
+                    // An explicit --provider still wins; the prefix is stripped
+                    // either way, because Shroud's catalog lists bare model ids
+                    // (client_facing_models strips the provider/ prefix off the
+                    // Stripe rate card) and would reject the namespaced form.
+                    provider = provider || namespaced.provider;
+                    model = namespaced.model;
+                    parsed.model = namespaced.model;
+                    body = Buffer.from(JSON.stringify(parsed));
+                }
                 if (!provider) provider = detectProvider(model);
             }
         } catch {
@@ -359,7 +409,13 @@ function forwardRequest(
         );
     }
 
-    const upstreamReq = httpsRequest(
+    // Same protocol choice as fetchLiveModels: node:https throws
+    // ERR_INVALID_PROTOCOL for an http: URL, so a plain-HTTP Shroud (local or
+    // self-hosted) could not receive any traffic at all — every request came
+    // back as "proxy internal error" from the catch in the request handler.
+    const upstreamRequest =
+        upstream.protocol === "http:" ? httpRequest : httpsRequest;
+    const upstreamReq = upstreamRequest(
         upstream,
         {
             method: req.method ?? "POST",
