@@ -239,6 +239,26 @@ function forwardRequest(
         provider = "anthropic";
     }
 
+    // A native Google client (Gemini CLI's own `GOOGLE_GEMINI_BASE_URL` override
+    // points its unmodified REST client straight at this proxy) sends
+    // `contents`/`systemInstruction` — no top-level `model` field at all, since
+    // the model is a URL path segment instead. Without this, provider silently
+    // defaulted to "openai" below, and Shroud — expecting an OpenAI-shaped body
+    // for that provider — couldn't parse `req.messages` from it, fell back to
+    // scanning the raw body, and false-positive-blocked on ordinary shell
+    // syntax in Gemini CLI's own system instructions (the same false-positive
+    // shape fixed for OpenCode, here caused by a provider mislabel instead of a
+    // scan-scope bug).
+    if (!provider) {
+        const geminiMatch = pathOnly.match(
+            /^\/v1beta\/models\/([^/:]+):(?:generateContent|streamGenerateContent|countTokens)$/,
+        );
+        if (geminiMatch) {
+            provider = "google";
+            if (!model) model = geminiMatch[1] ?? "";
+        }
+    }
+
     if (!provider) provider = "openai";
 
     const upstream = new URL(req.url ?? "/", opts.shroudUrl);
