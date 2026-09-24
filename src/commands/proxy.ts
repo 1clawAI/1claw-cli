@@ -125,6 +125,66 @@ async function resolveShroudAgentKey(input: string): Promise<string> {
     }
 }
 
+/** Only used when the live fetch below fails entirely (network error, Shroud
+ * unreachable) — deliberately tiny so there's no temptation to hand-maintain
+ * it as a real catalog; that's exactly the drift this replaced. */
+const FALLBACK_MODELS_BODY = JSON.stringify({
+    object: "list",
+    data: [
+        { id: "gpt-4o-mini", object: "model", owned_by: "openai" },
+        { id: "claude-sonnet-4-6", object: "model", owned_by: "anthropic" },
+        { id: "gemini-2.5-flash", object: "model", owned_by: "google" },
+    ],
+});
+
+const MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
+let modelsCache: { body: string; fetchedAt: number } | null = null;
+
+/** Fetch Shroud's live GET /v1/models (ProviderRegistry::client_facing_models
+ * — the real per-provider TOML allowlists merged with Stripe's own
+ * hourly-refreshed catalog), cached briefly so a client that polls this on
+ * every keystroke doesn't hammer Shroud. Never throws — falls back to a tiny
+ * static list on any failure so a client's startup probe never hard-fails. */
+function fetchLiveModels(shroudUrl: string): Promise<string> {
+    return new Promise((resolve) => {
+        let url: URL;
+        try {
+            url = new URL("/v1/models", shroudUrl);
+        } catch {
+            resolve(FALLBACK_MODELS_BODY);
+            return;
+        }
+        const req = httpsRequest(url, { method: "GET" }, (res) => {
+            const chunks: Buffer[] = [];
+            res.on("data", (c: Buffer) => chunks.push(c));
+            res.on("end", () => {
+                const status = res.statusCode ?? 0;
+                if (status >= 200 && status < 300) {
+                    resolve(Buffer.concat(chunks).toString("utf-8"));
+                } else {
+                    resolve(FALLBACK_MODELS_BODY);
+                }
+            });
+        });
+        req.on("error", () => resolve(FALLBACK_MODELS_BODY));
+        req.setTimeout(5000, () => {
+            req.destroy();
+            resolve(FALLBACK_MODELS_BODY);
+        });
+        req.end();
+    });
+}
+
+async function getModelsList(shroudUrl: string): Promise<string> {
+    const now = Date.now();
+    if (modelsCache && now - modelsCache.fetchedAt < MODELS_CACHE_TTL_MS) {
+        return modelsCache.body;
+    }
+    const body = await fetchLiveModels(shroudUrl);
+    modelsCache = { body, fetchedAt: now };
+    return body;
+}
+
 function detectProvider(model: string): string {
     const lower = model.toLowerCase();
     for (const [prefix, provider] of Object.entries(PROVIDER_FROM_MODEL)) {
@@ -463,27 +523,21 @@ export const proxyCommand = new Command("proxy")
                 return;
             }
 
-            // Models endpoint — many clients probe this on startup
+            // Models endpoint — many clients probe this on startup. Fetched
+            // live from Shroud's own GET /v1/models (see
+            // ProviderRegistry::client_facing_models in shroud/src/proxy/
+            // provider_registry.rs), not hand-maintained here — a real
+            // Stripe LLM Token Billing rate card runs 100+ models across a
+            // dozen providers, versioned independently of anything in this
+            // repo, and a hand-copied list drifted (wrong/stale model IDs,
+            // e.g. a missing "-1" suffix, or a deprecated dated snapshot)
+            // until a real "Please provide a supported model" report caught
+            // it. FALLBACK_MODELS below is deliberately tiny — it's a safety
+            // net for when Shroud is unreachable, not a list to maintain.
             if (req.url === "/v1/models" || req.url === "/models") {
+                const body = await getModelsList(proxyOpts.shroudUrl);
                 res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({
-                    object: "list",
-                    data: [
-                        { id: "gpt-4o", object: "model", owned_by: "openai" },
-                        { id: "gpt-4o-mini", object: "model", owned_by: "openai" },
-                        { id: "gpt-4.1", object: "model", owned_by: "openai" },
-                        { id: "gpt-4.1-mini", object: "model", owned_by: "openai" },
-                        { id: "o3-mini", object: "model", owned_by: "openai" },
-                        { id: "claude-fable-5", object: "model", owned_by: "anthropic" },
-                        { id: "claude-opus-4-8", object: "model", owned_by: "anthropic" },
-                        { id: "claude-sonnet-5", object: "model", owned_by: "anthropic" },
-                        { id: "claude-sonnet-4-6", object: "model", owned_by: "anthropic" },
-                        { id: "claude-sonnet-4-20250514", object: "model", owned_by: "anthropic" },
-                        { id: "claude-3.5-sonnet-20241022", object: "model", owned_by: "anthropic" },
-                        { id: "gemini-2.5-flash", object: "model", owned_by: "google" },
-                        { id: "gemini-2.5-pro", object: "model", owned_by: "google" },
-                    ],
-                }));
+                res.end(body);
                 return;
             }
 
