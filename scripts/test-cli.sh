@@ -488,5 +488,37 @@ daemon_socket_group() {
 }
 daemon_socket_group
 
+# ── 1claw proxy: locally-answered routes must ignore the query string ────────
+#
+# Model pickers probe /v1/models?limit=... . The handler used to compare
+# req.url with === , so any query string fell through to forwardRequest and
+# was proxied upstream instead of answered from the local catalog — the
+# symptom is a model dropdown that comes back empty for no visible reason.
+# Shroud is pointed at a dead port on purpose: getModelsList must never throw,
+# it falls back to its small built-in list, so this still asserts 200 + JSON.
+proxy_local_routes_ignore_query() {
+  $CLI proxy --agent-key "00000000-0000-0000-0000-000000000001:ocv_test_key" \
+    --shroud-url http://127.0.0.1:4599 --port 4130 >/tmp/1claw-llmproxy.log 2>&1 &
+  local proxy_pid=$!
+  for i in $(seq 1 40); do
+    curl -sf -o /dev/null http://127.0.0.1:4130/health && break; sleep 0.25
+  done
+
+  local path code
+  for path in "/v1/models" "/v1/models?limit=5" "/models?foo=bar" "/health?probe=1"; do
+    code=$(curl -s -o /tmp/1claw-proxyroute.json -w "%{http_code}" "http://127.0.0.1:4130${path}")
+    if [[ "$code" == "200" ]] && head -c1 /tmp/1claw-proxyroute.json | grep -q '{'; then
+      PASSED=$((PASSED+1)); echo "  PASS proxy: ${path} answered locally (200, JSON)"
+    else
+      FAILED=$((FAILED+1))
+      echo "  FAIL proxy ${path}: HTTP $code $(head -c 160 /tmp/1claw-proxyroute.json)"
+      tail -3 /tmp/1claw-llmproxy.log
+    fi
+  done
+
+  kill $proxy_pid 2>/dev/null || true
+}
+proxy_local_routes_ignore_query
+
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 [[ $FAILED -eq 0 ]]

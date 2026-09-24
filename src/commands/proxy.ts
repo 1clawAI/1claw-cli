@@ -20,6 +20,7 @@ import {
     type ServerResponse,
 } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { request as httpRequest } from "node:http";
 import { URL } from "node:url";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -147,31 +148,38 @@ let modelsCache: { body: string; fetchedAt: number } | null = null;
  * static list on any failure so a client's startup probe never hard-fails. */
 function fetchLiveModels(shroudUrl: string): Promise<string> {
     return new Promise((resolve) => {
-        let url: URL;
+        // Everything here is inside try/catch, not just the URL parse.
+        // `httpsRequest` throws ERR_INVALID_PROTOCOL *synchronously* for an
+        // http: URL — that is outside any 'error' handler, so it escaped this
+        // promise entirely and took the whole proxy process down on the first
+        // client startup probe whenever --shroud-url was plain HTTP (a local
+        // or self-hosted Shroud). Pick the module by protocol, and keep the
+        // catch as a backstop so this function's "never throws" contract is
+        // actually true.
         try {
-            url = new URL("/v1/models", shroudUrl);
+            const url = new URL("/v1/models", shroudUrl);
+            const request = url.protocol === "http:" ? httpRequest : httpsRequest;
+            const req = request(url, { method: "GET" }, (res) => {
+                const chunks: Buffer[] = [];
+                res.on("data", (c: Buffer) => chunks.push(c));
+                res.on("end", () => {
+                    const status = res.statusCode ?? 0;
+                    if (status >= 200 && status < 300) {
+                        resolve(Buffer.concat(chunks).toString("utf-8"));
+                    } else {
+                        resolve(FALLBACK_MODELS_BODY);
+                    }
+                });
+            });
+            req.on("error", () => resolve(FALLBACK_MODELS_BODY));
+            req.setTimeout(5000, () => {
+                req.destroy();
+                resolve(FALLBACK_MODELS_BODY);
+            });
+            req.end();
         } catch {
             resolve(FALLBACK_MODELS_BODY);
-            return;
         }
-        const req = httpsRequest(url, { method: "GET" }, (res) => {
-            const chunks: Buffer[] = [];
-            res.on("data", (c: Buffer) => chunks.push(c));
-            res.on("end", () => {
-                const status = res.statusCode ?? 0;
-                if (status >= 200 && status < 300) {
-                    resolve(Buffer.concat(chunks).toString("utf-8"));
-                } else {
-                    resolve(FALLBACK_MODELS_BODY);
-                }
-            });
-        });
-        req.on("error", () => resolve(FALLBACK_MODELS_BODY));
-        req.setTimeout(5000, () => {
-            req.destroy();
-            resolve(FALLBACK_MODELS_BODY);
-        });
-        req.end();
     });
 }
 
@@ -400,47 +408,147 @@ function getAgentKeyFromOptsOrEnv(agentKeyFlag: string | undefined): string {
     process.exit(1);
 }
 
+type ClientSetup = {
+    /** How the tool names itself. */
+    name: string;
+    /** Body lines, already indented. `chalk.cyan` the URL, `chalk.dim` the rest. */
+    lines: string[];
+};
+
+/**
+ * Setup for every client we have actually run traffic through.
+ *
+ * "Verified" means this repo carries a real wire fixture for the client
+ * (`shroud/tests/fixtures/clients/`) and/or a routing row in
+ * `popular_client_and_model_combinations_resolve_correctly` in
+ * `shroud/src/router.rs`. Keep this list and
+ * `docs/docs/agents/shroud/ide-setup.md` in step — that page is the long form
+ * of the same content, and the guided onboarding page renders one entry of it
+ * at a time (`dashboard/src/app/onboarding/guided/page.tsx`).
+ */
+function verifiedClients(base: string, openaiV1: string): ClientSetup[] {
+    const d = chalk.dim;
+    return [
+        {
+            name: "Claude Code",
+            lines: [
+                d(`    export ANTHROPIC_BASE_URL="${base}"`),
+                d(`    export ANTHROPIC_API_KEY="1claw"`),
+                d(`    # Optional if MCP tool search matters: ENABLE_TOOL_SEARCH=true`),
+                d(`    claude`),
+            ],
+        },
+        {
+            name: "Codex",
+            lines: [
+                d(`    ~/.codex/config.toml — model_provider must come BEFORE the table,`),
+                d(`    or TOML reads it as a key on the table instead of a top-level key:`),
+                d(``),
+                d(`      model_provider = "oneclaw"`),
+                d(``),
+                d(`      [model_providers.oneclaw]`),
+                d(`      name = "1claw"`),
+                `      ${d("base_url = ")}${chalk.cyan(`"${openaiV1}"`)}`,
+                d(`      env_key = "ONECLAW_PROXY_KEY"`),
+                d(``),
+                d(`    Any value works for ONECLAW_PROXY_KEY — the proxy handles real auth.`),
+            ],
+        },
+        {
+            name: "OpenCode",
+            lines: [
+                d(`    export OPENAI_BASE_URL="${openaiV1}"`),
+                d(`    export OPENAI_API_KEY="1claw"`),
+                d(`    opencode`),
+                d(`    (or set the same base URL in opencode.json's provider config)`),
+            ],
+        },
+        {
+            name: "OpenClaude",
+            lines: [
+                d(`    export OPENAI_BASE_URL="${openaiV1}"`),
+                d(`    export OPENAI_API_KEY="1claw"`),
+                d(`    openclaude --provider openai`),
+            ],
+        },
+        {
+            name: "Goose",
+            lines: [
+                d(`    export GOOSE_PROVIDER=openai`),
+                d(`    export GOOSE_MODEL=claude-sonnet-5   # any model the proxy should route`),
+                `    ${d('export OPENAI_HOST="')}${chalk.cyan(base)}${d('"')}   ${d("# host, NOT /v1")}`,
+                d(`    export OPENAI_API_KEY="1claw"`),
+                d(`    goose run -t "your prompt"`),
+            ],
+        },
+        {
+            name: "Gemini CLI",
+            lines: [
+                `    ${d('export GOOGLE_GEMINI_BASE_URL="')}${chalk.cyan(base)}${d('"')}`,
+                d(`    export GEMINI_API_KEY="1claw"`),
+                d(`    gemini --skip-trust -p "your prompt"`),
+                d(`    # headless also needs security.auth.selectedType: "gemini-api-key"`),
+                d(`    # in ~/.gemini/settings.json`),
+            ],
+        },
+        {
+            name: "Cursor",
+            lines: [
+                `    ${d("Settings → Models → OpenAI (override)")} → Base URL: ${chalk.cyan(openaiV1)} → API key: ${d("1claw (any value)")}`,
+            ],
+        },
+    ];
+}
+
+/**
+ * Clients we document and expect to work, but do not exercise in the client
+ * test suite. Listed separately so the output never implies more coverage
+ * than exists.
+ */
+function untestedClients(openaiV1: string): ClientSetup[] {
+    const d = chalk.dim;
+    return [
+        {
+            name: "VS Code + GitHub Copilot",
+            lines: [
+                `    ${d("Chat → model picker → Manage models → add OpenAI-compatible → Base URL:")} ${chalk.cyan(openaiV1)}`,
+                d("    (May require VS Code Insiders; BYOK not on all Copilot org plans — see docs.)"),
+            ],
+        },
+        {
+            name: "Continue / other OpenAI-compatible extensions",
+            lines: [d(`    "apiBase": "${openaiV1}"`)],
+        },
+    ];
+}
+
+function printClient(c: ClientSetup): void {
+    console.log(chalk.bold(`  ${c.name}`));
+    for (const line of c.lines) console.log(line);
+    console.log();
+}
+
 function printIdeSetupBlock(boundPort: number): void {
     const base = `http://127.0.0.1:${boundPort}`;
     const openaiV1 = `${base}/v1`;
 
-    console.log(chalk.bold("  Cursor"));
-    console.log(
-        `    ${chalk.dim("Settings → Models → OpenAI (override)")} → Base URL: ${chalk.cyan(openaiV1)} → API key: ${chalk.dim("1claw (any value)")}`,
-    );
-    console.log();
+    for (const c of verifiedClients(base, openaiV1)) printClient(c);
 
-    console.log(chalk.bold("  Claude Code"));
-    console.log(
-        chalk.dim(
-            `    export ANTHROPIC_BASE_URL="${base}"`,
-        ),
-    );
-    console.log(
-        chalk.dim(`    export ANTHROPIC_API_KEY="1claw"`),
-    );
-    console.log(
-        chalk.dim(
-            `    # Optional if MCP tool search matters: ENABLE_TOOL_SEARCH=true`,
-        ),
-    );
-    console.log(chalk.dim(`    claude`));
+    console.log(chalk.dim("  Also OpenAI-compatible (not in our client test matrix)"));
     console.log();
+    for (const c of untestedClients(openaiV1)) printClient(c);
 
-    console.log(chalk.bold("  VS Code + GitHub Copilot"));
-    console.log(
-        `    ${chalk.dim("Chat → model picker → Manage models → add OpenAI-compatible → Base URL:")} ${chalk.cyan(openaiV1)}`,
-    );
+    console.log(chalk.bold("  curl (OpenAI-style)"));
     console.log(
         chalk.dim(
-            "    (May require VS Code Insiders; BYOK not on all Copilot org plans — see docs.)",
+            `    curl ${openaiV1}/chat/completions \\
+      -H "Content-Type: application/json" \\
+      -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}'`,
         ),
     );
     console.log();
-
-    console.log(chalk.bold("  Continue / other OpenAI-compatible extensions"));
     console.log(
-        chalk.dim(`    "apiBase": "${openaiV1}"`),
+        chalk.dim(`  Full setup notes: https://docs.1claw.co/docs/agents/shroud/ide-setup`),
     );
     console.log();
 }
@@ -516,8 +624,15 @@ export const proxyCommand = new Command("proxy")
                 return;
             }
 
+            // Path without the query string. Clients append one more often
+            // than you would think (model pickers send /v1/models?limit=…),
+            // and an exact === match on req.url silently proxied those
+            // upstream instead of answering locally — the symptom is a model
+            // dropdown that comes back empty for no visible reason.
+            const routePath = (req.url ?? "").split("?")[0] ?? "";
+
             // Health check for tooling that probes the proxy
-            if (req.url === "/health" || req.url === "/v1/health") {
+            if (routePath === "/health" || routePath === "/v1/health") {
                 res.writeHead(200, { "Content-Type": "application/json" });
                 res.end(JSON.stringify({ status: "ok", proxy: "1claw" }));
                 return;
@@ -534,7 +649,7 @@ export const proxyCommand = new Command("proxy")
             // until a real "Please provide a supported model" report caught
             // it. FALLBACK_MODELS below is deliberately tiny — it's a safety
             // net for when Shroud is unreachable, not a list to maintain.
-            if (req.url === "/v1/models" || req.url === "/models") {
+            if (routePath === "/v1/models" || routePath === "/models") {
                 const body = await getModelsList(proxyOpts.shroudUrl);
                 res.writeHead(200, { "Content-Type": "application/json" });
                 res.end(body);
@@ -589,15 +704,6 @@ export const proxyCommand = new Command("proxy")
         console.log(chalk.bold("  Configure your tools (copy-paste)"));
         console.log();
         printIdeSetupBlock(boundPort);
-        console.log(`  ${chalk.bold("curl (OpenAI-style)")}`);
-        console.log(
-            chalk.dim(
-                `    curl http://127.0.0.1:${boundPort}/v1/chat/completions \\
-      -H "Content-Type: application/json" \\
-      -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}'`,
-            ),
-        );
-        console.log();
         printInfo("Press Ctrl+C to stop.");
         console.log();
 
