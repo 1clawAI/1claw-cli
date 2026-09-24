@@ -22,6 +22,10 @@ interface ConfigSchema {
     projectLinks: Record<string, ProjectLink>;
     defaultVaultId: string | null;
     outputFormat: "table" | "json" | "plain";
+    /** Agent credential for `1claw proxy` / `1claw run`, so the key does not
+     * have to be re-pasted every shell. Same file and same 0600 mode as the
+     * cloud session token above, which is strictly more powerful. */
+    proxyAgentKey: string | null;
 }
 
 const configDir =
@@ -40,6 +44,7 @@ const config = new Conf<ConfigSchema>({
         projectLinks: {},
         defaultVaultId: null,
         outputFormat: "table",
+        proxyAgentKey: null,
     },
 });
 
@@ -110,4 +115,22 @@ export function setProjectLink(dir: string, link: ProjectLink): void {
 
 export function getConfigPath(): string {
     return config.path;
+}
+
+/** Agent credential saved by `1claw proxy --save-agent-key`. */
+export function getProxyAgentKey(): string | null {
+    return config.get("proxyAgentKey");
+}
+
+export function setProxyAgentKey(key: string): void {
+    config.set("proxyAgentKey", key);
+    try {
+        chmodSync(config.path, 0o600);
+    } catch {
+        // conf's own configFileMode already covers this; best-effort.
+    }
+}
+
+export function clearProxyAgentKey(): void {
+    config.set("proxyAgentKey", null);
 }

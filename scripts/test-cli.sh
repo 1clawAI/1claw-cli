@@ -635,5 +635,60 @@ model_namespace() {
 }
 model_namespace
 
+# ── --save-agent-key: the credential survives the shell ─────────────────────
+#
+# Re-pasting an ocv_ key every terminal was the last thing standing between
+# `1claw run <agent>` and actually being one command. Saved into the same
+# config file (0600) that already holds the cloud session token, which is
+# strictly more powerful. Order matters: an explicit flag and a per-shell env
+# var must still beat the saved key.
+save_agent_key() {
+  local cfg fake
+  cfg="$(mktemp -d)"; fake="$(mktemp -d)"
+  TEST_TMP_DIRS+=("$cfg" "$fake")
+  printf '#!/bin/sh\necho "BASE=$OPENAI_BASE_URL"\n' > "$fake/opencode"
+  chmod +x "$fake/opencode"
+
+  local out
+  # Nothing anywhere → refuse, and name all three ways to fix it.
+  out=$(env -u ONECLAW_AGENT_API_KEY ONECLAW_CONFIG_DIR="$cfg" PATH="$fake:$PATH" \
+        $CLI run opencode 2>&1 || true)
+  if grep -q "Missing agent credentials" <<<"$out" && grep -q -- "--save-agent-key" <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS save-key: no credential → refused, with all three options named"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL save-key refusal: $(head -3 <<<"$out")"
+  fi
+
+  # Save it.
+  out=$(env -u ONECLAW_AGENT_API_KEY ONECLAW_CONFIG_DIR="$cfg" PATH="$fake:$PATH" \
+        $CLI run --agent-key "00000000-0000-0000-0000-000000000001:ocv_saved_key" \
+        --save-agent-key --shroud-url http://127.0.0.1:4599 opencode 2>&1 || true)
+  if grep -q "Saved to" <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS save-key: --save-agent-key persists the credential"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL save-key persist: $(head -3 <<<"$out")"
+  fi
+
+  # Now with no flag and no env var at all.
+  out=$(env -u ONECLAW_AGENT_API_KEY ONECLAW_CONFIG_DIR="$cfg" PATH="$fake:$PATH" \
+        $CLI run --shroud-url http://127.0.0.1:4599 opencode 2>&1 || true)
+  if grep -q "BASE=http://127.0.0.1:" <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS save-key: later runs need no flag or env var"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL save-key reuse: $(head -3 <<<"$out")"
+  fi
+
+  # The config file must not be readable by anyone else — it now holds a
+  # credential as well as the session token.
+  local mode
+  mode=$(stat -f '%Lp' "$cfg/config.json" 2>/dev/null || stat -c '%a' "$cfg/config.json")
+  if [[ "$mode" == "600" ]]; then
+    PASSED=$((PASSED+1)); echo "  PASS save-key: config file is 0600"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL save-key file mode: $mode"
+  fi
+}
+save_agent_key
+
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 [[ $FAILED -eq 0 ]]

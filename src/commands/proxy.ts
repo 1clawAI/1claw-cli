@@ -28,6 +28,7 @@ import { randomBytes } from "node:crypto";
 import chalk from "chalk";
 import { resolveAgentKeyFromInput } from "../lib/agent-key.js";
 import { printError, printInfo, printSuccess } from "../output.js";
+import { getProxyAgentKey, setProxyAgentKey, getConfigPath } from "../config.js";
 
 export const DEFAULT_PORT = 11434;
 export const DEFAULT_SHROUD_URL = "https://shroud.1claw.co";
@@ -451,6 +452,11 @@ function forwardRequest(
 }
 
 /** CLI flag or ONECLAW_AGENT_API_KEY (+ optional ONECLAW_AGENT_ID), same as MCP examples. */
+/**
+ * Resolve the agent credential: flag, then environment, then the key saved by
+ * `--save-agent-key`. The saved key is last so an explicit flag or a
+ * per-shell env var still wins — the common case for switching agents.
+ */
 export function getAgentKeyFromOptsOrEnv(agentKeyFlag: string | undefined): string {
     const flag = agentKeyFlag?.trim();
     if (flag) return flag;
@@ -458,10 +464,37 @@ export function getAgentKeyFromOptsOrEnv(agentKeyFlag: string | undefined): stri
     const envId = process.env.ONECLAW_AGENT_ID?.trim();
     if (envId && envKey) return `${envId}:${envKey}`;
     if (envKey) return envKey;
-    printError(
-        "Missing agent credentials: use --agent-key, or set ONECLAW_AGENT_API_KEY (and optionally ONECLAW_AGENT_ID for non-ocv flows).",
+    const saved = getProxyAgentKey()?.trim();
+    if (saved) return saved;
+    printError("Missing agent credentials.");
+    console.log();
+    console.log("  Pick one:");
+    console.log(
+        `    ${chalk.bold("1claw proxy --agent-key ocv_… --save-agent-key")}   ${chalk.dim("# save it once, then just `1claw run <agent>`")}`,
     );
+    console.log(
+        `    ${chalk.bold('export ONECLAW_AGENT_API_KEY="ocv_…"')}             ${chalk.dim("# per shell")}`,
+    );
+    console.log(
+        `    ${chalk.bold("--agent-key ocv_…")}                                ${chalk.dim("# per run (before the agent name for `1claw run`)")}`,
+    );
+    console.log();
+    console.log(
+        chalk.dim(
+            "  An agent key is shown once, when the agent is created. Create one with",
+        ),
+    );
+    console.log(chalk.dim("  `1claw agent create` or in the dashboard."));
+    console.log();
     process.exit(1);
+}
+
+/** Persist the credential so later runs need no flag or env var. */
+export function saveAgentKeyForReuse(key: string): void {
+    setProxyAgentKey(key);
+    printInfo(
+        `Saved to ${chalk.bold(getConfigPath())} (0600). Future runs need no --agent-key.`,
+    );
 }
 
 type ClientSetup = {
@@ -699,6 +732,11 @@ export const proxyCommand = new Command("proxy")
         "Shroud endpoint",
         process.env.ONECLAW_SHROUD_URL ?? DEFAULT_SHROUD_URL,
     )
+    .option(
+        "--save-agent-key",
+        "Save the resolved agent credential to the CLI config (0600) so later runs need no flag or env var",
+        false,
+    )
     .option("-v, --verbose", "Log each proxied request", false)
     .option(
         "--capture-dir <path>",
@@ -722,6 +760,7 @@ export const proxyCommand = new Command("proxy")
             console.log();
         }
         const agentKey = await resolveShroudAgentKey(rawAgentInput);
+        if (opts.saveAgentKey) saveAgentKeyForReuse(rawAgentInput);
 
         const proxyOpts: ProxyOptions = {
             agentKey,

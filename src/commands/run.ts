@@ -23,6 +23,7 @@ import {
     listenProxyServer,
     resolveShroudAgentKey,
     getAgentKeyFromOptsOrEnv,
+    saveAgentKeyForReuse,
     DEFAULT_SHROUD_URL,
     type ProxyOptions,
 } from "./proxy.js";
@@ -124,7 +125,12 @@ straight to the agent.
   1claw run --model claude-sonnet-5 goose   # right
   1claw run claude --resume                 # --resume is forwarded to claude
 
-Credentials come from ONECLAW_AGENT_API_KEY unless --agent-key is given.
+Credentials are resolved in this order: --agent-key, then
+ONECLAW_AGENT_API_KEY, then a key saved with --save-agent-key. Save one once
+and every later run needs nothing:
+
+  1claw run --agent-key ocv_… --save-agent-key opencode
+  1claw run opencode                        # from then on
 `,
     )
     .argument("<agent>", `One of: ${Object.keys(AGENTS).join(", ")}`)
@@ -136,6 +142,11 @@ Credentials come from ONECLAW_AGENT_API_KEY unless --agent-key is given.
     .option("--model <model>", "Model to ask for, where the agent reads one from the environment")
     .option("--shroud-url <url>", "Shroud endpoint", process.env.ONECLAW_SHROUD_URL ?? DEFAULT_SHROUD_URL)
     .option("-p, --port <port>", "Local proxy port (default: an OS-assigned free port)", "0")
+    .option(
+        "--save-agent-key",
+        "Save the resolved agent credential to the CLI config (0600) so later runs need no flag or env var",
+        false,
+    )
     .option("-v, --verbose", "Log each proxied request", false)
     .option(
         "--capture-dir <path>",
@@ -171,6 +182,7 @@ Credentials come from ONECLAW_AGENT_API_KEY unless --agent-key is given.
 
         const rawAgentInput = getAgentKeyFromOptsOrEnv(opts.agentKey);
         const agentKey = await resolveShroudAgentKey(rawAgentInput);
+        if (opts.saveAgentKey) saveAgentKeyForReuse(rawAgentInput);
 
         const proxyOpts: ProxyOptions = {
             agentKey,
