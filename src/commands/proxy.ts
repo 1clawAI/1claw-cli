@@ -29,8 +29,8 @@ import chalk from "chalk";
 import { resolveAgentKeyFromInput } from "../lib/agent-key.js";
 import { printError, printInfo, printSuccess } from "../output.js";
 
-const DEFAULT_PORT = 11434;
-const DEFAULT_SHROUD_URL = "https://shroud.1claw.co";
+export const DEFAULT_PORT = 11434;
+export const DEFAULT_SHROUD_URL = "https://shroud.1claw.co";
 /** If the preferred port is busy (e.g. Ollama on 11434), try this many consecutive ports. */
 const MAX_PORT_TRIES = 32;
 
@@ -38,7 +38,7 @@ const MAX_PORT_TRIES = 32;
  * Bind the server: uses `preferredPort`, or scans upward on EADDRINUSE.
  * `preferredPort === 0` lets the OS pick a free port.
  */
-function listenProxyServer(
+export function listenProxyServer(
     server: Server,
     preferredPort: number,
 ): Promise<{ port: number; usedFallbackPort: boolean }> {
@@ -107,7 +107,7 @@ const PROVIDER_FROM_MODEL: Record<string, string> = {
 };
 
 /** Build `agent_id:api_key` for Shroud. Accepts full pair or key-only `ocv_...`. */
-async function resolveShroudAgentKey(input: string): Promise<string> {
+export async function resolveShroudAgentKey(input: string): Promise<string> {
     try {
         const resolved = await resolveAgentKeyFromInput(input);
         if (!input.includes(":")) {
@@ -210,7 +210,7 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
     });
 }
 
-interface ProxyOptions {
+export interface ProxyOptions {
     agentKey: string;
     provider?: string;
     shroudUrl: string;
@@ -395,7 +395,7 @@ function forwardRequest(
 }
 
 /** CLI flag or ONECLAW_AGENT_API_KEY (+ optional ONECLAW_AGENT_ID), same as MCP examples. */
-function getAgentKeyFromOptsOrEnv(agentKeyFlag: string | undefined): string {
+export function getAgentKeyFromOptsOrEnv(agentKeyFlag: string | undefined): string {
     const flag = agentKeyFlag?.trim();
     if (flag) return flag;
     const envKey = process.env.ONECLAW_AGENT_API_KEY?.trim();
@@ -532,6 +532,13 @@ function printIdeSetupBlock(boundPort: number): void {
     const base = `http://127.0.0.1:${boundPort}`;
     const openaiV1 = `${base}/v1`;
 
+    console.log(
+        `  ${chalk.dim("Skip all of this for CLI agents:")} ${chalk.bold("1claw run")} ${chalk.cyan("claude|opencode|openclaude|goose|gemini")}`,
+    );
+    console.log(
+        chalk.dim("  — starts its own proxy, sets the env, launches the agent.\n"),
+    );
+
     for (const c of verifiedClients(base, openaiV1)) printClient(c);
 
     console.log(chalk.dim("  Also OpenAI-compatible (not in our client test matrix)"));
@@ -551,6 +558,67 @@ function printIdeSetupBlock(boundPort: number): void {
         chalk.dim(`  Full setup notes: https://docs.1claw.co/docs/agents/shroud/ide-setup`),
     );
     console.log();
+}
+
+/** The proxy HTTP server, without any of the CLI presentation around it.
+ * Split out so `1claw run` can embed exactly the same proxy instead of
+ * shelling out to `1claw proxy` or reimplementing the routing. */
+export function createProxyServer(proxyOpts: ProxyOptions): Server {
+    return createServer(async (req, res) => {
+        // CORS preflight
+        if (req.method === "OPTIONS") {
+                res.writeHead(204, {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                });
+                res.end();
+                return;
+            }
+
+            // Path without the query string. Clients append one more often
+            // than you would think (model pickers send /v1/models?limit=…),
+            // and an exact === match on req.url silently proxied those
+            // upstream instead of answering locally — the symptom is a model
+            // dropdown that comes back empty for no visible reason.
+            const routePath = (req.url ?? "").split("?")[0] ?? "";
+
+            // Health check for tooling that probes the proxy
+            if (routePath === "/health" || routePath === "/v1/health") {
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ status: "ok", proxy: "1claw" }));
+                return;
+            }
+
+            // Models endpoint — many clients probe this on startup. Fetched
+            // live from Shroud's own GET /v1/models (see
+            // ProviderRegistry::client_facing_models in shroud/src/proxy/
+            // provider_registry.rs), not hand-maintained here — a real
+            // Stripe LLM Token Billing rate card runs 100+ models across a
+            // dozen providers, versioned independently of anything in this
+            // repo, and a hand-copied list drifted (wrong/stale model IDs,
+            // e.g. a missing "-1" suffix, or a deprecated dated snapshot)
+            // until a real "Please provide a supported model" report caught
+            // it. FALLBACK_MODELS below is deliberately tiny — it's a safety
+            // net for when Shroud is unreachable, not a list to maintain.
+            if (routePath === "/v1/models" || routePath === "/models") {
+                const body = await getModelsList(proxyOpts.shroudUrl);
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(body);
+                return;
+            }
+
+            try {
+                const body = await readBody(req);
+                forwardRequest(req, res, body, proxyOpts);
+            } catch (err) {
+                console.error(chalk.red("  request error:"), (err as Error).message);
+                if (!res.headersSent) {
+                    res.writeHead(500, { "Content-Type": "application/json" });
+                }
+                res.end(JSON.stringify({ error: { message: "proxy internal error", type: "proxy_error" } }));
+            }
+        });
 }
 
 export const proxyCommand = new Command("proxy")
@@ -612,61 +680,7 @@ export const proxyCommand = new Command("proxy")
             console.log();
         }
 
-        const server = createServer(async (req, res) => {
-            // CORS preflight
-            if (req.method === "OPTIONS") {
-                res.writeHead(204, {
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                });
-                res.end();
-                return;
-            }
-
-            // Path without the query string. Clients append one more often
-            // than you would think (model pickers send /v1/models?limit=…),
-            // and an exact === match on req.url silently proxied those
-            // upstream instead of answering locally — the symptom is a model
-            // dropdown that comes back empty for no visible reason.
-            const routePath = (req.url ?? "").split("?")[0] ?? "";
-
-            // Health check for tooling that probes the proxy
-            if (routePath === "/health" || routePath === "/v1/health") {
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ status: "ok", proxy: "1claw" }));
-                return;
-            }
-
-            // Models endpoint — many clients probe this on startup. Fetched
-            // live from Shroud's own GET /v1/models (see
-            // ProviderRegistry::client_facing_models in shroud/src/proxy/
-            // provider_registry.rs), not hand-maintained here — a real
-            // Stripe LLM Token Billing rate card runs 100+ models across a
-            // dozen providers, versioned independently of anything in this
-            // repo, and a hand-copied list drifted (wrong/stale model IDs,
-            // e.g. a missing "-1" suffix, or a deprecated dated snapshot)
-            // until a real "Please provide a supported model" report caught
-            // it. FALLBACK_MODELS below is deliberately tiny — it's a safety
-            // net for when Shroud is unreachable, not a list to maintain.
-            if (routePath === "/v1/models" || routePath === "/models") {
-                const body = await getModelsList(proxyOpts.shroudUrl);
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(body);
-                return;
-            }
-
-            try {
-                const body = await readBody(req);
-                forwardRequest(req, res, body, proxyOpts);
-            } catch (err) {
-                console.error(chalk.red("  request error:"), (err as Error).message);
-                if (!res.headersSent) {
-                    res.writeHead(500, { "Content-Type": "application/json" });
-                }
-                res.end(JSON.stringify({ error: { message: "proxy internal error", type: "proxy_error" } }));
-            }
-        });
+        const server = createProxyServer(proxyOpts);
 
         let boundPort: number;
         try {

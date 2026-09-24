@@ -33,6 +33,7 @@ import { importCommand } from "./commands/import.js";
 import { localCommand } from "./commands/local.js";
 import { daemonCommand } from "./commands/daemon.js";
 import { proxyCommand } from "./commands/proxy.js";
+import { runCommand } from "./commands/run.js";
 import { treasuryCommand } from "./commands/treasury.js";
 import { webhookCommand } from "./commands/webhook.js";
 import { platformCommand } from "./commands/platform.js";
@@ -140,6 +141,7 @@ export function createProgram(): Command {
 
     // Proxy
     program.addCommand(proxyCommand);
+    program.addCommand(runCommand);
 
     // Platform
     program.addCommand(platformCommand);

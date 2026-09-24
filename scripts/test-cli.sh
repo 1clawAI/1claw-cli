@@ -520,5 +520,68 @@ proxy_local_routes_ignore_query() {
 }
 proxy_local_routes_ignore_query
 
+# ── 1claw run <agent>: each agent gets the env IT reads, not a generic one ───
+#
+# The differences are the whole point and are easy to regress: Claude Code
+# wants ANTHROPIC_BASE_URL with no /v1, OpenCode/OpenClaude want
+# OPENAI_BASE_URL *with* /v1, and Goose wants OPENAI_HOST (not _BASE_URL) with
+# no /v1. Fake each agent on PATH and read back what it was handed.
+run_agent_env() {
+  local fake; fake="$(mktemp -d)"
+  local a
+  for a in claude opencode openclaude goose gemini; do
+    printf '#!/bin/sh\necho "argv:$*"\nenv | grep -E "^(ANTHROPIC_|OPENAI_|GOOSE_|GOOGLE_GEMINI_|GEMINI_)" | sort\n' > "$fake/$a"
+    chmod +x "$fake/$a"
+  done
+
+  local key="00000000-0000-0000-0000-000000000001:ocv_test_key"
+  local common=(--agent-key "$key" --shroud-url http://127.0.0.1:4599)
+
+  _run_case() { # name, agent, expected-regex, extra-args...
+    local name="$1" agent="$2" expect="$3"; shift 3
+    local out
+    out=$(PATH="$fake:$PATH" $CLI run "${common[@]}" "$@" "$agent" --smoke 2>&1)
+    if grep -qE "$expect" <<<"$out"; then
+      PASSED=$((PASSED+1)); echo "  PASS run: $name"
+    else
+      FAILED=$((FAILED+1)); echo "  FAIL run: $name"; echo "$out" | head -6 | sed 's/^/      /'
+    fi
+  }
+
+  _run_case "claude gets ANTHROPIC_BASE_URL with no /v1" claude \
+    'ANTHROPIC_BASE_URL=http://127\.0\.0\.1:[0-9]+$'
+  _run_case "opencode gets OPENAI_BASE_URL with /v1" opencode \
+    'OPENAI_BASE_URL=http://127\.0\.0\.1:[0-9]+/v1$'
+  _run_case "openclaude is launched with --provider openai" openclaude \
+    'argv:--provider openai --smoke'
+  _run_case "goose gets OPENAI_HOST not OPENAI_BASE_URL, with no /v1" goose \
+    'OPENAI_HOST=http://127\.0\.0\.1:[0-9]+$'
+  _run_case "goose --model reaches GOOSE_MODEL" goose \
+    'GOOSE_MODEL=claude-sonnet-5' --model claude-sonnet-5
+  _run_case "gemini gets GOOGLE_GEMINI_BASE_URL" gemini \
+    'GOOGLE_GEMINI_BASE_URL=http://127\.0\.0\.1:[0-9]+$'
+  _run_case "agent args are forwarded" claude 'argv:--smoke'
+
+  # Codex is config-file driven; running it must refuse rather than silently
+  # launch an unconfigured Codex against the user's real provider account.
+  local out
+  out=$(PATH="$fake:$PATH" $CLI run "${common[@]}" codex 2>&1 || true)
+  if grep -q "not supported" <<<"$out" && grep -q "config.toml" <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS run: codex refused with the config.toml instructions"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL run codex refusal: $(head -2 <<<"$out")"
+  fi
+
+  out=$(PATH="$fake:$PATH" $CLI run "${common[@]}" notreal 2>&1 || true)
+  if grep -q 'Unknown agent' <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS run: unknown agent is rejected"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL run unknown agent: $(head -2 <<<"$out")"
+  fi
+
+  rm -rf "$fake"
+}
+run_agent_env
+
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 [[ $FAILED -eq 0 ]]
