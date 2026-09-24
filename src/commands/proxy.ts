@@ -575,9 +575,10 @@ function verifiedClients(base: string, openaiV1: string): ClientSetup[] {
             lines: [
                 `    ${d('export GOOGLE_GEMINI_BASE_URL="')}${chalk.cyan(base)}${d('"')}`,
                 d(`    export GEMINI_API_KEY="1claw"`),
+                d(`    # REQUIRED, or gemini exits "Invalid auth method selected."`),
+                d(`    mkdir -p ~/.gemini && echo '{"security":{"auth":{"selectedType":"gemini-api-key"}}}' \\`),
+                d(`      > ~/.gemini/settings.json`),
                 d(`    gemini --skip-trust -p "your prompt"`),
-                d(`    # headless also needs security.auth.selectedType: "gemini-api-key"`),
-                d(`    # in ~/.gemini/settings.json`),
             ],
         },
         {

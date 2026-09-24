@@ -17,6 +17,9 @@
  */
 import { Command } from "commander";
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import chalk from "chalk";
 import {
     createProxyServer,
@@ -45,6 +48,8 @@ type AgentSpec = {
     modelEnv?: string;
     /** Shown after launch when the agent needs something we cannot set. */
     note?: string;
+    /** Run before spawning, to catch a misconfiguration the agent reports badly. */
+    preflight?: () => void;
 };
 
 const AGENTS: Record<string, AgentSpec> = {
@@ -92,10 +97,48 @@ const AGENTS: Record<string, AgentSpec> = {
             GOOGLE_GEMINI_BASE_URL: base,
             GEMINI_API_KEY: "1claw",
         }),
-        note:
-            'Headless runs also need security.auth.selectedType: "gemini-api-key" in ~/.gemini/settings.json.',
+        // Setting GEMINI_API_KEY is not enough: without an explicit auth type
+        // in settings.json, Gemini CLI exits with "Invalid auth method
+        // selected." before issuing a single request. Verified against
+        // gemini-cli 0.46.0 — with the file absent the proxy sees zero
+        // requests, with it present the calls come through.
+        preflight: geminiAuthPreflight,
     },
 };
+
+/**
+ * Gemini CLI refuses to run headless unless an auth type is chosen in
+ * settings.json, and its own error does not say which file or key. Look for
+ * the setting and, when it is missing, print the exact fix — rather than
+ * writing to the user's config for them, which is the same objection that
+ * keeps Codex out of `1claw run`.
+ */
+function geminiAuthPreflight(): void {
+    const candidates = [
+        join(homedir(), ".gemini", "settings.json"),
+        join(process.cwd(), ".gemini", "settings.json"),
+    ];
+    for (const path of candidates) {
+        try {
+            if (!existsSync(path)) continue;
+            const raw = JSON.parse(readFileSync(path, "utf8")) as {
+                security?: { auth?: { selectedType?: string } };
+            };
+            if (raw.security?.auth?.selectedType) return; // configured
+        } catch {
+            // Unreadable or malformed — fall through to the hint.
+        }
+    }
+    printInfo(
+        'Gemini CLI needs an auth type chosen or it exits with "Invalid auth method selected."',
+    );
+    console.log(
+        chalk.dim(`    Add this to ${join(homedir(), ".gemini", "settings.json")}:`),
+    );
+    console.log(
+        chalk.dim('    { "security": { "auth": { "selectedType": "gemini-api-key" } } }'),
+    );
+}
 
 /** Agents that cannot be configured through the environment. */
 const CONFIG_FILE_AGENTS: Record<string, string> = {
@@ -215,6 +258,7 @@ and every later run needs nothing:
             );
         }
         if (spec.note) printInfo(spec.note);
+        spec.preflight?.();
         console.log();
 
         const args = [...spec.defaultArgs, ...passthrough];
