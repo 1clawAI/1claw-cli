@@ -52,6 +52,18 @@ type AgentSpec = {
     preflight?: () => void;
 };
 
+/**
+ * Credentials the child agent must not inherit (RUNENV-L1). The proxy holds
+ * these and attaches them per request; a copy inside the agent's own
+ * environment is a copy the agent can read out and exfiltrate.
+ */
+export const CREDENTIALS_WITHHELD_FROM_AGENT = [
+    "ONECLAW_AGENT_API_KEY",
+    "ONECLAW_AGENT_ID",
+    "ONECLAW_AGENT_TOKEN",
+    "ONECLAW_API_KEY",
+] as const;
+
 const AGENTS: Record<string, AgentSpec> = {
     claude: {
         bin: "claude",
@@ -249,6 +261,17 @@ and every later run needs nothing:
             ...process.env,
             ...spec.env(base, `${base}/v1`),
         };
+        // RUNENV-L1. The whole point of fronting the agent with the local
+        // proxy is that the model-driven process never holds the credential —
+        // the proxy attaches it on the way out. Spreading `process.env`
+        // handed it straight back: a prompt-injected agent that runs `env`,
+        // or reads /proc/self/environ, gets the raw key.
+        //
+        // This reduces exposure rather than closing it. A saved key file
+        // (`--save-agent-key`, 0600) is still readable by the same user, and
+        // an agent with shell access is that user. Said plainly here and in
+        // the docs rather than implied to be a boundary it is not.
+        for (const k of CREDENTIALS_WITHHELD_FROM_AGENT) delete childEnv[k];
         if (opts.model && spec.modelEnv) childEnv[spec.modelEnv] = opts.model;
 
         printSuccess(`Proxy on ${chalk.cyan(base)} → ${chalk.dim(opts.shroudUrl)}`);

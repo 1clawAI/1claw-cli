@@ -714,7 +714,44 @@ function printIdeSetupBlock(boundPort: number): void {
 /** The proxy HTTP server, without any of the CLI presentation around it.
  * Split out so `1claw run` can embed exactly the same proxy instead of
  * shelling out to `1claw proxy` or reimplementing the routing. */
+/**
+ * SHROUDHTTP-L1. Plain HTTP to a non-loopback Shroud puts the agent key on
+ * the wire in cleartext on every request.
+ *
+ * `http:` was made to work deliberately, for a local or self-hosted Shroud,
+ * and that use is still allowed — but only to loopback, where there is no
+ * network to read. A stray `ONECLAW_SHROUD_URL=http://shroud.example.com`
+ * otherwise leaks the credential silently, which is the worst way to leak
+ * one: nothing fails, so nothing gets noticed.
+ */
+export function assertShroudUrlIsSafe(shroudUrl: string): void {
+    let url: URL;
+    try {
+        url = new URL(shroudUrl);
+    } catch {
+        throw new Error(`Invalid Shroud URL: ${shroudUrl}`);
+    }
+    if (url.protocol === "https:") return;
+    if (url.protocol !== "http:") {
+        throw new Error(`Shroud URL must be http(s), got ${url.protocol}`);
+    }
+    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const isLoopback =
+        host === "localhost" ||
+        host === "::1" ||
+        host === "127.0.0.1" ||
+        /^127\./.test(host);
+    if (!isLoopback) {
+        throw new Error(
+            `Refusing to send the agent key over plain HTTP to ${url.hostname}. ` +
+                `Use https://, or point at a loopback address for a local Shroud.`,
+        );
+    }
+}
+
 export function createProxyServer(proxyOpts: ProxyOptions): Server {
+    assertShroudUrlIsSafe(proxyOpts.shroudUrl);
+
     return createServer(async (req, res) => {
         // CORS preflight
         if (req.method === "OPTIONS") {
