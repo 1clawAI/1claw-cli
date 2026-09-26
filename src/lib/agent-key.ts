@@ -1,4 +1,5 @@
 import { apiNoAuth, ApiError } from "../client.js";
+import { createInterface } from "node:readline";
 
 export interface ResolvedAgentKey {
     agentId: string;
@@ -12,10 +13,39 @@ export interface ResolvedAgentKey {
  * Normalize `--agent-key` input for Shroud and spawn flows.
  * Accepts `agent_id:ocv_...` or key-only `ocv_...` (Vault resolves agent by prefix).
  */
+/**
+ * ONBOARDKEY-L1. Read the key from stdin instead of argv.
+ *
+ * `ONECLAW_AGENT_API_KEY=ocv_… npx @1claw/cli proxy` puts a live agent key
+ * into the shell's history file and into the process environment, where any
+ * other process owned by the user can read it out of /proc. `--agent-key -`
+ * takes it from stdin instead: piped (`pbpaste | … --agent-key -`) or typed
+ * at the prompt, and in neither case does it reach argv or history.
+ */
+async function readAgentKeyFromStdin(): Promise<string> {
+    if (process.stdin.isTTY) {
+        const rl = createInterface({ input: process.stdin, output: process.stderr });
+        try {
+            return await new Promise<string>((resolve) => {
+                rl.question("Agent key (ocv_…): ", (answer) => resolve(answer));
+            });
+        } finally {
+            rl.close();
+        }
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) {
+        chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString("utf-8");
+}
+
 export async function resolveAgentKeyFromInput(
     input: string,
 ): Promise<ResolvedAgentKey> {
-    const trimmed = input.trim();
+    // `-` is the conventional "read it from stdin" spelling.
+    const raw = input.trim() === "-" ? await readAgentKeyFromStdin() : input;
+    const trimmed = raw.trim();
     if (!trimmed) {
         throw new Error("Agent key is empty.");
     }
