@@ -1,8 +1,56 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import {
+    existsSync,
+    readFileSync,
+    writeFileSync,
+    mkdirSync,
+    renameSync,
+    lstatSync,
+    chmodSync,
+} from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
+
+/**
+ * CLIKEYFILE-L1. These files carry the agent key in plaintext, and the write
+ * had three problems:
+ *
+ *  - `writeFileSync` used the default mode, so the key landed at 0644 —
+ *    world-readable on a shared machine.
+ *  - `renameSync` over a symlink replaces the link rather than following it,
+ *    and silently discards a stricter mode the user had set on the original.
+ *  - Writing through a symlink at all means the destination is whatever the
+ *    link points at, which the caller did not choose.
+ *
+ * So: refuse to clobber a symlink, create the temp file 0600, and re-apply
+ * 0600 after the rename in case the umask or the filesystem disagreed.
+ */
+export function writeCredentialFile(configPath: string, contents: string): void {
+    if (existsSync(configPath)) {
+        let st;
+        try {
+            st = lstatSync(configPath);
+        } catch {
+            st = null;
+        }
+        if (st?.isSymbolicLink()) {
+            throw new Error(
+                `Refusing to write the agent key through a symlink: ${configPath}. ` +
+                    `Replace it with a regular file, or configure the client by hand.`,
+            );
+        }
+    }
+
+    const tmpPath = configPath + ".1claw-tmp";
+    writeFileSync(tmpPath, contents, { encoding: "utf-8", mode: 0o600 });
+    renameSync(tmpPath, configPath);
+    try {
+        chmodSync(configPath, 0o600);
+    } catch {
+        /* Best effort: some filesystems (e.g. mounted volumes) refuse chmod. */
+    }
+}
 
 export interface AiClient {
     name: string;
@@ -271,10 +319,7 @@ export function configureClient(
         }
     }
 
-    const tmpPath = configPath + ".1claw-tmp";
-    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
-
-    renameSync(tmpPath, configPath);
+    writeCredentialFile(configPath, JSON.stringify(config, null, 2) + "\n");
 
     return {
         success: true,
@@ -360,9 +405,7 @@ function configureCodexToml(
     // Round-trips every other table in the file (e.g. a hand-added
     // [model_providers.*] section) correctly, but re-serializes it —
     // comments and original key ordering are not preserved.
-    const tmpPath = configPath + ".1claw-tmp";
-    writeFileSync(tmpPath, stringifyToml(config), "utf-8");
-    renameSync(tmpPath, configPath);
+    writeCredentialFile(configPath, stringifyToml(config));
 
     return {
         success: true,

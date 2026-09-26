@@ -32,8 +32,12 @@ const NODE_TEMPLATES = ["typescript-sdk", "mastra", "elizaos"];
 
 const ALL_TEMPLATES = [...PYTHON_TEMPLATES, ...NODE_TEMPLATES];
 
-const SECRET_PATTERN =
-    /sk-[a-zA-Z0-9]{20,}|1ck_[a-zA-Z0-9]+|ocv_[a-zA-Z0-9]+|plt_[a-zA-Z0-9]+/;
+// CLIREDACT-L1: this was a second copy of the capture redaction pattern and
+// carried the same gaps — `sk-ant-`/`sk-proj-`/`AIza…` unmatched, `ocv_`
+// truncated at the first `-`. Imported from the built CLI now, so the
+// template secret-sweep and the capture redactor cannot drift apart again.
+const { CAPTURE_SECRET_PATTERN } = await import("../dist/src/commands/proxy.js");
+const SECRET_PATTERN = new RegExp(CAPTURE_SECRET_PATTERN.source);
 
 function bundledRoot() {
     const dir = paths.bundledTemplatesDir();

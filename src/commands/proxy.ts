@@ -285,7 +285,24 @@ export interface ProxyOptions {
  * template code — see packages/cli/scripts/test-spawn-templates.mjs's
  * SECRET_PATTERN.
  */
-const CAPTURE_SECRET_PATTERN = /sk-[a-zA-Z0-9]{20,}|1ck_[a-zA-Z0-9]+|ocv_[a-zA-Z0-9]+|plt_[a-zA-Z0-9]+/g;
+/**
+ * CLIREDACT-L1. The previous pattern was
+ * `sk-[a-zA-Z0-9]{20,}|1ck_[a-zA-Z0-9]+|ocv_[a-zA-Z0-9]+|plt_[a-zA-Z0-9]+`
+ * and missed most of what it needed to catch, while the tool printed
+ * "(redacted)" and the captures went on to become committed fixtures:
+ *
+ *  - `sk-ant-…`, `sk-proj-…`, `sk-shroud-v1-…` — the charset excluded `-`,
+ *    so the run stopped at the first hyphen and 20+ chars never matched.
+ *  - `AIza…` (Google) was not in the pattern at all.
+ *  - `ocv_abc-def` matched only `ocv_abc`, leaving the tail in the file.
+ *    Half a key in a fixture is still a key in a fixture.
+ *
+ * The charset now includes `-` and `_` so a key is consumed whole, and the
+ * well-known prefixes are listed explicitly. Ordering matters: the longer
+ * vendor prefixes come first so they win over the generic `sk-` arm.
+ */
+export const CAPTURE_SECRET_PATTERN =
+    /(?:sk-ant-|sk-proj-|sk-shroud-v1-|sk-or-v1-|sk-)[A-Za-z0-9_-]{16,}|(?:1ck|ocv|plt)_[A-Za-z0-9_-]+|AIza[A-Za-z0-9_-]{30,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}/g;
 
 /** Headers whose value is never written to a capture file, only that it was present. */
 const CAPTURE_REDACTED_HEADERS = new Set(["authorization", "x-shroud-agent-key"]);
