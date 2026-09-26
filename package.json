@@ -1,6 +1,6 @@
 {
   "name": "@1claw/cli",
-  "version": "0.61.27",
+  "version": "0.61.28",
   "description": "CLI for 1Claw — secrets management for AI agents and humans",
   "license": "MIT",
   "repository": {
