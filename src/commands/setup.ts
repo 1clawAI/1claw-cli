@@ -287,8 +287,13 @@ async function provisionAgent(clientSlug?: string): Promise<ProvisionResult | nu
         }
 
         provisionSpinner.succeed(`Agent "${agentName}" ready for MCP`);
+        // The generated key is handed directly to `buildMcpEntry` below,
+        // which writes it as ONECLAW_AGENT_API_KEY in the selected MCP
+        // client's environment. Do not echo a one-time credential here: a
+        // terminal's scrollback, recording, or CI logs are not a safe place
+        // for it.
         printInfo(
-            `Agent API key: ${chalk.cyan(result.api_key)} ${chalk.dim("(save this — shown only once)")}`,
+            "Agent API key created and will be set as ONECLAW_AGENT_API_KEY for the configured MCP client.",
         );
         if (result.verify_prompt) {
             printInfo(result.verify_prompt);
