@@ -19,6 +19,9 @@ interface Channel {
     webhook_path: string | null;
     webhook_url: string | null;
     is_active: boolean;
+    /** Holds `owner_sender_id`, which is what gates admin slash commands. */
+    metadata?: Record<string, unknown> | null;
+    sender_allowlist?: string[] | null;
     created_at: string;
     updated_at: string;
 }
@@ -54,7 +57,7 @@ channelCommand
     )
     .option(
         "--sender-allowlist <ids>",
-        "Comma-separated sender IDs allowed for auto-respond",
+        "Comma-separated sender IDs that may message the agent AND run admin slash commands. Setting it stops every other sender getting replies",
         (v: string) => v.split(",").map((s: string) => s.trim()),
     )
     .option("--auto-respond", "Enable auto-respond for inbound messages")
@@ -148,6 +151,49 @@ channelCommand
         }
     });
 
+/** Parsed `channel update` flags, as commander hands them over. */
+export interface ChannelUpdateOpts {
+    name?: string;
+    active?: string;
+    config?: string;
+    slashCommands?: string;
+    voiceTranscription?: string;
+    /** `string[]` from the parser, or `""` for the clear form. */
+    senderAllowlist?: string[] | "";
+    /** `""` for the revoke form. */
+    admin?: string;
+    autoRespond?: string;
+}
+
+/**
+ * Turn `channel update` flags into a PATCH body.
+ *
+ * Exported so the three states of each clearable field can be tested without a
+ * server. The distinction is the whole point and is easy to lose: an omitted
+ * key means "leave it alone", and only an explicit `null` (admin) or `[]`
+ * (allowlist) clears. The vault keeps those apart via `double_option`; sending
+ * `undefined` here would serialise to an absent key and silently do nothing —
+ * which is the exact failure this command was reported for.
+ */
+export function buildChannelUpdateBody(
+    opts: ChannelUpdateOpts,
+): Record<string, unknown> {
+    const body: Record<string, unknown> = {};
+    if (opts.name) body.channel_name = opts.name;
+    if (opts.active !== undefined) body.is_active = opts.active === "true";
+    if (opts.config) body.config = JSON.parse(opts.config);
+    if (opts.slashCommands !== undefined) body.slash_commands_enabled = opts.slashCommands === "true";
+    if (opts.voiceTranscription !== undefined) body.voice_transcription_enabled = opts.voiceTranscription === "true";
+    if (opts.senderAllowlist !== undefined) {
+        body.sender_allowlist = opts.senderAllowlist === "" ? [] : opts.senderAllowlist;
+    }
+    if (opts.admin !== undefined) {
+        body.owner_sender_id = opts.admin === "" ? null : opts.admin;
+    }
+    if (opts.autoRespond !== undefined) body.auto_respond_enabled = opts.autoRespond === "true";
+    return body;
+}
+
 channelCommand
     .command("update <agent-id> <channel-id>")
     .description("Update a channel")
@@ -164,8 +210,12 @@ channelCommand
     )
     .option(
         "--sender-allowlist <ids>",
-        'Comma-separated sender IDs allowed for auto-respond (use "" to clear)',
+        'Comma-separated sender IDs that may message the agent AND run admin slash commands. Setting it stops every other sender getting replies (use "" to clear)',
         (v: string) => v === "" ? "" : v.split(",").map((s: string) => s.trim()),
+    )
+    .option(
+        "--admin <id>",
+        'Sender ID that may run admin slash commands, without restricting who can message the agent (use "" to revoke)',
     )
     .option("--auto-respond <bool>", "Enable/disable auto-respond for inbound messages")
     .option("--json", "Output as JSON")
@@ -173,16 +223,7 @@ channelCommand
         try {
             requireToken();
 
-            const body: Record<string, unknown> = {};
-            if (opts.name) body.channel_name = opts.name;
-            if (opts.active !== undefined) body.is_active = opts.active === "true";
-            if (opts.config) body.config = JSON.parse(opts.config);
-            if (opts.slashCommands !== undefined) body.slash_commands_enabled = opts.slashCommands === "true";
-            if (opts.voiceTranscription !== undefined) body.voice_transcription_enabled = opts.voiceTranscription === "true";
-            if (opts.senderAllowlist !== undefined) {
-                body.sender_allowlist = opts.senderAllowlist === "" ? [] : opts.senderAllowlist;
-            }
-            if (opts.autoRespond !== undefined) body.auto_respond_enabled = opts.autoRespond === "true";
+            const body = buildChannelUpdateBody(opts);
 
             const ch = await api<Channel>(
                 `/agents/${agentId}/channels/${channelId}`,
@@ -195,6 +236,33 @@ channelCommand
             }
 
             printSuccess(`Channel updated: ${chalk.bold(ch.channel_type)} (${ch.id})`);
+
+            // Echo back what the server stored, not what was asked for. The
+            // reported bug here was a 200 with a fresh `updated_at` and no
+            // change — a confirmation that only repeats the request would have
+            // looked identical.
+            if (opts.admin !== undefined) {
+                const stored = ch.metadata?.owner_sender_id;
+                if (typeof stored === "string") {
+                    console.log(`  Admin: ${chalk.bold(stored)}`);
+                } else if ((ch.sender_allowlist ?? []).length > 0) {
+                    console.log(
+                        `  Admin: none named; the allowlist (${(ch.sender_allowlist ?? []).join(", ")}) grants admin commands`,
+                    );
+                } else {
+                    console.log(
+                        `  Admin: ${chalk.yellow("nobody")} — admin slash commands are refused until one is named`,
+                    );
+                }
+            }
+            if (opts.senderAllowlist !== undefined) {
+                const list = ch.sender_allowlist ?? [];
+                console.log(
+                    list.length > 0
+                        ? `  Allowed senders: ${chalk.bold(list.join(", "))} (everyone else gets no reply)`
+                        : `  Allowed senders: ${chalk.bold("anyone")}`,
+                );
+            }
         } catch (err) {
             handleError(err);
         }

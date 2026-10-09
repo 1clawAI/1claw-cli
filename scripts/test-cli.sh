@@ -370,6 +370,17 @@ else
 fi
 
 echo ""
+echo "=== 7c. channel update keeps set/clear/untouched apart ==="
+if node --test src/__tests__/channel-update-body.test.mjs > /tmp/cli_chan 2>&1; then
+  echo "  OK   node --test src/__tests__/channel-update-body.test.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test src/__tests__/channel-update-body.test.mjs"
+  ((FAILED++)) || true
+  tail -20 /tmp/cli_chan
+fi
+
+echo ""
 echo "=== 8. Spawn template unit tests ==="
 if node --test scripts/test-spawn-templates.mjs > /tmp/cli_spawn 2>&1; then
   echo "  OK   node --test scripts/test-spawn-templates.mjs"
