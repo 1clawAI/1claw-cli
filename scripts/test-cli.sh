@@ -381,6 +381,17 @@ else
 fi
 
 echo ""
+echo "=== 7d. no shell interpolation in child_process calls ==="
+if node --test src/__tests__/no-shell-interpolation.test.mjs > /tmp/cli_shell 2>&1; then
+  echo "  OK   node --test src/__tests__/no-shell-interpolation.test.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test src/__tests__/no-shell-interpolation.test.mjs"
+  ((FAILED++)) || true
+  tail -20 /tmp/cli_shell
+fi
+
+echo ""
 echo "=== 8. Spawn template unit tests ==="
 if node --test scripts/test-spawn-templates.mjs > /tmp/cli_spawn 2>&1; then
   echo "  OK   node --test scripts/test-spawn-templates.mjs"

@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, dirname } from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 /**
@@ -335,7 +335,7 @@ function configureClaudeCode(
 
     // Remove existing entry first (ignore errors if it doesn't exist)
     try {
-        execSync("claude mcp remove 1claw -s user", {
+        execFileSync("claude", ["mcp", "remove", "1claw", "-s", "user"], {
             encoding: "utf-8",
             stdio: "pipe",
         });
@@ -343,8 +343,26 @@ function configureClaudeCode(
         // fine — entry didn't exist
     }
 
-    const cmdParts = [
-        "claude", "mcp", "add",
+    // `execFileSync` with an argv array, not `execSync` with a joined string.
+    //
+    // This used to be `execSync(cmdParts.join(" "))`, which hands the whole
+    // thing to a shell, and the parts are not all constants: the `-e KEY=VALUE`
+    // pairs carry an agent API key that comes either from a `--agent-key` flag
+    // or straight out of an API response, and the daemon variant carries a
+    // socket path derived from `ONECLAW_CONFIG_DIR`. A value containing `;`,
+    // `$(…)` or a backtick would have executed.
+    //
+    // Our own keys are `ocv_` plus base64url and our own paths have no
+    // metacharacters, so the realistic exposure was small — but that safety
+    // came from the *server's* output shape and the user's environment, which
+    // is not where a client should look for its shell safety.
+    //
+    // It was also a plain correctness bug: joining on spaces breaks any value
+    // that contains one, and `ONECLAW_CONFIG_DIR` is user-settable, so a config
+    // path like `~/Library/Application Support/1claw` produced a mangled
+    // command. `daemon.ts` already did this correctly; this is the same shape.
+    const cmdArgs = [
+        "mcp", "add",
         "1claw",
         "-s", "user",
         ...envArgs,
@@ -354,7 +372,7 @@ function configureClaudeCode(
     ];
 
     try {
-        execSync(cmdParts.join(" "), {
+        execFileSync("claude", cmdArgs, {
             encoding: "utf-8",
             stdio: "pipe",
         });
