@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, dirname } from "node:path";
-import { execSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 /**
@@ -66,15 +66,35 @@ function expandHome(p: string): string {
     return p.replace(/^~/, homedir());
 }
 
-function resolveGlobalMcpBinary(): string {
+/**
+ * Resolve a binary on PATH, without a shell.
+ *
+ * `execSync("which X 2>/dev/null")` was used for this in four places. None was
+ * injectable -- every command string was a literal -- but a shell was being
+ * spawned to do a PATH lookup, and more to the point the presence of ANY
+ * `execSync` in `src/` means `no-shell-interpolation.test.mjs` cannot state a
+ * blanket rule. A ban with four exceptions is not enforceable; the exceptions
+ * are where the next interpolated one goes.
+ *
+ * `execFileSync` with an argv array never reaches a shell, so there is no
+ * metacharacter parsing to reason about. `stdio` replaces the `2>/dev/null`.
+ */
+function whichBinary(name: string): string {
     try {
-        const resolved = execSync("which 1claw-mcp 2>/dev/null", {
+        return execFileSync("which", [name], {
             encoding: "utf-8",
+            stdio: ["ignore", "pipe", "ignore"],
         }).trim();
-        if (resolved) return resolved;
     } catch {
-        // not found globally
+        // `which` exits non-zero when the binary is absent, which execFileSync
+        // raises. Absent is not an error here.
+        return "";
     }
+}
+
+function resolveGlobalMcpBinary(): string {
+    const resolved = whichBinary("1claw-mcp");
+    if (resolved) return resolved;
     return "";
 }
 
@@ -161,7 +181,7 @@ export function detectAiClients(projectDir?: string): AiClient[] {
     for (const client of clients) {
         if (client.slug === "claude-code") {
             try {
-                execSync("which claude 2>/dev/null", { encoding: "utf-8" });
+                if (!whichBinary("claude")) throw new Error("claude not on PATH");
                 client.detected = true;
             } catch {
                 client.detected = false;
@@ -175,7 +195,7 @@ export function detectAiClients(projectDir?: string): AiClient[] {
         // Claude Code above, and only fall back to the config file/dir.
         if (client.slug === "codex") {
             try {
-                execSync("which codex 2>/dev/null", { encoding: "utf-8" });
+                if (!whichBinary("codex")) throw new Error("codex not on PATH");
                 client.detected = true;
             } catch {
                 client.detected = existsSync(expandHome(client.configPath));
@@ -184,7 +204,7 @@ export function detectAiClients(projectDir?: string): AiClient[] {
         }
         if (client.slug === "opencode") {
             try {
-                execSync("which opencode 2>/dev/null", { encoding: "utf-8" });
+                if (!whichBinary("opencode")) throw new Error("opencode not on PATH");
                 client.detected = true;
             } catch {
                 const expanded = expandHome(client.configPath);

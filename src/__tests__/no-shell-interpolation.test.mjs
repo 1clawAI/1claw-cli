@@ -52,7 +52,7 @@ test("a shell metacharacter in an env value does not execute", () => {
   );
 });
 
-test("no execSync call in the CLI takes a non-literal argument", () => {
+test("the CLI does not call execSync at all", () => {
   const srcDir = new URL("../", import.meta.url).pathname;
   const offenders = [];
 
@@ -69,15 +69,23 @@ test("no execSync call in the CLI takes a non-literal argument", () => {
         const src = readFileSync(p, "utf8")
           .replace(/\/\*[\s\S]*?\*\//g, "")
           .replace(/^[ \t]*\/\/.*$/gm, "");
-        // `execSync("literal"...)` is fine — a constant command cannot carry
-        // injected input. Anything else (a variable, a template literal, a
-        // `.join()`) is the pattern being banned.
-        for (const m of src.matchAll(/execSync\(\s*([^"')\s][^,)]*)/g)) {
-          offenders.push(`${p.split("/").slice(-2).join("/")}: execSync(${m[1].trim()}`);
-        }
-        for (const m of src.matchAll(/execSync\(\s*`/g)) {
+        // ANY `execSync` now, literal or not.
+        //
+        // This used to allow `execSync("literal")` on the reasoning that a
+        // constant command cannot carry injected input, which is true. The
+        // problem is enforceability: there were five such calls (four
+        // `which X 2>/dev/null` plus a `git init`), so the rule a reader saw
+        // was "execSync is allowed, sometimes" -- and the sometimes is exactly
+        // where the next interpolated one lands, because it looks like the
+        // neighbours.
+        //
+        // All five moved to `execFileSync` with an argv array, which never
+        // reaches a shell, so the rule can now be absolute: no execSync in
+        // src/, full stop. An absolute rule needs no judgement at the call
+        // site and cannot be satisfied by a call that merely looks constant.
+        for (const m of src.matchAll(/\bexecSync\s*\(/g)) {
           const line = src.slice(0, m.index).split("\n").length;
-          offenders.push(`${p.split("/").slice(-2).join("/")}:${line}: execSync(\`template\`)`);
+          offenders.push(`${p.split("/").slice(-2).join("/")}:${line}: execSync(`);
         }
       }
     }
@@ -87,7 +95,9 @@ test("no execSync call in the CLI takes a non-literal argument", () => {
   assert.deepStrictEqual(
     offenders,
     [],
-    `execSync runs a shell, so a non-literal argument can carry injected input. ` +
-      `Use execFileSync(cmd, argv[]) instead:\n${offenders.join("\n")}`,
+    `execSync runs a shell. Use execFileSync(cmd, argv[]) instead, which does ` +
+      `not. This ban is absolute rather than "no non-literal arguments": the ` +
+      `allowed-literal version of this rule left five call sites that the next ` +
+      `interpolated one would have blended into.\n${offenders.join("\n")}`,
   );
 });

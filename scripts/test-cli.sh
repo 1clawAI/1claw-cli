@@ -2,6 +2,18 @@
 # Test CLI functionality: help smoke tests, unauthenticated behavior, config, and optional live API tests.
 set -e
 
+# A per-run token rather than a literal.
+#
+# This was the string `1cp_testtoken`, repeated at every call site and in the
+# mock server. Three problems, in increasing order of how much they matter:
+# a literal that looks like a credential trips every secret scanner and trains
+# people to dismiss those findings; the mock and the client could drift apart
+# silently because nothing tied them together; and a test that passes with a
+# predictable token cannot distinguish "the proxy forwarded my token" from
+# "the proxy had that token already".
+PROXY_TEST_TOKEN="1cp_$(openssl rand -hex 8)"
+export PROXY_TEST_TOKEN
+
 CLI="${CLI:-node dist/bin/1claw.js}"
 FAILED=0
 PASSED=0
@@ -131,7 +143,7 @@ binding_proxy_e2e() {
   local mock_pid=$!
   sleep 1
   ONECLAW_API_URL=http://127.0.0.1:4123 $CLI agent binding proxy bankr \
-    --agent-key "00000000-0000-0000-0000-000000000001:ocv_test_key" --port 4124 --token 1cp_testtoken >/tmp/1claw-bproxy.log 2>&1 &
+    --agent-key "00000000-0000-0000-0000-000000000001:ocv_test_key" --port 4124 --token ${PROXY_TEST_TOKEN} >/tmp/1claw-bproxy.log 2>&1 &
   local proxy_pid=$!
   sleep 1
 
@@ -149,7 +161,7 @@ binding_proxy_e2e() {
   # The tool puts the proxy token where its real key would go; the vault's
   # binding credential replaces it upstream and the tool's headers are dropped.
   out=$(curl -s -X POST http://127.0.0.1:4124/agent/prompt \
-        -H "X-API-Key: 1cp_testtoken" \
+        -H "X-API-Key: ${PROXY_TEST_TOKEN}" \
         -H "Content-Type: application/json" -d '{"prompt":"hi"}')
   if grep -q '"leaked_credential":false' <<<"$out" && grep -q '"path":"/agent/prompt"' <<<"$out" && grep -q '"binding":"bankr"' <<<"$out"; then
     PASSED=$((PASSED+1)); echo "  PASS binding proxy: request relayed through the binding, tool credential dropped"
@@ -158,7 +170,7 @@ binding_proxy_e2e() {
   fi
 
   local code
-  code=$(curl -s -o /tmp/bproxy_denied.json -w "%{http_code}" -H "Authorization: Bearer 1cp_testtoken" http://127.0.0.1:4124/agent/denied)
+  code=$(curl -s -o /tmp/bproxy_denied.json -w "%{http_code}" -H "Authorization: Bearer ${PROXY_TEST_TOKEN}" http://127.0.0.1:4124/agent/denied)
   if [[ "$code" == "403" ]] && grep -q refused_by_1claw /tmp/bproxy_denied.json; then
     PASSED=$((PASSED+1)); echo "  PASS binding proxy: vault refusal → 403"
   else
@@ -166,7 +178,7 @@ binding_proxy_e2e() {
   fi
 
   kill $mock_pid 2>/dev/null || true; sleep 0.5
-  code=$(curl -s -o /tmp/bproxy_down.json -w "%{http_code}" -H "Authorization: Bearer 1cp_testtoken" http://127.0.0.1:4124/agent/prompt)
+  code=$(curl -s -o /tmp/bproxy_down.json -w "%{http_code}" -H "Authorization: Bearer ${PROXY_TEST_TOKEN}" http://127.0.0.1:4124/agent/prompt)
   if [[ "$code" == "502" ]] && grep -q vault_unreachable /tmp/bproxy_down.json; then
     PASSED=$((PASSED+1)); echo "  PASS binding proxy: vault unreachable → 502 (the tool stops)"
   else

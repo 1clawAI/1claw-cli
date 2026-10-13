@@ -375,8 +375,13 @@ async function spawnAction(
 
         // Initialize a fresh git repo so the user can track changes
         try {
-            const { execSync } = await import("node:child_process");
-            execSync("git init", { cwd: targetDir, stdio: "ignore" });
+            const { execFileSync } = await import("node:child_process");
+            // execFileSync: no shell, so there is nothing to interpolate into.
+            // The command is a literal here, but leaving one `execSync` in
+            // `src/` means the structural ban in
+            // no-shell-interpolation.test.mjs has to carry an exception, and
+            // the exception is where the next interpolated call goes.
+            execFileSync("git", ["init"], { cwd: targetDir, stdio: "ignore" });
         } catch {
             // git not installed — non-fatal
         }
