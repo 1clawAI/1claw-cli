@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+
+# File permission bits, on both GNU and BSD stat.
+#
+# This was `stat -f '%Lp' "$f" 2>/dev/null || stat -c '%a' "$f"`, which looks
+# like a portable fallback and is not. On Linux `stat -f` means "filesystem
+# status": it SUCCEEDS and prints a block about the filesystem, so the `||`
+# never fires and the caller compares that block to "600". The CI log showed
+# `Type: ext2/ext3 / Block size: 4096` where a mode should have been.
+#
+# GNU first, because `-c` is rejected cleanly by BSD stat, where `-f` is not
+# rejected at all by GNU stat. The order is the fix.
+stat_mode() {
+  if stat -c '%a' "$1" 2>/dev/null; then :; else stat -f '%Lp' "$1"; fi
+}
+
 # Test CLI functionality: help smoke tests, unauthenticated behavior, config, and optional live API tests.
 set -e
 
@@ -521,7 +536,7 @@ daemon_socket_group() {
   local d_pid=$!
   for i in $(seq 1 20); do [[ -S "$ONECLAW_DAEMON_SOCKET" ]] && break; sleep 0.25; done
   local mode
-  mode=$(stat -f '%Lp' "$ONECLAW_DAEMON_SOCKET" 2>/dev/null || stat -c '%a' "$ONECLAW_DAEMON_SOCKET")
+  mode=$(stat_mode "$ONECLAW_DAEMON_SOCKET")
   if [[ "$mode" == "660" ]]; then
     PASSED=$((PASSED+1)); echo "  PASS daemon: --socket-group sets the socket to 0660"
   else
@@ -726,7 +741,7 @@ save_agent_key() {
   # The config file must not be readable by anyone else — it now holds a
   # credential as well as the session token.
   local mode
-  mode=$(stat -f '%Lp' "$cfg/config.json" 2>/dev/null || stat -c '%a' "$cfg/config.json")
+  mode=$(stat_mode "$cfg/config.json")
   if [[ "$mode" == "600" ]]; then
     PASSED=$((PASSED+1)); echo "  PASS save-key: config file is 0600"
   else
