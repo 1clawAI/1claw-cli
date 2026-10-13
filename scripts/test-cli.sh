@@ -419,6 +419,17 @@ else
 fi
 
 echo ""
+echo "=== 7e. help banner ==="
+if node --test src/__tests__/banner.test.mjs > /tmp/cli_banner 2>&1; then
+  echo "  OK   node --test src/__tests__/banner.test.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test src/__tests__/banner.test.mjs"
+  ((FAILED++)) || true
+  tail -20 /tmp/cli_banner
+fi
+
+echo ""
 echo "=== 8. Spawn template unit tests ==="
 if node --test scripts/test-spawn-templates.mjs > /tmp/cli_spawn 2>&1; then
   echo "  OK   node --test scripts/test-spawn-templates.mjs"

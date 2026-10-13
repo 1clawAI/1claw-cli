@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
+import { banner, shouldShowBanner } from "./banner.js";
 import {
     loginCommand,
     logoutCommand,
@@ -85,7 +86,10 @@ export function createProgram(): Command {
             "1Claw CLI — HSM-backed secret management for AI agents and humans",
         )
         // Required by `platform exec` (.passThroughOptions) under Commander 13+
-        .enablePositionalOptions();
+        .enablePositionalOptions()
+        .addHelpText("before", () =>
+            shouldShowBanner() ? banner(`v${cliPackageVersion} · https://1claw.co`) : "",
+        );
 
     // Auth
     program.addCommand(loginCommand);
