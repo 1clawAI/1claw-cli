@@ -53,7 +53,37 @@ jobs:
                   npm install -g npm@11.5.1
                   npm --version
 
+            # Strip any _authToken setup-node wrote, so OIDC is actually used.
+            #
+            # A repo-level NPM_TOKEN secret is mapped to NODE_AUTH_TOKEN by
+            # setup-node, which writes it into the job's .npmrc. npm then uses
+            # that token and never attempts the OIDC exchange -- so a stale or
+            # rotated token silently shadows Trusted Publishing, and npm
+            # reports the rejected credential as `E404 PUT .../@1claw%2fcli`,
+            # which reads as "package not found" rather than "your auth was
+            # refused". v0.61.34 failed exactly this way with NODE_AUTH_TOKEN
+            # present in the environment.
+            #
+            # The comment above has asked for years that the secret be removed
+            # by hand. This makes the workflow not care whether it was: the
+            # line is deleted from the .npmrc at the point of use, so OIDC is
+            # the only credential available and a leftover secret cannot
+            # quietly take over again.
+            - name: Use OIDC, not a leftover token
+              run: |
+                  NPMRC="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+                  if [ -f "$NPMRC" ] && grep -q '_authToken' "$NPMRC"; then
+                    echo "::warning::A repo NPM_TOKEN was present and is being ignored; Trusted Publishing (OIDC) will be used. Delete the secret to silence this."
+                    grep -v '_authToken' "$NPMRC" > "$NPMRC.clean"
+                    mv "$NPMRC.clean" "$NPMRC"
+                  fi
+                  echo "npmrc now:"; sed 's/=.*/=<redacted>/' "$NPMRC" 2>/dev/null || true
+
             - run: npm publish --provenance --access public
+              env:
+                  # Belt and braces: even if something re-adds it, an empty
+                  # value cannot authenticate and npm falls through to OIDC.
+                  NODE_AUTH_TOKEN: ""
 
             - name: Extract version
               id: version
