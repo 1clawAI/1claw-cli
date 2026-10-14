@@ -89,6 +89,12 @@ When you choose "Create a new agent", `setup` provisions everything end-to-end:
 4. Binds the agent to the vault via `vault_ids`
 5. Configures each selected AI client's MCP config
 
+The generated credential is stored as `ONECLAW_AGENT_API_KEY` in the selected
+MCP client's configuration, so the MCP process receives it when the AI client
+starts. `setup` does not print the one-time key to the terminal. Those
+configuration files contain a secret and are written with owner-only (`0600`)
+permissions.
+
 If you provide an existing key (`--agent-key` or "Enter an existing key"), provisioning is skipped — the assumption is those resources already exist.
 
 ### Import (.env File)

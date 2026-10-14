@@ -2,7 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import ora from "ora";
-import { getToken } from "../config.js";
+import { getConfigPath, getToken, setProxyAgentKey } from "../config.js";
 import { loginWithDevice } from "../auth.js";
 import {
     detectAiClients,
@@ -66,7 +66,9 @@ async function runSetup(opts: {
         return;
     }
 
-    // Step 1: Ensure authentication and provision agent + vault + policy
+    // Step 1: Ensure authentication. Provisioning deliberately happens only
+    // after a client has been selected, so a one-time key always has a
+    // destination instead of being lost when setup exits early.
     let agentApiKey = opts.agentKey || "";
 
     if (!agentApiKey && !opts.skipAuth) {
@@ -96,19 +98,14 @@ async function runSetup(opts: {
             }
         }
 
-        if (!agentApiKey) {
-            const result = await provisionAgent(opts.client);
-            if (!result) return;
-            agentApiKey = result.apiKey;
-        }
     }
 
-    if (!agentApiKey) {
+    if (!agentApiKey && opts.skipAuth) {
         printError("No agent API key available. Create an agent first: `1claw agent create <name>`");
         return;
     }
 
-    // Step 2: Detect AI clients
+    // Step 2: Detect and select AI clients
     const projectDir = opts.project ? process.cwd() : undefined;
     const spinner = ora("Detecting installed AI clients...").start();
     const allClients = detectAiClients(projectDir);
@@ -173,14 +170,26 @@ async function runSetup(opts: {
         return;
     }
 
-    // Step 3: Build MCP server entry
+    // Step 3: Provision only after setup has a confirmed configuration target.
+    // Pass the actual selected client to onboarding when there is one; a
+    // multi-client setup has no single client to attribute to the agent.
+    let provisioned: ProvisionResult | null = null;
+    if (!agentApiKey) {
+        provisioned = await provisionAgent(
+            candidates.length === 1 ? candidates[0].slug : undefined,
+        );
+        if (!provisioned) return;
+        agentApiKey = provisioned.apiKey;
+    }
+
+    // Step 4: Build MCP server entry
     const envVars: Record<string, string> = {
         ONECLAW_AGENT_API_KEY: agentApiKey,
     };
 
     const entry = buildMcpEntry(envVars);
 
-    // Step 4: Configure each client
+    // Step 5: Configure each client
     console.log();
     let successCount = 0;
     for (const client of candidates) {
@@ -193,7 +202,7 @@ async function runSetup(opts: {
         }
     }
 
-    // Step 5: Summary
+    // Step 6: Summary
     console.log();
     if (successCount > 0) {
         printSuccess(
@@ -206,6 +215,16 @@ async function runSetup(opts: {
         printInfo("You should see examples/hello if the sample secret was created.");
     } else {
         printWarning("No clients were configured. Check the errors above.");
+        // A filesystem/configuration failure can still occur after
+        // provisioning (for example, a symlinked config file). Keep a
+        // recoverable, owner-only copy rather than losing a one-time key.
+        if (provisioned) {
+            setProxyAgentKey(provisioned.apiKey);
+            printInfo(
+                `The generated agent key was saved securely to ${getConfigPath()} (0600). ` +
+                "Fix the client configuration, then provide that key to `1claw setup --agent-key -` via standard input.",
+            );
+        }
     }
     console.log();
 }
@@ -287,8 +306,13 @@ async function provisionAgent(clientSlug?: string): Promise<ProvisionResult | nu
         }
 
         provisionSpinner.succeed(`Agent "${agentName}" ready for MCP`);
+        // The generated key is handed directly to `buildMcpEntry` below,
+        // which writes it as ONECLAW_AGENT_API_KEY in the selected MCP
+        // client's environment. Do not echo a one-time credential here: a
+        // terminal's scrollback, recording, or CI logs are not a safe place
+        // for it.
         printInfo(
-            `Agent API key: ${chalk.cyan(result.api_key)} ${chalk.dim("(save this — shown only once)")}`,
+            "Agent API key created and will be set as ONECLAW_AGENT_API_KEY for the configured MCP client.",
         );
         if (result.verify_prompt) {
             printInfo(result.verify_prompt);

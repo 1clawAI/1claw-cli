@@ -75,6 +75,32 @@ test("run.ts actually deletes them from childEnv", () => {
   );
 });
 
+test("setup hands a provisioned key to the MCP environment without printing it", () => {
+  const src = readFileSync(new URL("../commands/setup.ts", import.meta.url), "utf8");
+  const selectedIdx = src.indexOf("if (candidates.length === 0)");
+  const provisionIdx = src.indexOf("await provisionAgent(");
+
+  assert.match(
+    src,
+    /ONECLAW_AGENT_API_KEY:\s*agentApiKey/,
+    "setup must pass the generated key to the MCP server environment",
+  );
+  assert.doesNotMatch(
+    src,
+    /Agent API key:\s*\$\{[^}]*result\.api_key[^}]*\}/,
+    "setup must not echo a newly provisioned API key to the terminal",
+  );
+  assert.ok(
+    selectedIdx !== -1 && provisionIdx > selectedIdx,
+    "setup must select a client before provisioning a one-time agent key",
+  );
+  assert.match(
+    src,
+    /if \(provisioned\) \{\s*setProxyAgentKey\(provisioned\.apiKey\)/,
+    "a key must be retained securely if every selected client configuration fails",
+  );
+});
+
 import { mkdtempSync, writeFileSync, symlinkSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
