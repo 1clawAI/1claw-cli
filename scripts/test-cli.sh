@@ -17,6 +17,26 @@ stat_mode() {
 # Test CLI functionality: help smoke tests, unauthenticated behavior, config, and optional live API tests.
 set -e
 
+# Build before testing, because every assertion here runs against `dist/`.
+#
+# `CLI` is `node dist/bin/1claw.js` and four of the .mjs tests import from
+# `dist/src/...`. Nothing regenerated it, so the suite tested whatever the last
+# build happened to leave behind -- which on a fresh checkout is nothing, and
+# after switching branches is the other branch's code.
+#
+# That is not a hypothetical. `channel-update-body.test.mjs` failed with
+# "does not provide an export named 'buildChannelUpdateBody'" while the export
+# sat in `src/commands/channel.ts:178`; the only thing wrong was a stale
+# `dist/`, and a single `npm run build` turned it green. The failure mode in
+# the other direction is worse and silent: a stale `dist/` that still exports
+# everything lets the suite pass against code that is no longer there.
+#
+# SKIP_BUILD=1 for the inner-loop case where you just built.
+if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+  echo "Building (SKIP_BUILD=1 to skip)..."
+  npm run build >/dev/null
+fi
+
 # A per-run token rather than a literal.
 #
 # This was the string `1cp_testtoken`, repeated at every call site and in the

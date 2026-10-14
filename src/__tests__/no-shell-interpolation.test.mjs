@@ -11,7 +11,8 @@
  * property of the server's output format, which is the wrong place for it.
  *
  * Two tests. The first is behavioural: build an entry whose env value is a
- * command substitution and prove nothing runs. The second is structural: no
+ * command substitution and prove it arrives as a single argv element, against
+ * a stub `claude` on PATH rather than the real one. The second is structural: no
  * `execSync` anywhere in the CLI may take an argument that is not a literal
  * string, because that is the shape of the original defect.
  *
@@ -20,7 +21,7 @@
  */
 import test from "node:test";
 import assert from "node:assert";
-import { existsSync, readFileSync, rmSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, readdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -30,25 +31,78 @@ import { configureClient, buildMcpEntry } from "../../dist/src/ai-clients.js";
 const CANARY = join(tmpdir(), `oneclaw-injection-canary-${process.pid}`);
 const MALICIOUS = `x; touch ${CANARY}`;
 
-test("a shell metacharacter in an env value does not execute", () => {
+test("a shell metacharacter in an env value reaches argv, not a shell", () => {
   rmSync(CANARY, { force: true });
 
-  const entry = buildMcpEntry({ ONECLAW_AGENT_API_KEY: MALICIOUS });
-  // `claude` is almost certainly not installed here, and that is fine: the
-  // point is that the attempt does not run the canary either way. A thrown
-  // ENOENT is a pass; a created file is the vulnerability.
+  // A fake `claude` on PATH, so this never touches the real one.
+  //
+  // The previous version called whatever `claude` was installed and asserted
+  // that a canary file did not appear. That is wrong in both directions. On a
+  // machine without Claude Code -- CI, for instance -- `execFileSync` throws
+  // ENOENT before any argument is examined, so the test passed while proving
+  // nothing: it would have passed identically against `execSync` with a joined
+  // string. On a machine with Claude Code, which is most developer machines
+  // and is where this suite actually runs, it invoked the real binary and
+  // rewrote the user's user-scope MCP configuration as a side effect, and the
+  // canary did fire -- through the external tool's own handling of the value,
+  // not through anything in this repository.
+  //
+  // So it was simultaneously vacuous where it ran clean and destructive where
+  // it ran red, and in neither case was it measuring our code.
+  //
+  // What we actually care about is one property: the value is handed over as a
+  // single argv element and never assembled into a command string. A stub that
+  // records its own argv states that directly, needs nothing installed, and
+  // cannot touch anything outside its temp directory.
+  const binDir = mkdtempSync(join(tmpdir(), "oneclaw-fake-claude-"));
+  const argvLog = join(binDir, "argv.json");
+  writeFileSync(
+    join(binDir, "claude"),
+    `#!/usr/bin/env node
+require("fs").appendFileSync(${JSON.stringify(argvLog)}, JSON.stringify(process.argv.slice(2)) + "\\n");
+`,
+    { mode: 0o755 },
+  );
+
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${binDir}:${prevPath}`;
   try {
-    configureClient(
-      { slug: "claude-code", name: "Claude Code", configFormat: "claude-code" },
-      entry,
-    );
-  } catch {
-    // ignore: we are asserting on the filesystem, not the return value
+    const entry = buildMcpEntry({ ONECLAW_AGENT_API_KEY: MALICIOUS });
+    try {
+      configureClient(
+        { slug: "claude-code", name: "Claude Code", configFormat: "claude-code" },
+        entry,
+      );
+    } catch {
+      // ignore: the assertions are on the recorded argv and the filesystem
+    }
+  } finally {
+    process.env.PATH = prevPath;
   }
 
   assert.ok(
     !existsSync(CANARY),
     `the injected command ran — ${CANARY} was created, so the value reached a shell`,
+  );
+
+  // The stub must actually have been called, or the assertion above is the
+  // vacuous one all over again.
+  assert.ok(
+    existsSync(argvLog),
+    "the fake claude was never invoked, so this test proved nothing about how arguments are passed",
+  );
+
+  const calls = readFileSync(argvLog, "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
+  const addCall = calls.find((c) => c.includes("add"));
+  assert.ok(addCall, `no 'mcp add' call was recorded; got ${JSON.stringify(calls)}`);
+  assert.ok(
+    addCall.includes(`ONECLAW_AGENT_API_KEY=${MALICIOUS}`),
+    "the env pair must arrive as ONE argv element with the metacharacters intact — " +
+      "if it were split or quoted away, the value had been through a shell. " +
+      `Got: ${JSON.stringify(addCall)}`,
   );
 });
 
