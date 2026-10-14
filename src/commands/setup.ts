@@ -3,6 +3,7 @@ import chalk from "chalk";
 import inquirer from "inquirer";
 import ora from "ora";
 import { getConfigPath, getToken, setProxyAgentKey } from "../config.js";
+import { resolveAgentKeyFromInput } from "../lib/agent-key.js";
 import { loginWithDevice } from "../auth.js";
 import {
     detectAiClients,
@@ -25,7 +26,10 @@ export const setupCommand = new Command("setup")
     .option("--global", "Configure global/user-level MCP settings (default)")
     .option("--project", "Configure project-level MCP settings in current directory")
     .option("--client <name>", "Configure only a specific client (e.g. cursor, claude-desktop)")
-    .option("--agent-key <key>", "Use a specific agent API key instead of prompting")
+    .option(
+        "--agent-key <key>",
+        "Use a specific agent API key instead of prompting ('-' reads it from stdin)",
+    )
     .option("--skip-auth", "Skip authentication check (use existing credentials)")
     .option("--local", "Configure MCP to use the local daemon instead of cloud API")
     .action(async (opts) => {
@@ -69,7 +73,25 @@ async function runSetup(opts: {
     // Step 1: Ensure authentication. Provisioning deliberately happens only
     // after a client has been selected, so a one-time key always has a
     // destination instead of being lost when setup exits early.
+    // `--agent-key -` reads the key from stdin, matching `init`, `spawn`,
+    // `proxy` and `binding-proxy`, all of which already route through
+    // `resolveAgentKeyFromInput`.
+    //
+    // Needed here specifically because the recovery path below tells the
+    // operator to re-run `1claw setup --agent-key -` after a configuration
+    // failure. Without this, setup took `-` literally as the key and that
+    // instruction was advice to do something that cannot work -- the worst
+    // kind of error message, since it is read at precisely the moment
+    // someone is holding a one-time credential they cannot afford to lose.
+    //
+    // It also keeps the key off the process table: an argv is visible to
+    // every user on the box via `ps`, which is the reason the convention
+    // exists at all.
     let agentApiKey = opts.agentKey || "";
+    if (agentApiKey) {
+        const resolved = await resolveAgentKeyFromInput(agentApiKey);
+        agentApiKey = resolved.apiKey;
+    }
 
     if (!agentApiKey && !opts.skipAuth) {
         const token = getToken();

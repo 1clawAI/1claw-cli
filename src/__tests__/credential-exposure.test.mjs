@@ -85,11 +85,27 @@ test("setup hands a provisioned key to the MCP environment without printing it",
     /ONECLAW_AGENT_API_KEY:\s*agentApiKey/,
     "setup must pass the generated key to the MCP server environment",
   );
-  assert.doesNotMatch(
-    src,
-    /Agent API key:\s*\$\{[^}]*result\.api_key[^}]*\}/,
-    "setup must not echo a newly provisioned API key to the terminal",
-  );
+  // Any interpolation of the key into console output, not one phrasing of it.
+  //
+  // The original assertion required the literal label "Agent API key:" AND
+  // the exact expression `result.api_key`. Renaming the label, or switching
+  // to `result.apiKey`, or printing it from a different variable would all
+  // have restored the leak with the test still green -- which is the failure
+  // mode this file exists to catch, reproduced in the catcher.
+  for (const leak of [
+    /console\.log\([^)]*result\.api_key/,
+    /console\.log\([^)]*\.apiKey/,
+    /print(?:Info|Success|Warning|Error)\([^)]*result\.api_key/,
+    /print(?:Info|Success|Warning|Error)\([^)]*provisioned\.apiKey/,
+    /chalk\.[a-z]+\(\s*(?:result\.api_key|provisioned\.apiKey|agentApiKey)\s*\)/,
+    /\$\{[^}]*\bagentApiKey\b[^}]*\}/,
+  ]) {
+    assert.doesNotMatch(
+      src,
+      leak,
+      `setup must not write a provisioned API key to terminal output (matched ${leak})`,
+    );
+  }
   assert.ok(
     selectedIdx !== -1 && provisionIdx > selectedIdx,
     "setup must select a client before provisioning a one-time agent key",
