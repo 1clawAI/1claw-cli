@@ -53,37 +53,41 @@ jobs:
                   npm install -g npm@11.5.1
                   npm --version
 
-            # Strip any _authToken setup-node wrote, so OIDC is actually used.
+            # Publish, and say what a failure actually means.
             #
-            # A repo-level NPM_TOKEN secret is mapped to NODE_AUTH_TOKEN by
-            # setup-node, which writes it into the job's .npmrc. npm then uses
-            # that token and never attempts the OIDC exchange -- so a stale or
-            # rotated token silently shadows Trusted Publishing, and npm
-            # reports the rejected credential as `E404 PUT .../@1claw%2fcli`,
-            # which reads as "package not found" rather than "your auth was
-            # refused". v0.61.34 failed exactly this way with NODE_AUTH_TOKEN
-            # present in the environment.
+            # npm reports a rejected publish credential as
+            # `E404 PUT .../@1claw%2fcli` -- "the package does not exist" when
+            # it means "your auth was refused". That single fact has cost this
+            # project several debugging sessions, and no amount of reading the
+            # log helps if you do not already know it.
             #
-            # The comment above has asked for years that the secret be removed
-            # by hand. This makes the workflow not care whether it was: the
-            # line is deleted from the .npmrc at the point of use, so OIDC is
-            # the only credential available and a leftover secret cannot
-            # quietly take over again.
-            - name: Use OIDC, not a leftover token
-              run: |
-                  NPMRC="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
-                  if [ -f "$NPMRC" ] && grep -q '_authToken' "$NPMRC"; then
-                    echo "::warning::A repo NPM_TOKEN was present and is being ignored; Trusted Publishing (OIDC) will be used. Delete the secret to silence this."
-                    grep -v '_authToken' "$NPMRC" > "$NPMRC.clean"
-                    mv "$NPMRC.clean" "$NPMRC"
-                  fi
-                  echo "npmrc now:"; sed 's/=.*/=<redacted>/' "$NPMRC" 2>/dev/null || true
+            # Two credentials can be in play and they fail differently:
+            #   * a repo NPM_TOKEN, which setup-node writes into .npmrc as
+            #     _authToken. Stale or rotated -> E404.
+            #   * Trusted Publishing (OIDC), used when no token is present and
+            #     a publisher is registered for the package on npmjs.com. Not
+            #     registered -> ENEEDAUTH, because npm has nothing to send.
+            #
+            # v0.61.34 produced E404 with a token present, then ENEEDAUTH with
+            # the token removed: the token is dead AND no Trusted Publisher is
+            # registered. Both need fixing, and neither is visible from the
+            # raw npm output.
+            #
+            # The token is deliberately left in place rather than stripped: a
+            # refreshed one must keep working. This step only explains.
+            - name: Publish
+              id: publish
+              continue-on-error: true
+              run: npm publish --provenance --access public
 
-            - run: npm publish --provenance --access public
-              env:
-                  # Belt and braces: even if something re-adds it, an empty
-                  # value cannot authenticate and npm falls through to OIDC.
-                  NODE_AUTH_TOKEN: ""
+            - name: Explain a publish failure
+              if: steps.publish.outcome == 'failure'
+              run: |
+                  echo "::error::npm publish failed. The two likely causes both report misleadingly:"
+                  echo "::error::  E404 on PUT  -> the NPM_TOKEN secret is stale or revoked (npm reports refused auth as 404, not 403)."
+                  echo "::error::  ENEEDAUTH    -> no credential at all: no NPM_TOKEN, and no Trusted Publisher registered for this package on npmjs.com."
+                  echo "::error::Fix: register a Trusted Publisher (Settings -> Trusted Publisher -> GitHub Actions) and delete the NPM_TOKEN secret, or refresh the token."
+                  exit 1
 
             - name: Extract version
               id: version
