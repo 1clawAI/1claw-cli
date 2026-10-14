@@ -1430,6 +1430,39 @@ Each container's state lives at `~/.config/1claw/containers/{name}.json` (mode `
 
 In cloud mode the container uses the agent key directly (injected from Secret Manager), not the host daemon.
 
+## Re-authentication (step-up)
+
+Some actions refuse a bearer token on its own and ask you to confirm your
+identity: editing agent guardrails, importing or exporting a signing key,
+treasury sends, card reveals. An agent must not be able to loosen its own
+limits, and a stolen token must not be enough to widen somebody else's.
+
+**Interactive** — omit everything and you are prompted, without echo:
+
+```bash
+1claw agent update <agent-id> --tx-max-value 0.01
+# Password (to change this agent's guardrails): ****
+```
+
+**Scripted / CI** — pipe it in:
+
+```bash
+printf %s "$ONECLAW_PASSWORD" | 1claw agent update <agent-id> \
+  --tx-max-value 0.01 --password-stdin
+```
+
+With no terminal and no `--password-stdin`, the command **fails** with a
+message naming the flag. It will not hang on a prompt nobody can answer, and
+it will not proceed without the credential.
+
+> **Do not pass a password as a flag.** `--password <value>` still works on
+> `signing-keys import` and `export-signing-key` for compatibility, and warns
+> when used: an argv is readable by every user on the machine through `ps`,
+> and your shell records it. Use `--password-stdin` or the prompt.
+
+Only a human account can complete step-up; agent credentials cannot, by
+design.
+
 ## Global options
 
 ```bash

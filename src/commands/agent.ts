@@ -12,6 +12,34 @@ import {
     resolveExpiresAt,
 } from "../output.js";
 import { registerAgentBindingCommands } from "./binding.js";
+import {
+    isStepUpRequired,
+    resolveStepUp,
+    stepUpHeaders,
+    stepUpHint,
+} from "../lib/step-up.js";
+
+/**
+ * Accept a legacy `--password` flag, loudly, while preferring stdin.
+ *
+ * Two commands shipped with the password as an argv flag. Removing it outright
+ * would break whatever scripts depend on it, so it still works and says why it
+ * should not: an argv is visible to every user on the machine through `ps`,
+ * and the shell records it.
+ */
+async function resolveStepUpCompat(
+    opts: { password?: string; passwordStdin?: boolean },
+    action: string,
+) {
+    if (opts.password) {
+        console.error(
+            "warning: --password puts your password in the process list and your shell " +
+                "history. Prefer --password-stdin, or omit it and be prompted.",
+        );
+        return { value: opts.password, source: "prompt" as const };
+    }
+    return resolveStepUp({ passwordStdin: opts.passwordStdin, action });
+}
 
 function mergeExecutionGuardrails(
     guardrails: Record<string, unknown> | undefined,
@@ -893,6 +921,13 @@ agentCommand
     .option('--allow-erc4337 <bool>', 'Allow ERC-4337 gasless (true/false)')
     .option('--allow-eip7702 <bool>', 'Allow EIP-7702 type-4 (true/false)')
     .option('--clear-auto-suspended', 'Clear circuit-breaker auto-suspension (owner/admin)')
+    // Guardrail edits need step-up. Read from stdin, never argv: a password in
+    // a flag is visible to every user on the box via `ps` and lands in shell
+    // history. Omit it in a terminal and you are prompted without echo.
+    .option(
+        "--password-stdin",
+        "Read the account password from stdin for the re-auth these flags require",
+    )
     .action(async (id, opts) => {
         try {
             requireToken();
@@ -1087,10 +1122,29 @@ agentCommand
                 return;
             }
 
-            const agent = await api<Agent>(`/agents/${id}`, {
-                method: "PATCH",
-                body,
-            });
+            // Ask once without a credential, and only prompt if the server
+            // says it needs one.
+            //
+            // The alternative -- prompting up front whenever a guardrail flag
+            // is present -- would demand a password for changes that do not
+            // need one and train people to type it on reflex, which is the
+            // habit that makes a step-up worthless. The server is the
+            // authority on which edits require it; this follows its lead.
+            let agent: Agent;
+            try {
+                agent = await api<Agent>(`/agents/${id}`, { method: "PATCH", body });
+            } catch (err) {
+                if (!isStepUpRequired(err)) throw err;
+                const cred = await resolveStepUp({
+                    passwordStdin: opts.passwordStdin,
+                    action: "change this agent's guardrails",
+                });
+                agent = await api<Agent>(`/agents/${id}`, {
+                    method: "PATCH",
+                    body,
+                    headers: stepUpHeaders(cred),
+                });
+            }
 
             printSuccess(`Agent ${chalk.bold(agent.name)} updated.`);
             printKeyValue([
@@ -1851,7 +1905,12 @@ keysCommand
     .description("Import a signing key for a chain")
     .requiredOption("--key <privateKey>", "Private key to import")
     .option("--format <format>", "Key format: hex, base64, wif", "hex")
-    .requiredOption("--password <password>", "Account password for re-authentication")
+    // Was `requiredOption`, which forced the password into argv on every
+    // invocation -- readable by any user via `ps`, and kept in shell history.
+    // Still accepted so existing scripts work, but deprecated in favour of
+    // stdin or the prompt.
+    .option("--password <password>", "DEPRECATED: use --password-stdin or the prompt")
+    .option("--password-stdin", "Read the account password from stdin")
     .option("--json", "Output as JSON")
     .action(async (agentId, chain, opts) => {
         try {
@@ -1859,7 +1918,9 @@ keysCommand
             const res = await api(`/agents/${agentId}/signing-keys/${chain}/import`, {
                 method: "POST",
                 body: { private_key: opts.key, format: opts.format },
-                headers: { "X-Auth-Confirm": opts.password },
+                headers: stepUpHeaders(
+                    await resolveStepUpCompat(opts, "import a signing key"),
+                ),
             });
             if (opts.json) { printJson(res); return; }
             printSuccess(`Signing key imported for ${chain} on agent ${agentId}.`);
@@ -1904,32 +1965,25 @@ agentCommand
     .command("export-signing-key <agent-id>")
     .description("Export a signing key's private key (requires password)")
     .requiredOption("--chain <chain>", "Chain name (ethereum, bitcoin, solana, ...)")
-    .option("--password <password>", "Account password (prompted if omitted)")
-    .action(async (agentId: string, opts: { chain: string; password?: string }) => {
+    .option("--password <password>", "DEPRECATED: use --password-stdin or the prompt")
+    .option("--password-stdin", "Read the account password from stdin")
+    .action(
+        async (
+            agentId: string,
+            opts: { chain: string; password?: string; passwordStdin?: boolean },
+        ) => {
         try {
             requireToken();
 
-            let password = opts.password;
-            if (!password) {
-                const inquirer = await import("inquirer");
-                const answers = await inquirer.default.prompt([
-                    {
-                        type: "password",
-                        name: "password",
-                        message: "Account password (for re-authentication):",
-                        mask: "*",
-                    },
-                ]);
-                password = answers.password;
-            }
-            if (!password) {
-                console.error(chalk.red("Password is required to export signing keys."));
-                return;
-            }
+            // One policy for every step-up in the CLI. The inquirer prompt
+            // this replaces was fine in a terminal and wrong without one: in
+            // CI it blocks forever on a question nobody will answer, where
+            // `resolveStepUp` fails closed and names --password-stdin.
+            const cred = await resolveStepUpCompat(opts, "export a signing key");
 
             const result = await api<SigningKeyExportResponse>(
                 `/agents/${agentId}/signing-keys/${encodeURIComponent(opts.chain)}/export`,
-                { method: "POST", headers: { "X-Auth-Confirm": password } },
+                { method: "POST", headers: stepUpHeaders(cred) },
             );
 
             console.log(chalk.yellow.bold("\n⚠  SENSITIVE — Store securely and never share\n"));
