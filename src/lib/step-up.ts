@@ -1,4 +1,4 @@
-import { createInterface } from "node:readline";
+import { promptHiddenValue } from "./hidden-input.js";
 
 /**
  * Supplying the `X-Auth-Confirm` credential that step-up actions require.
@@ -51,54 +51,11 @@ async function readAllStdin(): Promise<string> {
 /**
  * Prompt without echoing.
  *
- * `readline` with `terminal: true` still echoes, so the keypress handler
- * writes nothing and the raw input never reaches the screen. Errors restore
- * the terminal before rethrowing; a prompt that leaves the tty in raw mode on
- * Ctrl-C is its own small disaster.
+ * Inquirer owns terminal cleanup and its password mode never writes entered
+ * characters back to the terminal.
  */
 async function promptHidden(label: string): Promise<string> {
-    const { stdin, stderr } = process;
-    stderr.write(label);
-    const rl = createInterface({ input: stdin, output: stderr, terminal: true });
-    const wasRaw = stdin.isRaw ?? false;
-    try {
-        if (stdin.isTTY) stdin.setRawMode(true);
-        const value = await new Promise<string>((resolve, reject) => {
-            let buf = "";
-            const onData = (chunk: Buffer) => {
-                const s = chunk.toString("utf-8");
-                for (const ch of s) {
-                    if (ch === "\r" || ch === "\n") {
-                        cleanup();
-                        stderr.write("\n");
-                        resolve(buf);
-                        return;
-                    }
-                    if (ch === "\u0003") {
-                        cleanup();
-                        stderr.write("\n");
-                        reject(new Error("Cancelled."));
-                        return;
-                    }
-                    if (ch === "\u007f" || ch === "\b") {
-                        buf = buf.slice(0, -1);
-                        continue;
-                    }
-                    buf += ch;
-                }
-            };
-            const cleanup = () => {
-                stdin.off("data", onData);
-                if (stdin.isTTY) stdin.setRawMode(wasRaw);
-                rl.close();
-            };
-            stdin.on("data", onData);
-        });
-        return value;
-    } finally {
-        if (stdin.isTTY) stdin.setRawMode(wasRaw);
-        rl.close();
-    }
+    return promptHiddenValue(label);
 }
 
 /**

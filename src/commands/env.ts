@@ -24,6 +24,7 @@ import {
     isCacheValid,
 } from "../local-cache.js";
 import { getToken } from "../config.js";
+import { promptHiddenValue } from "../lib/hidden-input.js";
 
 interface SecretMetadata {
     path: string;
@@ -73,34 +74,7 @@ async function readStdinIfPiped(): Promise<string | null> {
 }
 
 async function promptMaskedValue(prompt: string): Promise<string> {
-    const rl = createInterface({
-        input: process.stdin,
-        output: process.stderr,
-        terminal: true,
-    });
-    return new Promise((resolve) => {
-        const origWrite = process.stderr.write;
-        let masking = false;
-        // Suppress echo so typed characters aren't visible
-        process.stderr.write = function (
-            this: NodeJS.WriteStream,
-            ...args: Parameters<typeof origWrite>
-        ): boolean {
-            if (masking && typeof args[0] === "string") {
-                return origWrite.call(this, "*" as never) as boolean;
-            }
-            return origWrite.apply(this, args as never) as boolean;
-        } as typeof origWrite;
-        process.stderr.write(prompt);
-        masking = true;
-        rl.question("", (answer) => {
-            masking = false;
-            process.stderr.write = origWrite;
-            process.stderr.write("\n");
-            rl.close();
-            resolve(answer);
-        });
-    });
+    return promptHiddenValue(prompt);
 }
 
 async function confirm(message: string): Promise<boolean> {

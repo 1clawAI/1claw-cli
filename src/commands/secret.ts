@@ -10,6 +10,7 @@ import {
     printWarning,
     formatDate,
 } from "../output.js";
+import { promptHiddenValue } from "../lib/hidden-input.js";
 
 interface Secret {
     id: string;
@@ -24,6 +25,17 @@ interface Secret {
 
 interface SecretValue extends Secret {
     value: string;
+}
+
+async function readSecretValue(): Promise<string> {
+    if (process.stdin.isTTY) {
+        return promptHiddenValue("Secret value:");
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) {
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks).toString().trim();
 }
 
 export const secretCommand = new Command("secret").description(
@@ -128,11 +140,7 @@ secretCommand
 
             let secretValue = value ?? opts.value;
             if (opts.stdin || !secretValue) {
-                const chunks: Buffer[] = [];
-                for await (const chunk of process.stdin) {
-                    chunks.push(chunk);
-                }
-                secretValue = Buffer.concat(chunks).toString().trim();
+                secretValue = await readSecretValue();
             }
 
             if (!secretValue) {
@@ -227,11 +235,7 @@ secretCommand
 
             let secretValue = value;
             if (opts.stdin || !value) {
-                const chunks: Buffer[] = [];
-                for await (const chunk of process.stdin) {
-                    chunks.push(chunk);
-                }
-                secretValue = Buffer.concat(chunks).toString().trim();
+                secretValue = await readSecretValue();
             }
 
             if (!secretValue) {

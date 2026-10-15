@@ -79,9 +79,8 @@ test("it fails closed with no TTY instead of hanging or downgrading", () => {
   assert.match(stepUp, /--password-stdin/, "the CI message must name the alternative");
 });
 
-test("the prompt does not echo and restores the terminal", () => {
-  assert.match(stepUp, /setRawMode\(true\)/, "input would be echoed");
-  assert.match(stepUp, /finally\s*{[\s\S]*setRawMode\(wasRaw\)/, "Ctrl-C must not leave a raw tty");
+test("the step-up prompt uses the shared hidden-input helper", () => {
+  assert.match(stepUp, /promptHiddenValue\(label\)/);
 });
 
 test("a plain permission 403 is not mistaken for a step-up", () => {
