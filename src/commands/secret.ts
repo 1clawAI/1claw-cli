@@ -27,8 +27,18 @@ interface SecretValue extends Secret {
     value: string;
 }
 
-async function readSecretValue(): Promise<string> {
-    if (process.stdin.isTTY) {
+/**
+ * Read a secret value that was not given as an argument.
+ *
+ * `--stdin` always reads the stream to EOF, even on a terminal. That is the
+ * only way to enter a multi-line value interactively — a PEM private key, a
+ * service-account JSON — and a password prompt ends at the first newline, so
+ * routing `--stdin` through it would store `-----BEGIN PRIVATE KEY-----` and
+ * nothing else, without an error. Only the implicit case (no value, no flag,
+ * a terminal) gets the hidden single-line prompt.
+ */
+async function readSecretValue(explicitStdin: boolean): Promise<string> {
+    if (process.stdin.isTTY && !explicitStdin) {
         return promptHiddenValue("Secret value:");
     }
     const chunks: Buffer[] = [];
@@ -140,7 +150,7 @@ secretCommand
 
             let secretValue = value ?? opts.value;
             if (opts.stdin || !secretValue) {
-                secretValue = await readSecretValue();
+                secretValue = await readSecretValue(Boolean(opts.stdin));
             }
 
             if (!secretValue) {
@@ -235,7 +245,7 @@ secretCommand
 
             let secretValue = value;
             if (opts.stdin || !value) {
-                secretValue = await readSecretValue();
+                secretValue = await readSecretValue(Boolean(opts.stdin));
             }
 
             if (!secretValue) {
