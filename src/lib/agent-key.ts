@@ -1,5 +1,5 @@
 import { apiNoAuth, ApiError } from "../client.js";
-import { createInterface } from "node:readline";
+import { promptHiddenValue } from "./hidden-input.js";
 
 export interface ResolvedAgentKey {
     agentId: string;
@@ -24,14 +24,7 @@ export interface ResolvedAgentKey {
  */
 async function readAgentKeyFromStdin(): Promise<string> {
     if (process.stdin.isTTY) {
-        const rl = createInterface({ input: process.stdin, output: process.stderr });
-        try {
-            return await new Promise<string>((resolve) => {
-                rl.question("Agent key (ocv_…): ", (answer) => resolve(answer));
-            });
-        } finally {
-            rl.close();
-        }
+        return promptHiddenValue("Agent key (ocv_…):");
     }
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) {

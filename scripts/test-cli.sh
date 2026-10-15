@@ -416,6 +416,15 @@ else
   tail -20 /tmp/cli_cred
 fi
 
+if node --test src/__tests__/hidden-input.test.mjs > /tmp/cli_hidden_input 2>&1; then
+  echo "  OK   node --test src/__tests__/hidden-input.test.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test src/__tests__/hidden-input.test.mjs"
+  cat /tmp/cli_hidden_input
+  ((FAILED++)) || true
+fi
+
 echo ""
 echo "=== 7c. channel update keeps set/clear/untouched apart ==="
 if node --test src/__tests__/channel-update-body.test.mjs > /tmp/cli_chan 2>&1; then
