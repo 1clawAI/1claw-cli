@@ -18,7 +18,8 @@ interface Share {
     recipient_type: string;
     recipient_id?: string;
     recipient_email?: string;
-    status: string;
+    is_expired?: boolean;
+    is_accepted?: boolean;
     expires_at?: string;
     max_access_count?: number;
     access_count: number;
@@ -37,7 +38,7 @@ shareCommand
         "--to <recipient>",
         "Recipient: user:<id>, agent:<id>, or email address",
     )
-    .option("--expires <date>", "Expiration date (ISO 8601)")
+    .option("--expires <date>", "Expiration date (ISO 8601; default 7 days from now)")
     .option("--max-access <n>", "Maximum access count", parseInt)
     .option("--passphrase <phrase>", "Require passphrase to access")
     .option("--link", "Create an open share link (anyone with link)")
@@ -58,7 +59,7 @@ shareCommand
                     body.recipient_id = opts.to.slice(6);
                 } else if (opts.to.includes("@")) {
                     body.recipient_type = "external_email";
-                    body.recipient_email = opts.to;
+                    body.email = opts.to;
                 } else {
                     body.recipient_type = "user";
                     body.recipient_id = opts.to;
@@ -67,7 +68,10 @@ shareCommand
                 body.recipient_type = "anyone_with_link";
             }
 
-            if (opts.expires) body.expires_at = opts.expires;
+            // CreateShareRequest requires expires_at.
+            body.expires_at = opts.expires
+                ? opts.expires
+                : new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
             if (opts.maxAccess) body.max_access_count = opts.maxAccess;
             if (opts.passphrase) body.passphrase = opts.passphrase;
 
@@ -117,6 +121,7 @@ shareCommand
                         s.recipient_id?.slice(0, 8) ??
                         "link",
                     expires: formatDate(s.expires_at),
+                    status: s.is_expired ? "expired" : s.is_accepted ? "accepted" : "active",
                     access: `${s.access_count}/${s.max_access_count ?? "∞"}`,
                     created: formatDate(s.created_at),
                 })),

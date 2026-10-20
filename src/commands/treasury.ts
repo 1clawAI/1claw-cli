@@ -18,6 +18,66 @@ interface TreasuryWallet {
     address: string;
     is_active: boolean;
     created_at: string;
+    /** server, client_tss (2-of-3 FROST) or client_multisig (Tron 2-of-3). */
+    custody?: string;
+    owner_wraps?: number;
+    backup?: BackupState;
+    multisig_status?: string;
+    multisig_keys?: unknown;
+}
+
+interface BackupState {
+    threshold: string;
+    passkey_wraps: number;
+    recovery_code_wraps: number;
+    generation: number;
+    kit_generation: number | null;
+    kit_covered: boolean;
+    backed_up: boolean;
+    missing: string[];
+}
+
+interface MultisigSafe {
+    id: string;
+    chain: string;
+    chain_id: number;
+    safe_address: string;
+    custody: string;
+    deploy_status: string;
+    owners: unknown;
+    threshold: number;
+    backup: BackupState;
+}
+
+function custodyLabel(w: { custody?: string }): string {
+    switch (w.custody) {
+        case "client_tss":
+            return "self (2-of-3)";
+        case "client_multisig":
+            return "self (multisig)";
+        case undefined:
+        case "":
+        case "server":
+            return "server";
+        default:
+            return w.custody;
+    }
+}
+
+function backupLabel(b?: BackupState): string {
+    if (!b) return chalk.dim("—");
+    return b.backed_up ? chalk.green("backed up") : chalk.yellow("needs backup");
+}
+
+function backupRows(b?: BackupState): [string, string][] {
+    if (!b) return [];
+    const rows: [string, string][] = [
+        ["Backup", backupLabel(b)],
+        ["Passkey wraps", String(b.passkey_wraps)],
+        ["Kit covers current shares", b.kit_covered ? "Yes" : "No"],
+    ];
+    if (b.missing.length > 0) rows.push(["Still needs", b.missing.join("; ")]);
+    return rows;
 }
 
 interface TreasuryWalletExport {
@@ -26,8 +86,57 @@ interface TreasuryWalletExport {
     private_key_hex: string;
 }
 
+/**
+ * Request body for POST /v1/treasury/wallets/{chain}/send
+ * (`SendFromWalletRequest`). There is no token field for EVM: an ERC-20
+ * transfer is a call to the token contract with `transfer(to, amount)`
+ * calldata and zero value. Non-EVM tokens go in `token_mint`.
+ */
+export function buildTreasurySendBody(opts: {
+    to: string;
+    amount: string;
+    token?: string;
+    tokenDecimals?: string;
+    memo?: string;
+    destinationTag?: string;
+    gasless?: boolean;
+    approvalId?: string;
+}): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+        to: opts.to,
+        value_wei: opts.amount,
+    };
+    if (opts.token && /^0x[0-9a-fA-F]{40}$/.test(opts.token)) {
+        // ERC-20: the API takes calldata; build transfer(to, amount).
+        if (!/^0x[0-9a-fA-F]{40}$/.test(opts.to)) {
+            throw new Error("--to must be a 0x address for an ERC-20 transfer");
+        }
+        if (!/^[0-9]+$/.test(String(opts.amount))) {
+            throw new Error(
+                "--amount must be an integer in the token's base units for an ERC-20 transfer",
+            );
+        }
+        body.to = opts.token;
+        body.value_wei = "0";
+        body.data =
+            "0xa9059cbb" +
+            opts.to.slice(2).toLowerCase().padStart(64, "0") +
+            BigInt(opts.amount).toString(16).padStart(64, "0");
+    } else if (opts.token) {
+        body.token_mint = opts.token;
+        if (opts.tokenDecimals) body.token_decimals = parseInt(opts.tokenDecimals, 10);
+    }
+    if (opts.memo) body.memo = opts.memo;
+    if (opts.destinationTag) body.destination_tag = parseInt(opts.destinationTag, 10);
+    if (opts.gasless) body.gasless = true;
+    if (opts.approvalId) body.approval_id = opts.approvalId;
+    return body;
+}
+
 export const treasuryCommand = new Command("treasury").description(
-    "Manage treasury wallets (human-only, counts toward wallet quota)",
+    "Manage treasury wallets (human-only, counts toward wallet quota). " +
+        "Self-custody wallets (2-of-3 keys, Tron multisig, multisig Safes) are created, " +
+        "backed up and spent from the dashboard, which holds the passkey; the CLI lists them.",
 );
 
 treasuryCommand
@@ -97,14 +206,19 @@ treasuryCommand
                 result.wallets.map((w) => ({
                     chain: w.chain,
                     address: w.address,
-                    curve: w.curve,
+                    custody: custodyLabel(w),
+                    backup:
+                        w.multisig_status === "pending_activation"
+                            ? chalk.yellow("not activated")
+                            : backupLabel(w.backup),
                     active: w.is_active ? chalk.green("Yes") : chalk.red("No"),
                     created: new Date(w.created_at).toLocaleDateString(),
                 })),
                 [
                     { key: "chain", header: "Chain", width: 12 },
                     { key: "address", header: "Address", width: 48 },
-                    { key: "curve", header: "Curve", width: 12 },
+                    { key: "custody", header: "Custody", width: 16 },
+                    { key: "backup", header: "Backup", width: 14 },
                     { key: "active", header: "Active" },
                     { key: "created", header: "Created" },
                 ],
@@ -133,6 +247,11 @@ treasuryCommand
                 ["Curve", wallet.curve],
                 ["Address", wallet.address],
                 ["Public Key", wallet.public_key_hex],
+                ["Custody", custodyLabel(wallet)],
+                ...(wallet.multisig_status
+                    ? ([["Multisig status", wallet.multisig_status]] as [string, string][])
+                    : []),
+                ...backupRows(wallet.backup),
                 ["Active", wallet.is_active ? "Yes" : "No"],
                 ["Created", new Date(wallet.created_at).toLocaleDateString()],
             ]);
@@ -143,7 +262,10 @@ treasuryCommand
 
 treasuryCommand
     .command("export <chain>")
-    .description("Export private key for a treasury wallet (audit-logged, requires re-auth)")
+    .description(
+        "Export private key for a server-custody treasury wallet (audit-logged, requires re-auth). " +
+            "Self-custody wallets have no private key to export; use the recovery kit with oneclaw-recover.",
+    )
     .option("--json", "Output as JSON")
     .option("--password <password>", "Account password for re-authentication")
     .action(async (chain: string, opts) => {
@@ -190,7 +312,9 @@ treasuryCommand
 
 treasuryCommand
     .command("rotate <chain>")
-    .description("Rotate key for a treasury wallet")
+    .description(
+        "Rotate key for a server-custody treasury wallet (self-custody wallets refresh shares from the dashboard instead)",
+    )
     .option("--json", "Output as JSON")
     .action(async (chain: string, opts) => {
         try {
@@ -231,9 +355,8 @@ treasuryCommand
             const result = await api<{
                 chain: string;
                 address: string;
-                native_balance: string;
-                native_symbol: string;
-                tokens?: { contract: string; symbol: string; balance: string; decimals: number }[];
+                native: { symbol: string; balance_wei: string; balance_display: string };
+                tokens?: { contract_address: string; balance_raw: string }[];
             }>(`/treasury/wallets/${chain.toLowerCase()}/balance${qs}`);
             if (opts.json) {
                 printJson(result);
@@ -242,20 +365,19 @@ treasuryCommand
             printKeyValue([
                 ["Chain", result.chain],
                 ["Address", result.address],
-                [`${result.native_symbol} Balance`, result.native_balance],
+                [`${result.native.symbol} Balance`, result.native.balance_display],
+                ["Base units", result.native.balance_wei],
             ]);
             if (result.tokens && result.tokens.length > 0) {
                 console.log();
                 printTable(
                     result.tokens.map((t) => ({
-                        token: t.symbol || t.contract,
-                        balance: t.balance,
-                        contract: t.contract,
+                        contract: t.contract_address,
+                        balance: t.balance_raw,
                     })),
                     [
-                        { key: "token", header: "Token", width: 12 },
-                        { key: "balance", header: "Balance", width: 24 },
                         { key: "contract", header: "Contract", width: 44 },
+                        { key: "balance", header: "Balance (base units)", width: 30 },
                     ],
                 );
             }
@@ -266,11 +388,24 @@ treasuryCommand
 
 treasuryCommand
     .command("send <chain>")
-    .description("Send native currency or ERC-20 tokens (requires re-auth)")
+    .description(
+        "Send native currency or ERC-20 tokens from a server-custody wallet (requires re-auth). " +
+            "Self-custody wallets send from the dashboard, which co-signs with your passkey.",
+    )
     .requiredOption("--to <address>", "Recipient address")
-    .requiredOption("--amount <value>", "Amount to send")
-    .option("--token <contract>", "ERC-20 contract address (omit for native)")
+    .requiredOption(
+        "--amount <value>",
+        "Amount: wei on EVM chains, major units (e.g. 0.5) on non-EVM chains; with an ERC-20 --token, the token's base units",
+    )
+    .option(
+        "--token <contract>",
+        "Token to send instead of native: ERC-20 contract (0x...), SPL mint, TRC-20 contract, or Cardano policy_id.asset_name",
+    )
+    .option("--token-decimals <n>", "Token decimals for non-EVM tokens (default 6)")
+    .option("--memo <text>", "Memo (Solana, XRP)")
+    .option("--destination-tag <n>", "XRP destination tag")
     .option("--gasless", "Submit as gasless (sponsored) transaction via ERC-4337 paymaster")
+    .option("--approval-id <id>", "Approved consensus request, when the org requires one for treasury sends")
     .option("--password <password>", "Account password for re-authentication")
     .option("--json", "Output as JSON")
     .action(async (chain: string, opts) => {
@@ -293,17 +428,12 @@ treasuryCommand
                 console.error(chalk.red("Password is required for send."));
                 process.exit(1);
             }
-            const body: Record<string, unknown> = {
-                to: opts.to,
-                amount: opts.amount,
-            };
-            if (opts.token) body.token_contract = opts.token;
-            if (opts.gasless) body.gasless = true;
+            const body = buildTreasurySendBody(opts);
             const result = await api<{
                 tx_hash: string;
                 from: string;
                 to: string;
-                amount: string;
+                value_wei: string;
                 chain: string;
                 status: string;
                 user_op_hash?: string;
@@ -321,7 +451,7 @@ treasuryCommand
                 ["Tx Hash", result.tx_hash],
                 ["From", result.from],
                 ["To", result.to],
-                ["Amount", result.amount],
+                ["Amount", result.value_wei],
                 ["Chain", result.chain],
                 ["Status", result.status],
             ];
@@ -340,7 +470,7 @@ treasuryCommand
     .requiredOption("--sell-token <address>", "Token to sell (or 'native')")
     .requiredOption("--buy-token <address>", "Token to buy")
     .requiredOption("--amount <value>", "Amount of sell token")
-    .option("--slippage <percent>", "Max slippage percentage", "1")
+    .option("--slippage <percent>", "Deprecated: the API sets slippage itself; this value is not sent")
     .option("--password <password>", "Account password for re-authentication")
     .option("--json", "Output as JSON")
     .action(async (chain: string, opts) => {
@@ -367,7 +497,6 @@ treasuryCommand
                 sell_token: opts.sellToken,
                 buy_token: opts.buyToken,
                 sell_amount: opts.amount,
-                slippage_percentage: opts.slippage,
             };
             const result = await api<{
                 tx_hash: string;
@@ -376,6 +505,7 @@ treasuryCommand
                 sell_amount: string;
                 buy_amount: string;
                 chain: string;
+                status: string;
             }>(`/treasury/wallets/${chain.toLowerCase()}/swap`, {
                 method: "POST",
                 body,
@@ -391,6 +521,7 @@ treasuryCommand
                 ["Sold", `${result.sell_amount} ${result.sell_token}`],
                 ["Bought", `${result.buy_amount} ${result.buy_token}`],
                 ["Chain", result.chain],
+                ["Status", result.status],
             ]);
         } catch (e) {
             handleError(e);
@@ -434,6 +565,119 @@ treasuryCommand
         }
     });
 
+treasuryCommand
+    .command("tss-chains")
+    .description(
+        "Show which chains this org can create self-custody (2-of-3) wallets, Tron multisig wallets and multisig Safes on",
+    )
+    .option("--json", "Output as JSON")
+    .action(async (opts) => {
+        try {
+            requireToken();
+            const r = await api<{
+                chains: string[];
+                supported: string[];
+                multisig_chains: string[];
+                multisig_supported: string[];
+                multisig_safe_chains: string[];
+            }>("/keys/tss/chains");
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            const list = (xs?: string[]) =>
+                xs && xs.length > 0 ? xs.join(", ") : chalk.dim("none");
+            printKeyValue([
+                ["2-of-3 keys (enabled)", list(r.chains)],
+                ["2-of-3 keys (supported)", list(r.supported)],
+                ["Native multisig (enabled)", list(r.multisig_chains)],
+                ["Native multisig (supported)", list(r.multisig_supported)],
+                ["Multisig Safes (enabled)", list(r.multisig_safe_chains)],
+            ]);
+        } catch (e) {
+            handleError(e);
+        }
+    });
+
+const safesCmd = treasuryCommand
+    .command("safes")
+    .description(
+        "2-of-3 multisig Safes on EVM: a device key, a recovery key in your offline kit, and a 1Claw key. Created and spent from the dashboard.",
+    );
+
+safesCmd
+    .command("list")
+    .alias("ls")
+    .description("List your multisig Safes")
+    .option("--json", "Output as JSON")
+    .action(async (opts) => {
+        try {
+            requireToken();
+            const r = await api<{ safes: MultisigSafe[] }>(
+                "/treasury/multisig-safes",
+            );
+            const safes = r.safes ?? [];
+            if (opts.json) {
+                printJson(r);
+                return;
+            }
+            if (safes.length === 0) {
+                printInfo("No multisig Safes.");
+                return;
+            }
+            printTable(
+                safes.map((x) => ({
+                    id: x.id,
+                    chain: x.chain,
+                    address: x.safe_address,
+                    status: x.deploy_status,
+                    threshold: String(x.threshold),
+                    backup: backupLabel(x.backup),
+                })),
+                [
+                    { key: "id", header: "ID", width: 36 },
+                    { key: "chain", header: "Chain", width: 12 },
+                    { key: "address", header: "Safe address", width: 44 },
+                    { key: "status", header: "Deploy", width: 10 },
+                    { key: "threshold", header: "Threshold", width: 9 },
+                    { key: "backup", header: "Backup" },
+                ],
+            );
+        } catch (e) {
+            handleError(e);
+        }
+    });
+
+safesCmd
+    .command("retire <safeId>")
+    .description(
+        "Retire a Safe that was never deployed and holds no funds (a deployed or funded Safe is refused)",
+    )
+    .option("-y, --yes", "Skip confirmation")
+    .action(async (safeId: string, opts) => {
+        try {
+            requireToken();
+            if (!opts.yes) {
+                const inquirer = await import("inquirer");
+                const { confirm } = await inquirer.default.prompt([
+                    {
+                        type: "confirm",
+                        name: "confirm",
+                        message: `Retire Safe ${safeId}?`,
+                        default: false,
+                    },
+                ]);
+                if (!confirm) return;
+            }
+            await api(`/treasury/multisig-safes/${encodeURIComponent(safeId)}`, {
+                method: "DELETE",
+            });
+            printSuccess(`Retired Safe ${safeId}`);
+        } catch (e) {
+            handleError(e);
+        }
+    });
+
 // ---------------------------------------------------------------------------
 // Treasury Proposals (multisig)
 // ---------------------------------------------------------------------------
@@ -464,19 +708,24 @@ proposalCmd
     .command("create <treasuryId>")
     .description("Create a multisig proposal")
     .requiredOption("--to <address>", "Destination address")
-    .requiredOption("--value <wei>", "Value in wei")
-    .requiredOption("--chain <name>", "Chain name")
+    .requiredOption("--safe-tx-hash <hex>", "EIP-712 SafeTx hash you computed for this transaction")
+    .requiredOption("--nonce <n>", "Safe nonce the SafeTx hash was computed with")
+    .option("--value <wei>", "Value in wei", "0")
     .option("--data <hex>", "Hex-encoded calldata")
+    .option("--operation <n>", "Safe operation: 0 = call (default), 1 = delegatecall")
+    .option("--chain <name>", "Deprecated: the chain comes from the treasury; this value is not sent")
     .option("--json", "Output as JSON")
     .action(async (treasuryId: string, opts) => {
         try {
             requireToken();
             const body: Record<string, unknown> = {
-                to_address: opts.to,
+                to: opts.to,
                 value_wei: opts.value,
-                chain: opts.chain,
+                safe_tx_hash: opts.safeTxHash,
+                nonce: parseInt(opts.nonce, 10),
             };
-            if (opts.data) body.data_hex = opts.data;
+            if (opts.data) body.data = opts.data;
+            if (opts.operation !== undefined) body.operation = parseInt(opts.operation, 10);
             const result = await api<Proposal>(
                 `/treasury/${treasuryId}/proposals`,
                 { method: "POST", body },
@@ -587,6 +836,7 @@ proposalCmd
     .command("sign <treasuryId> <proposalId>")
     .description("Sign (approve or reject) a proposal")
     .requiredOption("--signature <hex>", "EIP-712 signature hex")
+    .requiredOption("--signer-address <address>", "Address of the Safe owner that produced the signature")
     .option("--decision <decision>", "approve or reject", "approve")
     .option("--json", "Output as JSON")
     .action(async (treasuryId: string, proposalId: string, opts) => {
@@ -594,6 +844,7 @@ proposalCmd
             requireToken();
             const body = {
                 signature: opts.signature,
+                signer_address: opts.signerAddress,
                 decision: opts.decision,
             };
             const result = await api<Proposal>(

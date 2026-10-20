@@ -110,7 +110,6 @@ interface Agent {
     shroud_config?: ShroudConfig | null;
     api_key_expires_at?: string | null;
     created_at: string;
-    created_by: string;
     environment?: string | null;
     environment_locked?: boolean;
     env_auto_resolve?: boolean;
@@ -365,10 +364,12 @@ agentCommand
             if (opts.environmentLocked) body.environment_locked = true;
             if (opts.envAutoResolve) body.env_auto_resolve = true;
 
-            const agent = await api<Agent & { api_key?: string }>("/agents", {
+            // AgentCreatedResponse: { agent, api_key }.
+            const created = await api<{ agent: Agent; api_key?: string }>("/agents", {
                 method: "POST",
                 body,
             });
+            const agent = { ...created.agent, api_key: created.api_key };
 
             printSuccess(`Agent ${chalk.bold(agent.name ?? name)} created.`);
             printKeyValue([
@@ -834,7 +835,6 @@ agentCommand
                     rows.push(["Auto-suspended", chalk.red("yes")]);
                 }
             }
-            rows.push(["Created by", agent.created_by]);
             rows.push(["Created", formatDate(agent.created_at, "long")]);
             printKeyValue(rows);
         } catch (err) {
@@ -1219,7 +1219,7 @@ agentCommand
 agentCommand
     .command("create-child <parent-id> <name>")
     .description(
-        "Create a cheap sub-agent under a parent: its own API key, memory and approval policy; a subset of the parent's vaults/scopes; inherits the parent's policies; does not count against the plan's agent cap (human users only)",
+        "Create a cheap sub-agent under a parent: its own API key, memory and approval policy; a subset of the parent's vaults/scopes; inherits the parent's policies; does not count against the plan's agent cap (human users only; when the parent has 1Claw Pay or cards enabled, only an org owner or admin)",
     )
     .option("--description <text>", "Description")
     .option("--scopes <scopes>", "Comma-separated subset of the parent's scopes (default: the parent's)")
@@ -1473,24 +1473,37 @@ agentCommand
 
 agentCommand
     .command("token <id>")
-    .description("Generate a new JWT for an agent")
+    .description(
+        "Exchange an agent's API key for a short-lived agent JWT (POST /v1/auth/agent-token). " +
+            "The key comes from --api-key, ONECLAW_AGENT_API_KEY, or a hidden prompt.",
+    )
+    .option("--api-key <key>", "The agent's ocv_ API key")
     .option("--quiet", "Print only the token")
     .action(async (id, opts) => {
         try {
-            requireToken();
-            const result = await api<{ token: string; expires_in: number }>(
-                `/agents/${id}/token`,
-                { method: "POST" },
+            let apiKey: string =
+                opts.apiKey ?? process.env.ONECLAW_AGENT_API_KEY ?? "";
+            if (!apiKey) {
+                const { promptHiddenValue } = await import("../lib/hidden-input.js");
+                apiKey = (await promptHiddenValue("Agent API key (ocv_...): ")).trim();
+            }
+            if (!apiKey) {
+                console.error(chalk.red("An agent API key is required."));
+                process.exit(1);
+            }
+            const result = await apiNoAuth<{ access_token: string; expires_in: number }>(
+                "/auth/agent-token",
+                { method: "POST", body: { agent_id: id, api_key: apiKey } },
             );
 
             if (opts.quiet) {
-                process.stdout.write(result.token);
+                process.stdout.write(result.access_token);
                 return;
             }
 
-            printSuccess("Agent token generated.");
+            printSuccess("Agent token issued.");
             printKeyValue([
-                ["Token", result.token],
+                ["Token", result.access_token],
                 ["Expires in", `${result.expires_in}s`],
             ]);
         } catch (err) {
@@ -2306,7 +2319,6 @@ delegationCommand
                     delegate_name?: string;
                     delegation_mode: string;
                     max_daily_delegations?: number;
-                    delegations_today?: number;
                     is_active: boolean;
                     expires_at?: string;
                     created_at: string;
@@ -2329,7 +2341,7 @@ delegationCommand
                     delegate: d.delegate_name || d.delegate_id.slice(0, 8),
                     mode: d.delegation_mode,
                     daily: d.max_daily_delegations != null
-                        ? `${d.delegations_today || 0}/${d.max_daily_delegations}`
+                        ? `${d.max_daily_delegations}/day`
                         : "∞",
                     active: d.is_active ? "✓" : "✗",
                     expires: d.expires_at ? formatDate(d.expires_at) : "—",
@@ -2364,7 +2376,6 @@ delegationCommand
                 allowed_tools: string[];
                 blocked_tools: string[];
                 max_daily_delegations?: number;
-                delegations_today?: number;
                 max_depth: number;
                 guardrails: Record<string, unknown>;
                 delegation_mode: string;
@@ -2389,7 +2400,6 @@ delegationCommand
             ];
             if (result.max_daily_delegations != null) {
                 rows.push(["Daily limit", String(result.max_daily_delegations)]);
-                rows.push(["Used today", String(result.delegations_today || 0)]);
             }
             if (result.allowed_tools.length > 0)
                 rows.push(["Allowed tools", result.allowed_tools.join(", ")]);

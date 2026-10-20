@@ -50,7 +50,8 @@ interface ExecutionEvent {
     binding_id: string;
     intent_type: string;
     status: string;
-    execution_surface?: string;
+    /** ExecutionEventResponse calls it execution_mode (vault or tee). */
+    execution_mode?: string;
     created_at: string;
 }
 
@@ -105,6 +106,8 @@ type GraphqlGuardrailOpts = {
     maxQueryDepth?: number;
     maxAliases?: number;
     allowedOperations?: string;
+    /** custom/gRPC: extra agent request headers to forward (guardrails.allowed_request_headers). */
+    allowedRequestHeaders?: string;
 };
 
 function mergeGraphqlGuardrailFlags(
@@ -116,7 +119,8 @@ function mergeGraphqlGuardrailFlags(
         opts.allowIntrospection !== undefined ||
         opts.maxQueryDepth !== undefined ||
         opts.maxAliases !== undefined ||
-        opts.allowedOperations !== undefined;
+        opts.allowedOperations !== undefined ||
+        opts.allowedRequestHeaders !== undefined;
     if (!hasFlag) return guardrails;
 
     const merged: Record<string, unknown> = { ...(guardrails ?? {}) };
@@ -128,6 +132,12 @@ function mergeGraphqlGuardrailFlags(
         merged.allowed_operations = opts.allowedOperations
             .split(",")
             .map((s) => s.trim())
+            .filter(Boolean);
+    }
+    if (opts.allowedRequestHeaders !== undefined) {
+        merged.allowed_request_headers = opts.allowedRequestHeaders
+            .split(",")
+            .map((s) => s.trim().toLowerCase())
             .filter(Boolean);
     }
     return merged;
@@ -149,7 +159,10 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
             "--type <type>",
             "Binding type: http, graphql, postgres, mysql, redis, grpc, smtp, s3, custom",
         )
-        .option("--config <json>", "Binding config JSON (e.g. {\"base_url\":\"https://api.example.com\"})")
+        .option(
+            "--config <json>",
+            "Binding config JSON (e.g. {\"base_url\":\"https://api.example.com\"})",
+        )
         .option("--config-file <path>", "Path to binding config JSON file")
         .option("--guardrails <json>", "Per-binding guardrails JSON")
         .option("--guardrails-file <path>", "Path to guardrails JSON file")
@@ -161,7 +174,14 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
             "--allowed-operations <names>",
             "GraphQL: comma-separated allowed root operation names",
         )
-        .option("--credential <json>", "Credential JSON (write-only; not returned on read)")
+        .option(
+            "--allowed-headers <names>",
+            "custom/gRPC: comma-separated agent request headers the vault may forward (default content-type, accept, user-agent, idempotency-key)",
+        )
+        .option(
+            "--credential <json>",
+            "Credential JSON (write-only; not returned on read). Postgres/MySQL: verified TLS by default; only sslmode=verify-full or disable (MySQL ssl-mode=VERIFY_IDENTITY or DISABLED) are accepted",
+        )
         .option("--credential-file <path>", "Path to credential JSON file")
         .option(
             "--vault-ref <vault-id:path>",
@@ -188,6 +208,7 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                     maxAliases:
                         opts.maxAliases === undefined ? undefined : parseInt(opts.maxAliases, 10),
                     allowedOperations: opts.allowedOperations,
+                    allowedRequestHeaders: opts.allowedHeaders,
                 });
                 const credential = resolveJson(opts.credential, opts.credentialFile, "credential");
                 const vaultRef = parseVaultRef(opts.vaultRef);
@@ -323,6 +344,10 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
             "--allowed-operations <names>",
             "GraphQL: comma-separated allowed root operation names",
         )
+        .option(
+            "--allowed-headers <names>",
+            "custom/gRPC: comma-separated agent request headers the vault may forward (default content-type, accept, user-agent, idempotency-key)",
+        )
         .option("--credential <json>", "Updated credential JSON (inline)")
         .option("--credential-file <path>", "Path to credential JSON file")
         .option(
@@ -348,6 +373,7 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                     maxAliases:
                         opts.maxAliases === undefined ? undefined : parseInt(opts.maxAliases, 10),
                     allowedOperations: opts.allowedOperations,
+                    allowedRequestHeaders: opts.allowedHeaders,
                 });
                 const credential = resolveJson(opts.credential, opts.credentialFile, "credential");
                 const vaultRef = parseVaultRef(opts.vaultRef);
@@ -395,14 +421,14 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
     bindingCommand
         .command("test <agent-id> <binding-id>")
         .description("Test binding connectivity")
-        .option("--timeout-ms <ms>", "Client timeout in milliseconds")
+        .option("--timeout-ms <ms>", "Server-side connectivity timeout in milliseconds (clamped to 1000-30000; default 5000)")
         .option("--json", "Output as JSON")
         .action(async (agentId: string, bindingId: string, opts) => {
             try {
                 requireToken();
                 const body: Record<string, unknown> = {};
                 if (opts.timeoutMs) body.timeout_ms = parseInt(opts.timeoutMs, 10);
-                const result = await api<{ ok: boolean; message?: string; latency_ms?: number }>(
+                const result = await api<{ success: boolean; error?: string | null; latency_ms?: number }>(
                     `/agents/${agentId}/bindings/${bindingId}/test`,
                     { method: "POST", body },
                 );
@@ -410,12 +436,12 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                     printJson(result);
                     return;
                 }
-                if (result.ok) {
+                if (result.success) {
                     printSuccess(
                         `Connectivity OK${result.latency_ms != null ? ` (${result.latency_ms}ms)` : ""}`,
                     );
                 } else {
-                    printInfo(result.message ?? "Connectivity check failed");
+                    printInfo(result.error ?? "Connectivity check failed");
                 }
             } catch (err) {
                 handleError(err);
@@ -530,7 +556,7 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                         id: e.id,
                         intent: e.intent_type,
                         status: e.status,
-                        surface: e.execution_surface ?? "—",
+                        surface: e.execution_mode ?? "—",
                         created: formatDate(e.created_at),
                     })),
                     [

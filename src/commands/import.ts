@@ -159,10 +159,10 @@ async function runImport(
     const spinner = ora("Checking for existing secrets...").start();
     let existingPaths: Set<string>;
     try {
-        const secrets = await api<{ path: string }[]>(
+        const res = await api<{ secrets: { path: string }[] }>(
             `/vaults/${vaultId}/secrets`,
         );
-        existingPaths = new Set(secrets.map((s) => s.path));
+        existingPaths = new Set((res.secrets ?? []).map((s) => s.path));
     } catch {
         existingPaths = new Set();
     }

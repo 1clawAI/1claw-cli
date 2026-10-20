@@ -10,19 +10,25 @@ interface PolicyBackendSettings {
     breaker_behavior: string;
 }
 
+/** DivergenceReport (vault/src/domain/unified_policy_evaluator.rs). */
 interface ShadowReport {
     concordance_rate: number;
     total_evaluated: number;
-    divergent_count: number;
+    total_divergences: number;
+    total_errors: number;
+    period_start?: string;
+    period_end?: string;
     sample_events: Array<{
-        timestamp: string;
+        id: string;
+        backend: string;
         action: string;
-        principal_type: string;
-        principal_id: string;
-        resource: string;
         builtin_decision: string;
         backend_decision: string;
-        reason?: string;
+        divergent: boolean;
+        error_text?: string | null;
+        caller_id?: string | null;
+        resource_path?: string | null;
+        created_at: string;
     }>;
 }
 
@@ -91,19 +97,22 @@ policyBackendCommand
             printKeyValue([
                 ["Concordance Rate", `${(res.concordance_rate * 100).toFixed(1)}%`],
                 ["Total Evaluated", String(res.total_evaluated)],
-                ["Divergent Count", String(res.divergent_count)],
+                ["Divergences", String(res.total_divergences)],
+                ["Errors", String(res.total_errors)],
             ]);
             if (res.sample_events.length) {
                 console.log("\nSample divergences:");
                 printTable(
                     res.sample_events.map((e) => ({
                         ...e,
-                        principal: `${e.principal_type}:${e.principal_id.slice(0, 8)}…`,
+                        caller: e.caller_id ? `${e.caller_id.slice(0, 8)}…` : "—",
+                        resource: e.resource_path ?? "—",
                     })),
                     [
-                        { key: "timestamp", header: "Time" },
+                        { key: "created_at", header: "Time" },
                         { key: "action", header: "Action" },
-                        { key: "principal", header: "Principal", width: 18 },
+                        { key: "caller", header: "Caller", width: 12 },
+                        { key: "resource", header: "Resource", width: 24 },
                         { key: "builtin_decision", header: "Builtin" },
                         { key: "backend_decision", header: "Backend" },
                     ],

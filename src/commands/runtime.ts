@@ -22,8 +22,8 @@ interface Runtime {
     image: string | null;
     env_public: Record<string, string> | null;
     idle_timeout_secs: number;
-    monthly_hours_used: number;
-    egress_bytes_month: number;
+    monthly_hours_used?: number;
+    egress_bytes_month?: number;
     last_activity_at: string | null;
     created_at: string;
 }
@@ -65,7 +65,7 @@ runtimeCommand
                     preset: r.preset,
                     status: statusColor(r.status),
                     agent: r.agent_id.slice(0, 8) + "…",
-                    hours: `${r.monthly_hours_used.toFixed(1)}h`,
+                    hours: `${(r.monthly_hours_used ?? 0).toFixed(1)}h`,
                     created: formatDate(r.created_at),
                 })),
                 [
@@ -132,8 +132,8 @@ runtimeCommand
                 ["Agent ID", r.agent_id],
                 ["Image", r.image ?? "—"],
                 ["Idle Timeout", `${r.idle_timeout_secs}s`],
-                ["Monthly Hours", `${r.monthly_hours_used.toFixed(1)}h`],
-                ["Egress (bytes)", r.egress_bytes_month.toString()],
+                ["Monthly Hours", `${(r.monthly_hours_used ?? 0).toFixed(1)}h`],
+                ["Egress (bytes)", (r.egress_bytes_month ?? 0).toString()],
                 ["Last Activity", r.last_activity_at ? formatDate(r.last_activity_at) : "—"],
                 ["Created", formatDate(r.created_at)],
             ]);
@@ -211,7 +211,7 @@ runtimeCommand
     .command("update <runtime-id>")
     .description("Update a runtime")
     .option("--name <name>", "New name")
-    .option("--preset <preset>", "New preset")
+    .option("--preset <preset>", "Not supported: the API cannot change a runtime's preset; recreate the runtime instead")
     .option("--idle-timeout <secs>", "New idle timeout")
     .option("--schedule-cron <expr>", "Scheduled start (5-field cron); pair with --schedule-tz / --stop-after")
     .option("--schedule-tz <tz>", "IANA timezone for the schedule", "UTC")
@@ -223,7 +223,9 @@ runtimeCommand
             requireToken();
             const body: Record<string, unknown> = {};
             if (opts.name) body.name = opts.name;
-            if (opts.preset) body.preset = opts.preset;
+            if (opts.preset) {
+                throw new Error("The API cannot change a runtime's preset (UpdateRuntimeRequest has no preset). Delete and recreate the runtime with --preset.");
+            }
             if (opts.idleTimeout) body.idle_timeout_secs = parseInt(opts.idleTimeout, 10);
             if (opts.clearSchedule) body.schedule = null;
             else if (opts.scheduleCron) {

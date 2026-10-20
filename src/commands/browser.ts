@@ -146,7 +146,7 @@ binding
             const res = await api("/browser/credentials", {
                 method: "POST",
                 body: {
-                    name,
+                    label: name,
                     vault_id: opts.vault,
                     secret_path: opts.path,
                     login_url: opts.loginUrl,
@@ -177,7 +177,7 @@ binding
             printTable(
                 (res.credentials ?? []).map((c) => ({
                     id: String(c.id ?? ""),
-                    name: String(c.name ?? ""),
+                    name: String(c.label ?? ""),
                     login_url: String(c.login_url ?? ""),
                     hosts: Array.isArray(c.allowed_hosts) ? c.allowed_hosts.join(",") : "",
                 })),

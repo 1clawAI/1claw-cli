@@ -4,16 +4,16 @@ import { api } from "../client.js";
 import { requireToken, handleError } from "../middleware.js";
 import { printTable, printJson, formatDate } from "../output.js";
 
+/** AuditEvent (vault/src/domain/models.rs). */
 interface AuditEntry {
     id: string;
     action: string;
-    resource_type: string;
-    resource_id: string;
+    resource_type?: string | null;
+    resource_id?: string | null;
     actor_type: string;
     actor_id: string;
-    ip_address?: string;
-    details?: string;
-    created_at: string;
+    metadata?: unknown;
+    timestamp: string;
 }
 
 export const auditCommand = new Command("audit").description("View audit logs");
@@ -48,9 +48,11 @@ auditCommand
             printTable(
                 entries.map((e) => ({
                     ...e,
-                    time: formatDate(e.created_at, "long"),
+                    time: formatDate(e.timestamp, "long"),
                     actor: `${e.actor_type}:${e.actor_id.slice(0, 8)}…`,
-                    resource: `${e.resource_type}:${e.resource_id.slice(0, 8)}…`,
+                    resource: e.resource_type
+                        ? `${e.resource_type}:${(e.resource_id ?? "").slice(0, 8)}${e.resource_id ? "…" : ""}`
+                        : "—",
                     action: colorAction(e.action),
                 })),
                 [
@@ -58,7 +60,6 @@ auditCommand
                     { key: "action", header: "Action", width: 22 },
                     { key: "actor", header: "Actor", width: 18 },
                     { key: "resource", header: "Resource", width: 18 },
-                    { key: "ip_address", header: "IP" },
                 ],
             );
         } catch (err) {

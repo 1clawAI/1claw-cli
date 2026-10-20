@@ -158,7 +158,7 @@ export async function loginWithCredentials(
             return { mfaToken: result.mfa_token } as unknown as StoredAuth;
         }
 
-        const me = await api<{ id: string; email: string; org_id: string }>(
+        const me = await api<{ id: string; email: string }>(
             "/auth/me",
             { token: result.access_token },
         );
@@ -167,7 +167,7 @@ export async function loginWithCredentials(
             token: result.access_token,
             email: me.email,
             userId: me.id,
-            orgId: me.org_id,
+            orgId: orgIdFromToken(result.access_token) ?? "",
             expiresAt: new Date(
                 Date.now() + result.expires_in * 1000,
             ).toISOString(),
@@ -193,7 +193,7 @@ export async function completeMfaLogin(
             body: { mfa_token: mfaToken, code },
         });
 
-        const me = await api<{ id: string; email: string; org_id: string }>(
+        const me = await api<{ id: string; email: string }>(
             "/auth/me",
             { token: result.access_token },
         );
@@ -202,7 +202,7 @@ export async function completeMfaLogin(
             token: result.access_token,
             email: me.email,
             userId: me.id,
-            orgId: me.org_id,
+            orgId: orgIdFromToken(result.access_token) ?? "",
             expiresAt: new Date(
                 Date.now() + result.expires_in * 1000,
             ).toISOString(),
@@ -237,4 +237,21 @@ export function requireAuth(): string {
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * `GET /v1/auth/me` (UserProfileResponse) carries no org id; the user JWT's
+ * `org` claim does. Decoded, not verified: the vault verifies it.
+ */
+export function orgIdFromToken(token: string): string | undefined {
+    try {
+        const payload = token.split(".")[1];
+        if (!payload) return undefined;
+        const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+            org?: unknown;
+        };
+        return typeof claims.org === "string" ? claims.org : undefined;
+    } catch {
+        return undefined;
+    }
 }

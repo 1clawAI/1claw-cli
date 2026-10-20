@@ -34,6 +34,8 @@ export async function api<T = unknown>(
         token?: string;
         query?: Record<string, string | number | boolean | undefined>;
         headers?: Record<string, string>;
+        /** Return the body text as-is (e.g. a CSV export) instead of parsing JSON. */
+        raw?: boolean;
     } = {},
 ): Promise<T> {
     const baseUrl = getApiUrl();
@@ -81,6 +83,7 @@ export async function api<T = unknown>(
     if (res.status === 204) return undefined as T;
 
     const text = await res.text();
+    if (options.raw) return text as T;
     if (!text) return undefined as T;
 
     return JSON.parse(text) as T;

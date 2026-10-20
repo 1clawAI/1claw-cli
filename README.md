@@ -254,8 +254,8 @@ When a valid cache exists, `env run` uses it automatically instead of calling th
 1claw agent bind-secret <id> providers/stripe/api-key http_request \
   --arg /headers/Authorization --hosts api.stripe.com  # The enclave may put this secret only here
 1claw agent unbind-secret <id> <binding-id>
-1claw agent token <id>                         # Generate agent JWT (api_key only)
-1claw agent token <id> --quiet                 # Raw token (for piping)
+1claw agent token <id> --api-key ocv_...       # Exchange the agent's API key for a JWT
+1claw agent token <id> --quiet                 # Raw token (key from ONECLAW_AGENT_API_KEY or a prompt)
 1claw agent enroll my-agent \
   --email human@example.com                    # Self-enroll (no auth needed)
 1claw agent enroll my-agent --pair             # Pair: prints an SSH-style fingerprint the human
@@ -308,7 +308,7 @@ curl -X POST https://api.1claw.co/v1/org/freeze -H "Authorization: Bearer $ONECL
 curl -X POST https://api.1claw.co/v1/org/unfreeze -H "Authorization: Bearer $ONECLAW_TOKEN"
 ```
 
-Matching transactions return **202** `awaiting_approval` with an `approval_id`. Approve via dashboard or `1claw approval decide <id> --decision approved`.
+Matching transactions return **202** `awaiting_approval` with an `approval_id`. Approve via dashboard or `1claw approval decide <id> approve`.
 
 The CLI's `agent create` always uses `auth_method=api_key` (default; returns an `ocv_` API key). To register an `mtls` or `oidc_client_credentials` agent, use the SDK or `POST /v1/agents` directly — those auth methods don't generate an API key.
 
@@ -658,19 +658,24 @@ Multi-chain wallet generation for human users (replaces CDP embedded wallets). P
 1claw treasury generate                         # Generate wallets for all supported chains
 1claw treasury generate \
   --chains ethereum,solana,bitcoin              # Generate for specific chains only
-1claw treasury list                             # List your treasury wallets
+1claw treasury list                             # List your treasury wallets (custody + backup state)
 1claw treasury get <chain>                      # Get wallet details for a chain
+1claw treasury tss-chains                       # Chains enabled for self-custody wallets in this org
+1claw treasury safes list                       # Your 2-of-3 multisig Safes (EVM)
+1claw treasury safes retire <safe-id>           # Retire a Safe that was never deployed and holds nothing
 1claw treasury balance <chain>                  # Get native + token balances
 1claw treasury balance ethereum \
   --tokens 0xA0b8...eB48,0x6B17...71d0         # Include ERC-20 token balances
 1claw treasury send <chain> \
-  --to 0xRecipient --amount 0.01               # Send native currency (requires password)
+  --to 0xRecipient --amount 10000000000000000  # Send native currency: wei on EVM (requires password)
+1claw treasury send solana \
+  --to <address> --amount 0.5                  # Non-EVM amounts are in major units
 1claw treasury send ethereum \
-  --to 0xRecipient --amount 100 \
-  --token 0xA0b8...eB48                        # Send ERC-20 tokens
+  --to 0xRecipient --amount 100000000 \
+  --token 0xA0b8...eB48                        # ERC-20 transfer (amount in token base units)
 1claw treasury swap <chain> \
   --sell-token native --buy-token 0xA0b8... \
-  --amount 0.1 --slippage 1                    # Swap via DEX aggregator
+  --amount 0.1                                 # Swap via DEX aggregator
 1claw treasury export <chain> --password <pw>    # Export private key (audit-logged, requires password)
 1claw treasury rotate <chain>                   # Rotate key (new keypair, old deactivated)
 1claw treasury deactivate <chain>               # Deactivate wallet for a chain
@@ -678,7 +683,9 @@ Multi-chain wallet generation for human users (replaces CDP embedded wallets). P
 
 Supported chains: `ethereum`, `bitcoin`, `solana`, `xrp`, `cardano`, `tron`. Available on all tiers (counts toward wallet quota).
 
-`send` and `swap` require re-authentication via account password (prompted interactively or via `--password`). Both operations are audit-logged.
+`send` and `swap` require re-authentication via account password (prompted interactively or via `--password`). Both operations are audit-logged. When the org requires consensus for treasury sends, the API answers with a pending approval; re-run `send` with `--approval-id <id>` once it is approved.
+
+`send`, `export` and `rotate` work on server-custody wallets. Self-custody wallets (custody `client_tss`, the 2-of-3 keys; `client_multisig`, Tron multisig) and multisig Safes need your passkey, so they are created, backed up and spent from the dashboard. The API refuses `export` and `rotate` on them; a self-custody key leaves 1Claw only through its recovery kit and the offline `oneclaw-recover` tool.
 
 ### Treasury Proposals (Multisig)
 
@@ -687,13 +694,14 @@ Create, sign, and execute Safe multisig transaction proposals.
 ```bash
 1claw treasury proposal create <treasury-id> \
   --to 0xRecipient --value 1000000000000000 \
-  --chain ethereum                              # Create a proposal (value in wei)
+  --safe-tx-hash 0x... --nonce 7                # Create a proposal (value in wei)
 1claw treasury proposal list <treasury-id>      # List proposals
 1claw treasury proposal list <treasury-id> \
   --status pending                              # Filter by status
 1claw treasury proposal get <treasury-id> <id>  # Get proposal + signatures
 1claw treasury proposal sign <treasury-id> <id> \
-  --signature 0x... --decision approve          # Approve with EIP-712 signature
+  --signature 0x... --signer-address 0xOwner \
+  --decision approve                            # Approve with EIP-712 signature
 1claw treasury proposal execute <treasury-id> <id>  # Force-execute if threshold met
 1claw treasury proposal cancel <treasury-id> <id>   # Cancel pending proposal
 ```
@@ -717,6 +725,23 @@ Create, sign, and execute Safe multisig transaction proposals.
 1claw policy-backend set --mode shadow         # Stay in shadow mode (default)
 1claw policy-backend set --backend builtin+cedar --mode enforce
 1claw policy-backend shadow-report             # Divergence report (shadow vs builtin)
+1claw cedar-policy create --name read-only --file ./policy.cedar
+1claw cedar-policy test --principal-type agent --principal-id <uuid> \
+  --action read --resource-path api-keys/stripe --vault-id <uuid>
+1claw opa-policy create --name baseline --rego-file ./policy.rego [--entrypoint oneclaw/allow]
+1claw opa-policy test --principal-type agent --principal-id <uuid> \
+  --action read --resource-path api-keys/stripe --vault-id <uuid>
+```
+
+### Sub-organizations
+
+```bash
+1claw sub-org create acme [--isolation-mode full|shared_billing]
+1claw sub-org list
+1claw sub-org get <id>                         # Includes granted permissions
+1claw sub-org add-user <id> --email a@b.com --role member
+1claw sub-org grant <id> --permission <perm>
+1claw sub-org revoke <id> <perm>
 ```
 
 ### Contract ABIs
@@ -744,6 +769,8 @@ Create, sign, and execute Safe multisig transaction proposals.
 1claw share create <secret-id> --link          # Open share link
 1claw share create <secret-id> --to user:<id>  # Share with a user
 1claw share create <secret-id> --to agent:<id> # Share with an agent
+1claw share create <secret-id> --to a@b.com \
+  --expires 2026-12-31T00:00:00Z               # Invite by email (default expiry: 7 days)
 1claw share list                               # List outbound shares
 1claw share list --inbound                     # List inbound shares
 1claw share accept <id>                        # Accept a share
@@ -779,7 +806,7 @@ Register and manage event webhooks for your org.
 1claw webhook create \
   --url https://example.com/hook \
   --events agent.transaction.broadcast \
-  --secret my-hmac-secret                         # With HMAC verification
+  --description "tx feed"                         # Prints the signing secret once; verify deliveries with it
 1claw webhook list                                # List all webhooks
 1claw webhook get <id>                            # Get webhook details
 1claw webhook update <id> \
@@ -939,6 +966,8 @@ Human-in-the-loop approval workflow for agent actions.
 1claw approval get <id>                        # Get approval request details
 1claw approval decide <id> approve             # Approve a pending request
 1claw approval decide <id> reject --reason "Not needed"  # Reject with a reason
+1claw approval decide <id> approve \
+  --reauth-token <token>                       # Risk tier 2+ needs a re-auth token (purpose approval.decide)
 ```
 
 ### Devices

@@ -251,13 +251,15 @@ platformCommand
             }
 
             const result = await api<{
-                id: string;
-                slug: string;
-                deleted_at: string;
-                slug_released?: boolean;
+                deleted: boolean;
+                soft_delete: boolean;
+                slug_released: boolean;
+                former_slug?: string | null;
             }>(`/platform/apps/${appId}`, { method: "DELETE" });
             printSuccess(
-                `Platform app deleted (slug ${result.slug} released).`,
+                result.slug_released && result.former_slug
+                    ? `Platform app deleted (slug ${result.former_slug} released).`
+                    : "Platform app deleted.",
             );
         } catch (err) {
             handleError(err);
@@ -1472,9 +1474,8 @@ platformCommand
                     actor_id: string;
                     resource_type?: string;
                     resource_id?: string;
-                    created_at: string;
+                    timestamp: string;
                 }>;
-                total: number;
             }>(
                 `/platform/apps/${appId}/audit?limit=${opts.limit}&offset=${opts.offset}`,
             );
@@ -1496,7 +1497,7 @@ platformCommand
                     resource: e.resource_type
                         ? `${e.resource_type}/${(e.resource_id ?? "").slice(0, 8)}…`
                         : "—",
-                    date: formatDate(e.created_at),
+                    date: formatDate(e.timestamp),
                 })),
                 [
                     { key: "action", header: "Action", width: 28 },
@@ -1505,7 +1506,6 @@ platformCommand
                     { key: "date", header: "Date", width: 20 },
                 ],
             );
-            console.log(chalk.dim(`Total: ${result.total}`));
         } catch (err) {
             handleError(err);
         }

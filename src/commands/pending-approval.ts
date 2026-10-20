@@ -15,12 +15,12 @@ interface PendingApproval {
     current_approvals: number;
     expires_at?: string;
     created_at: string;
-    signatures: Array<{
-        signer_id: string;
-        signer_type: string;
+    signatures?: Array<{
+        id: string;
+        approver_id: string;
+        approver_type: string;
         decision: string;
-        payload_hash: string;
-        reason?: string;
+        reason?: string | null;
         created_at: string;
     }>;
 }
@@ -80,10 +80,10 @@ pendingApprovalCommand
                 ["Expires", res.expires_at ?? "never"],
                 ["Created", res.created_at],
             ]);
-            if (res.signatures.length) {
+            if (res.signatures?.length) {
                 console.log("\nSignatures:");
-                printTable(res.signatures, [
-                    { key: "signer_id", header: "Signer", width: 36 },
+                printTable(res.signatures.map((x) => ({ ...x, reason: x.reason ?? "" })), [
+                    { key: "approver_id", header: "Approver", width: 36 },
                     { key: "decision", header: "Decision", width: 10 },
                     { key: "reason", header: "Reason", width: 20 },
                     { key: "created_at", header: "Time" },

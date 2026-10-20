@@ -16,9 +16,8 @@ interface Webhook {
     url: string;
     events: string[];
     is_active: boolean;
-    secret_configured: boolean;
+    description?: string | null;
     created_at: string;
-    updated_at: string;
 }
 
 export const webhookCommand = new Command("webhook").description(
@@ -30,7 +29,9 @@ webhookCommand
     .description("Register a new webhook")
     .requiredOption("--url <url>", "Webhook delivery URL")
     .requiredOption("--events <events>", "Comma-separated event names")
-    .option("--secret <secret>", "HMAC secret for signature verification")
+    .option("--description <text>", "Description")
+    .option("--approval-id <id>", "Approved consensus request, when the org requires one")
+    .option("--secret <secret>", "Deprecated: the server generates the signing secret and shows it once; this value is not sent")
     .option("--json", "Output as JSON")
     .action(async (opts) => {
         try {
@@ -39,8 +40,9 @@ webhookCommand
                 url: opts.url,
                 events: opts.events.split(",").map((e: string) => e.trim()),
             };
-            if (opts.secret) body.secret = opts.secret;
-            const result = await api<Webhook>("/webhooks", {
+            if (opts.description) body.description = opts.description;
+            if (opts.approvalId) body.approval_id = opts.approvalId;
+            const result = await api<Webhook & { secret: string }>("/webhooks", {
                 method: "POST",
                 body,
             });
@@ -54,6 +56,11 @@ webhookCommand
                 ["URL", result.url],
                 ["Events", result.events.join(", ")],
             ]);
+            if (result.secret) {
+                console.log();
+                console.log(chalk.yellow("  Signing secret (shown once; verify deliveries with it):"));
+                console.log(`  ${chalk.bold(result.secret)}`);
+            }
         } catch (e) {
             handleError(e);
         }
@@ -114,9 +121,8 @@ webhookCommand
                 ["URL", result.url],
                 ["Events", result.events.join(", ")],
                 ["Active", result.is_active ? "Yes" : "No"],
-                ["Secret", result.secret_configured ? "Configured" : "None"],
+                ["Description", result.description ?? "—"],
                 ["Created", formatDate(result.created_at)],
-                ["Updated", formatDate(result.updated_at)],
             ]);
         } catch (e) {
             handleError(e);

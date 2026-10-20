@@ -13,33 +13,33 @@ import {
 
 interface OAuthProvider {
     slug: string;
-    name: string;
-    description?: string;
-    scopes?: string[];
-    is_enabled: boolean;
+    display_name: string;
+    default_scopes?: string[];
+    requires_app_credentials?: boolean;
+    documentation_url?: string | null;
 }
 
 interface OAuthConnection {
-    id: string;
+    binding_id: string;
     provider_slug: string;
     provider_name?: string;
-    account_label?: string;
     status: string;
+    needs_reauth?: boolean;
     scopes?: string[];
     created_at: string;
-    expires_at?: string;
 }
 
 interface OAuthConnectResponse {
     authorization_url: string;
-    state?: string;
 }
 
 interface OAuthCredential {
     id: string;
     provider_slug: string;
     client_id: string;
+    redirect_uri?: string | null;
     created_at: string;
+    updated_at?: string;
 }
 
 export const oauthCommand = new Command("oauth").description(
@@ -72,19 +72,19 @@ oauthCommand
             printTable(
                 providers.map((p) => ({
                     slug: p.slug,
-                    name: p.name,
-                    description: p.description ?? chalk.dim("—"),
-                    enabled: p.is_enabled
-                        ? chalk.green("yes")
-                        : chalk.dim("no"),
-                    scopes: p.scopes?.join(", ") ?? chalk.dim("—"),
+                    name: p.display_name,
+                    app_creds: p.requires_app_credentials
+                        ? "required"
+                        : chalk.dim("optional"),
+                    scopes: p.default_scopes?.length
+                        ? p.default_scopes.join(", ")
+                        : chalk.dim("—"),
                 })),
                 [
                     { key: "slug", header: "Slug", width: 16 },
                     { key: "name", header: "Name", width: 20 },
-                    { key: "description", header: "Description", width: 30 },
-                    { key: "enabled", header: "Enabled" },
-                    { key: "scopes", header: "Scopes", width: 30 },
+                    { key: "app_creds", header: "App credentials", width: 16 },
+                    { key: "scopes", header: "Default scopes", width: 40 },
                 ],
             );
         } catch (err) {
@@ -117,16 +117,16 @@ oauthCommand
 
             printTable(
                 connections.map((c) => ({
-                    id: c.id,
+                    id: c.binding_id,
                     provider: c.provider_slug,
-                    account: c.account_label ?? chalk.dim("—"),
+                    scopes: c.scopes?.length ? c.scopes.join(", ") : chalk.dim("—"),
                     status: c.status,
                     created: formatDate(c.created_at),
                 })),
                 [
-                    { key: "id", header: "ID", width: 36 },
+                    { key: "id", header: "Binding ID", width: 36 },
                     { key: "provider", header: "Provider", width: 16 },
-                    { key: "account", header: "Account", width: 24 },
+                    { key: "scopes", header: "Scopes", width: 24 },
                     { key: "status", header: "Status", width: 12 },
                     { key: "created", header: "Created" },
                 ],
@@ -139,6 +139,7 @@ oauthCommand
 oauthCommand
     .command("connect <agent-id> <provider-slug>")
     .description("Initiate OAuth connection (opens authorization URL in browser)")
+    .option("--scopes <scopes>", "Comma-separated scopes (default: the provider's default scopes)")
     .option("--no-open", "Print the URL instead of opening it")
     .action(async (agentId: string, providerSlug: string, opts) => {
         try {
@@ -147,7 +148,17 @@ oauthCommand
                 `/agents/${agentId}/oauth/connect`,
                 {
                     method: "POST",
-                    body: { provider_slug: providerSlug },
+                    body: {
+                        provider_slug: providerSlug,
+                        ...(opts.scopes
+                            ? {
+                                  scopes: String(opts.scopes)
+                                      .split(",")
+                                      .map((x: string) => x.trim())
+                                      .filter(Boolean),
+                              }
+                            : {}),
+                    },
                 },
             );
 
@@ -188,8 +199,8 @@ oauthCommand
                 if (!confirm) return;
             }
 
-            await api(`/agents/${agentId}/oauth/connections/${bindingId}`, {
-                method: "DELETE",
+            await api(`/agents/${agentId}/oauth/disconnect/${bindingId}`, {
+                method: "POST",
             });
             printSuccess("OAuth connection disconnected.");
         } catch (err) {
@@ -201,7 +212,9 @@ oauthCommand
 
 const credentialsCommand = oauthCommand
     .command("credentials")
-    .description("Manage OAuth app credentials (client ID/secret)");
+    .description(
+        "Manage OAuth app credentials (client ID/secret). Credentials are stored per organization; the agent id only scopes the request.",
+    );
 
 credentialsCommand
     .command("save <agent-id>")
@@ -209,18 +222,22 @@ credentialsCommand
     .requiredOption("--provider <slug>", "Provider slug (e.g. google, github, slack)")
     .requiredOption("--client-id <id>", "OAuth client ID")
     .requiredOption("--client-secret <secret>", "OAuth client secret")
+    .option("--redirect-uri <uri>", "Redirect URI registered with the provider (HTTPS in production)")
+    .option("--approval-id <id>", "Approved consensus request, when the org requires one for credential.create")
     .option("--json", "Output as JSON")
     .action(async (agentId: string, opts) => {
         try {
             requireToken();
             const result = await api<OAuthCredential>(
-                `/agents/${agentId}/oauth/credentials`,
+                `/agents/${agentId}/oauth/app-credentials`,
                 {
                     method: "POST",
                     body: {
                         provider_slug: opts.provider,
                         client_id: opts.clientId,
                         client_secret: opts.clientSecret,
+                        ...(opts.redirectUri ? { redirect_uri: opts.redirectUri } : {}),
+                        ...(opts.approvalId ? { approval_id: opts.approvalId } : {}),
                     },
                 },
             );
@@ -251,18 +268,23 @@ credentialsCommand
     .action(async (agentId: string, opts) => {
         try {
             requireToken();
-            const result = await api<{ credentials: OAuthCredential[] }>(
-                `/agents/${agentId}/oauth/credentials`,
-            );
+            const result = await api<{
+                credentials: OAuthCredential[];
+                platform_defaults?: string[];
+            }>(`/agents/${agentId}/oauth/app-credentials`);
             const credentials = result.credentials ?? [];
 
             if (opts.json) {
-                printJson(credentials);
+                printJson(result);
                 return;
             }
 
+            const defaults = result.platform_defaults ?? [];
             if (credentials.length === 0) {
-                printInfo("No OAuth credentials saved for this agent.");
+                printInfo("No OAuth app credentials saved for this organization.");
+                if (defaults.length > 0) {
+                    printInfo(`1Claw's own app is used for: ${defaults.join(", ")}`);
+                }
                 return;
             }
 
@@ -288,6 +310,7 @@ credentialsCommand
 credentialsCommand
     .command("delete <agent-id> <provider-slug>")
     .description("Delete OAuth app credentials for a provider")
+    .option("--approval-id <id>", "Approved consensus request, when the org requires one for credential.delete")
     .option("-y, --yes", "Skip confirmation")
     .action(async (agentId: string, providerSlug: string, opts) => {
         try {
@@ -307,8 +330,8 @@ credentialsCommand
             }
 
             await api(
-                `/agents/${agentId}/oauth/credentials/${encodeURIComponent(providerSlug)}`,
-                { method: "DELETE" },
+                `/agents/${agentId}/oauth/app-credentials/${encodeURIComponent(providerSlug)}`,
+                { method: "DELETE", query: { approval_id: opts.approvalId } },
             );
             printSuccess(
                 `OAuth credentials for ${chalk.bold(providerSlug)} deleted.`,

@@ -451,7 +451,7 @@ async function syncPush(
                 `/vaults/${cloudVaultId}/secrets/${encodeURIComponent(name)}`,
                 {
                     method: "PUT",
-                    body: { value: secret.value, secret_type: secret.type },
+                    body: { value: secret.value, type: secret.type },
                 },
             );
             markSynced(vault, name, cloudVaultId, name);
@@ -483,9 +483,12 @@ async function syncPull(
 ): Promise<void> {
     const spinner = ora("Fetching secrets from cloud...").start();
 
-    const cloudSecrets = await api<{ path: string; secret_type: string }[]>(
-        `/vaults/${cloudVaultId}/secrets`,
-    );
+    const cloudSecrets =
+        (
+            await api<{ secrets: { path: string; type: string }[] }>(
+                `/vaults/${cloudVaultId}/secrets`,
+            )
+        ).secrets ?? [];
 
     let pulled = 0;
     let skipped = 0;
@@ -500,7 +503,7 @@ async function syncPull(
             `/vaults/${cloudVaultId}/secrets/${encodeURIComponent(cs.path)}`,
         );
 
-        addSecret(vault, cs.path, detail.value, cs.secret_type);
+        addSecret(vault, cs.path, detail.value, cs.type);
         markSynced(vault, cs.path, cloudVaultId, cs.path);
         pulled++;
     }

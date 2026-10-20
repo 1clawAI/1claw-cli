@@ -3,23 +3,40 @@ import { api } from "../client.js";
 import { requireToken, handleError } from "../middleware.js";
 import { printTable, printJson, printSuccess, printKeyValue } from "../output.js";
 
+/** SubOrgResponse (vault/src/api/dto/sub_orgs.rs). */
+interface SubOrg {
+    id: string;
+    name: string;
+    parent_org_id: string;
+    org_type: string;
+    isolation_mode: string;
+    kek_id?: string | null;
+    created_at: string;
+}
+
+interface SubOrgPermission {
+    id: string;
+    permission: string;
+    granted_by: string;
+    created_at: string;
+}
+
 export const subOrgCommand = new Command("sub-org")
     .description("Manage sub-organizations");
 
 subOrgCommand
     .command("create <name>")
     .description("Create a sub-organization")
-    .option("--description <desc>", "Description")
-    .option("--billing-model <model>", "Billing model: inherit or independent", "inherit")
+    .option("--isolation-mode <mode>", "full (own KEK and billing, default) or shared_billing")
     .option("--json", "Output as JSON")
     .action(async (name, opts) => {
         try {
             requireToken();
-            const body: Record<string, unknown> = { name, billing_model: opts.billingModel };
-            if (opts.description) body.description = opts.description;
-            const res = await api<{ id: string; name: string; created_at: string }>("/org/sub-orgs", { method: "POST", body });
+            const body: Record<string, unknown> = { name };
+            if (opts.isolationMode) body.isolation_mode = opts.isolationMode;
+            const res = await api<SubOrg>("/org/sub-orgs", { method: "POST", body });
             if (opts.json) { printJson(res); return; }
-            printSuccess(`Sub-organization created: ${res.name} (${res.id})`);
+            printSuccess(`Sub-organization created: ${res.name} (${res.id}, ${res.isolation_mode})`);
         } catch (err) { handleError(err); }
     });
 
@@ -30,23 +47,36 @@ subOrgCommand
     .action(async (opts) => {
         try {
             requireToken();
-            const res = await api<{ sub_orgs: Array<{ id: string; name: string; status: string; created_at: string }> }>("/org/sub-orgs");
+            const res = await api<{ sub_orgs: SubOrg[] }>("/org/sub-orgs");
             if (opts.json) { printJson(res.sub_orgs); return; }
             if (!res.sub_orgs.length) { console.log("No sub-organizations found."); return; }
-            printTable(res.sub_orgs, [{ key: "id", header: "ID" }, { key: "name", header: "Name" }, { key: "status", header: "Status" }, { key: "created_at", header: "Created" }]);
+            printTable(res.sub_orgs.map((s) => ({ ...s })), [
+                { key: "id", header: "ID" },
+                { key: "name", header: "Name" },
+                { key: "isolation_mode", header: "Isolation" },
+                { key: "created_at", header: "Created" },
+            ]);
         } catch (err) { handleError(err); }
     });
 
 subOrgCommand
     .command("get <id>")
-    .description("Get a sub-organization")
+    .description("Get a sub-organization and its permissions")
     .option("--json", "Output as JSON")
     .action(async (id, opts) => {
         try {
             requireToken();
-            const res = await api<{ id: string; name: string; description: string; billing_model: string; status: string; created_at: string }>(`/org/sub-orgs/${id}`);
+            const res = await api<{ sub_org: SubOrg; permissions: SubOrgPermission[] }>(`/org/sub-orgs/${id}`);
             if (opts.json) { printJson(res); return; }
-            printKeyValue([["ID", res.id], ["Name", res.name], ["Description", res.description ?? ""], ["Billing", res.billing_model], ["Status", res.status], ["Created", res.created_at]]);
+            const s = res.sub_org;
+            printKeyValue([
+                ["ID", s.id],
+                ["Name", s.name],
+                ["Parent", s.parent_org_id],
+                ["Isolation", s.isolation_mode],
+                ["Created", s.created_at],
+                ["Permissions", res.permissions.map((p) => p.permission).join(", ") || "none"],
+            ]);
         } catch (err) { handleError(err); }
     });
 
@@ -65,52 +95,46 @@ subOrgCommand
     .command("grant <id>")
     .description("Grant a permission to a sub-organization")
     .requiredOption("--permission <perm>", "Permission string")
-    .option("--resource-ids <ids>", "Comma-separated resource UUIDs")
     .action(async (id, opts) => {
         try {
             requireToken();
-            const body: Record<string, unknown> = { permission: opts.permission };
-            if (opts.resourceIds) body.resource_ids = opts.resourceIds.split(",");
-            await api(`/org/sub-orgs/${id}/permissions`, { method: "POST", body });
-            printSuccess(`Permission granted to sub-org ${id}.`);
+            await api(`/org/sub-orgs/${id}/permissions`, { method: "POST", body: { permission: opts.permission } });
+            printSuccess(`Permission ${opts.permission} granted to sub-org ${id}.`);
         } catch (err) { handleError(err); }
     });
 
 subOrgCommand
-    .command("revoke <id> <permissionId>")
-    .description("Revoke a permission from a sub-organization")
-    .action(async (id, permissionId) => {
+    .command("revoke <id> <permission>")
+    .description("Revoke a permission (by its name, e.g. the string given to grant) from a sub-organization")
+    .action(async (id, permission) => {
         try {
             requireToken();
-            await api(`/org/sub-orgs/${id}/permissions/${permissionId}`, { method: "DELETE" });
-            printSuccess(`Permission ${permissionId} revoked from sub-org ${id}.`);
+            await api(`/org/sub-orgs/${id}/permissions/${encodeURIComponent(permission)}`, { method: "DELETE" });
+            printSuccess(`Permission ${permission} revoked from sub-org ${id}.`);
         } catch (err) { handleError(err); }
     });
 
 subOrgCommand
     .command("add-user <id>")
-    .description("Add a user to a sub-organization")
-    .requiredOption("--user-id <userId>", "User UUID")
+    .description("Add a user (by email) to a sub-organization")
+    .requiredOption("--email <email>", "Email of the user to add")
     .option("--role <role>", "Role: admin, member, viewer", "member")
     .action(async (id, opts) => {
         try {
             requireToken();
-            await api(`/org/sub-orgs/${id}/users`, { method: "POST", body: { user_id: opts.userId, role: opts.role } });
-            printSuccess(`User ${opts.userId} added to sub-org ${id}.`);
+            await api(`/org/sub-orgs/${id}/users`, { method: "POST", body: { email: opts.email, role: opts.role } });
+            printSuccess(`User ${opts.email} added to sub-org ${id}.`);
         } catch (err) { handleError(err); }
     });
 
 subOrgCommand
     .command("wallets <id>")
-    .description("Generate wallets for a sub-organization")
-    .option("--chains <chains>", "Comma-separated chain names")
+    .description("Generate treasury wallets for a sub-organization (all supported chains)")
     .option("--json", "Output as JSON")
     .action(async (id, opts) => {
         try {
             requireToken();
-            const body: Record<string, unknown> = {};
-            if (opts.chains) body.chains = opts.chains.split(",");
-            const res = await api(`/org/sub-orgs/${id}/wallets/generate`, { method: "POST", body });
+            const res = await api(`/org/sub-orgs/${id}/wallets/generate`, { method: "POST" });
             if (opts.json) { printJson(res); return; }
             printSuccess(`Wallets generated for sub-org ${id}.`);
         } catch (err) { handleError(err); }

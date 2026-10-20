@@ -28,7 +28,7 @@ createServer((req, res) => {
     res.end(
       JSON.stringify({
         execution_id: "e1",
-        status: "completed",
+        status: "success", // ExecuteResponse.status (handlers/bindings.rs)
         result: {
           status: 200,
           headers: { "content-type": "application/json" },

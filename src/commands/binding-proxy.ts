@@ -6,9 +6,10 @@
  * no key on the machine: every request becomes `POST /v1/agents/{id}/execute`
  * for the named binding, the vault checks the host and path allowlists and
  * the agent's policies, injects the credential, and returns the upstream
- * response. Whatever the tool sends as its own credential is discarded here,
- * never forwarded, so a placeholder like `BANKR_API_KEY=managed-by-1claw`
- * satisfies the tool's "must be non-empty" check without being anything.
+ * response. Whatever the tool sends as its own credential is checked against
+ * the per-run proxy token and then discarded, never forwarded, so the tool's
+ * API key (`BANKR_API_KEY`) is set to that proxy token, not a real key. Only
+ * with `--no-auth` does any non-empty placeholder do.
  *
  * If the vault is unreachable the proxy answers 502 and the tool stops. That
  * is the point.
@@ -105,7 +106,8 @@ export function cloudBindingForwarder(agentId: string, agentToken: string, bindi
                 token: agentToken,
                 body: { binding, intent_type: "http", execution_mode: "vault", params },
             });
-            if (result.status !== "completed" || !result.result) {
+            // ExecuteResponse.status: success | denied | error | dry_run (handlers/bindings.rs).
+            if (result.status !== "success" || !result.result) {
                 // A policy denial or a pending approval is not an upstream answer.
                 return {
                     kind: "refused",
@@ -260,6 +262,18 @@ function proxyTokenFor(opts: { auth?: boolean; token?: string }): string | undef
     return pinned || newProxyToken();
 }
 
+/**
+ * The vendor-key line to print. With auth on, the proxy refuses any request
+ * whose Authorization / X-API-Key is not the proxy token, so the key the tool
+ * sends must be that token; a placeholder only works under `--no-auth`.
+ */
+export function vendorKeyHint(token: string | undefined): string {
+    if (token === undefined) {
+        return "    export BANKR_API_KEY=placeholder   # --no-auth: any non-empty value; never forwarded";
+    }
+    return `    export BANKR_API_KEY=${token}   # the proxy token; checked here, never forwarded`;
+}
+
 function announceToken(token: string | undefined): void {
     if (token === undefined) {
         printInfo(chalk.yellow("--no-auth: any local process that can reach this port can use the binding."));
@@ -326,9 +340,9 @@ export function registerBindingProxyCommand(bindingCommand: Command): void {
                 announceToken(deps.token);
                 printInfo(`Agent ${resolved.agentId}. Credentials sent by the tool are dropped here; the vault injects the binding's.`);
                 console.log();
-                console.log(chalk.bold("  Point the vendor tool at it, with a placeholder key:"));
+                console.log(chalk.bold("  Point the vendor tool at it:"));
                 console.log(chalk.dim(`    export BANKR_API_URL=${base}`));
-                console.log(chalk.dim(`    export BANKR_API_KEY=managed-by-1claw   # any non-empty value; never forwarded`));
+                console.log(chalk.dim(vendorKeyHint(deps.token)));
                 console.log(chalk.dim(`    rm -f ~/.bankr/config.json`));
                 console.log();
             });
@@ -374,9 +388,9 @@ export function registerDaemonProxyCommand(daemonCommand: Command, defaultSocket
                 announceToken(deps.token);
                 printInfo(`Policy: 1claw daemon policy add ${secret} --hosts ${baseUrl.hostname} --inject-as header --header-name X-API-Key`);
                 console.log();
-                console.log(chalk.bold("  Point the vendor tool at it, with a placeholder key:"));
+                console.log(chalk.bold("  Point the vendor tool at it:"));
                 console.log(chalk.dim(`    export BANKR_API_URL=${base}`));
-                console.log(chalk.dim(`    export BANKR_API_KEY=managed-by-1claw   # any non-empty value; never forwarded`));
+                console.log(chalk.dim(vendorKeyHint(deps.token)));
                 console.log();
             });
         });

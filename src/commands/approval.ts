@@ -25,7 +25,7 @@ interface Approval {
     declared_risk_tier?: number | null;
     declared_below_floor?: boolean;
     status: string;
-    agent_id: string;
+    agent_id?: string | null;
     summary?: Record<string, unknown>;
     human_summary?: string | null;
     payload?: Record<string, unknown>;
@@ -72,7 +72,7 @@ approvalCommand
                         : `${a.target_type}/${a.target_id.slice(0, 8)}`,
                     risk: riskBadge(a.risk_tier),
                     status: statusBadge(a.status),
-                    agent: a.agent_id.slice(0, 8),
+                    agent: a.agent_id ? a.agent_id.slice(0, 8) : "—",
                     created: new Date(a.created_at).toLocaleDateString(),
                     expires: a.expires_at
                         ? new Date(a.expires_at).toLocaleDateString()
@@ -153,7 +153,7 @@ approvalCommand
                     ),
                 ]);
             }
-            rows.push(["Status", statusBadge(a.status)], ["Agent ID", a.agent_id]);
+            rows.push(["Status", statusBadge(a.status)], ["Agent ID", a.agent_id ?? "—"]);
             if (a.payload && Object.keys(a.payload).length > 0) {
                 rows.push(["Payload", JSON.stringify(a.payload)]);
             }
@@ -171,12 +171,20 @@ approvalCommand
 
 approvalCommand
     .command("decide <id> <decision>")
-    .description("Approve or reject a pending approval")
+    .description(
+        "Approve or reject a pending approval (decision: approve|approved or reject|rejected). " +
+            "Approving a risk tier 2+ request needs a re-auth token (tier 3: from TOTP or passkey).",
+    )
     .option("--reason <text>", "Reason for the decision")
+    .option(
+        "--reauth-token <token>",
+        "Re-auth token for purpose approval.decide, sent as X-Auth-Confirm (needed to approve risk tier 2+)",
+    )
     .action(async (id: string, decision: string, opts) => {
         try {
             requireToken();
-            if (decision !== "approve" && decision !== "reject") {
+            const normalized = normalizeApprovalDecision(decision);
+            if (!normalized) {
                 console.error(
                     chalk.red('Decision must be "approve" or "reject".'),
                 );
@@ -184,15 +192,36 @@ approvalCommand
             }
             await api(`/approvals/${id}/decide`, {
                 method: "POST",
-                body: { decision, reason: opts.reason },
+                body: { decision: normalized, reason: opts.reason },
+                headers: opts.reauthToken
+                    ? { "X-Auth-Confirm": opts.reauthToken }
+                    : undefined,
             });
-            printSuccess(
-                `Approval ${id} ${decision === "approve" ? "approved" : "rejected"}`,
-            );
+            printSuccess(`Approval ${id} ${normalized}`);
         } catch (e) {
             handleError(e);
         }
     });
+
+/**
+ * The vault's `ApprovalDecideRequest.decision` accepts only "approved" or
+ * "rejected" (vault/src/api/handlers/approvals.rs). People type the verb, so
+ * both spellings are accepted here and the server's is sent.
+ */
+export function normalizeApprovalDecision(
+    input: string,
+): "approved" | "rejected" | undefined {
+    switch (input.trim().toLowerCase()) {
+        case "approve":
+        case "approved":
+            return "approved";
+        case "reject":
+        case "rejected":
+            return "rejected";
+        default:
+            return undefined;
+    }
+}
 
 function truncate(s: string, max: number): string {
     return s.length <= max ? s : `${s.slice(0, max - 1)}…`;

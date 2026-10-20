@@ -54,7 +54,9 @@ interface EnvVarListResponse {
 }
 
 interface EnvResolveResponse {
-    variables: Record<string, string>;
+    vars: Record<string, string>;
+    sources?: Record<string, string>;
+    environment?: string;
 }
 
 const DEFAULT_ENVIRONMENTS = ["production", "preview", "development"];
@@ -170,7 +172,7 @@ envCommand
                     `/vaults/${vaultId}/env-vars/resolve`,
                     { query: { environment: env } },
                 );
-                values = response.variables;
+                values = response.vars;
             } else {
                 values = await fetchLegacyEnvVars(vaultId, opts.prefix);
             }
@@ -318,7 +320,7 @@ envCommand
                         `/vaults/${vaultId}/env-vars/resolve`,
                         { query: { environment: env } },
                     );
-                    envVars = response.variables;
+                    envVars = response.vars;
                 } else {
                     envVars = await fetchLegacyEnvVars(vaultId, opts.prefix);
                 }

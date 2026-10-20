@@ -15,10 +15,15 @@ interface MemoryEntry {
     agent_id: string;
     namespace: string;
     key: string;
-    value: string;
-    ttl_expires_at: string | null;
+    value: unknown;
+    tier?: string;
+    ttl_expires_at?: string | null;
     created_at: string;
     updated_at: string;
+}
+
+function showValue(v: unknown): string {
+    return typeof v === "string" ? v : JSON.stringify(v);
 }
 
 export const memoryCommand = new Command("memory")
@@ -33,7 +38,7 @@ memoryCommand
         try {
             requireToken();
             const res = await api<{ namespaces: string[] }>(
-                `/agents/${agentId}/memory/namespaces`,
+                `/agents/${agentId}/memory`,
             );
             const ns = res.namespaces ?? [];
 
@@ -104,15 +109,15 @@ memoryCommand
     .command("list <agent-id>")
     .alias("ls")
     .description("List memory entries for an agent")
-    .option("-n, --namespace <ns>", "Filter by namespace", "default")
+    .option("-n, --namespace <ns>", "Namespace to list", "default")
     .option("--limit <n>", "Max results", "50")
     .option("--json", "Output as JSON")
     .action(async (agentId, opts) => {
         try {
             requireToken();
             const res = await api<{ entries: MemoryEntry[] }>(
-                `/agents/${agentId}/memory`,
-                { query: { namespace: opts.namespace, limit: parseInt(opts.limit, 10) } },
+                `/agents/${agentId}/memory/${encodeURIComponent(opts.namespace)}`,
+                { query: { limit: parseInt(opts.limit, 10) } },
             );
             const entries = res.entries ?? [];
 
@@ -127,13 +132,16 @@ memoryCommand
             }
 
             printTable(
-                entries.map((e) => ({
+                entries.map((e) => {
+                    const v = showValue(e.value);
+                    return {
                     namespace: e.namespace,
                     key: e.key,
-                    value: e.value.length > 40 ? e.value.slice(0, 40) + "…" : e.value,
+                    value: v.length > 40 ? v.slice(0, 40) + "…" : v,
                     ttl: e.ttl_expires_at ? formatDate(e.ttl_expires_at) : chalk.dim("—"),
                     updated: formatDate(e.updated_at),
-                })),
+                    };
+                }),
                 [
                     { key: "namespace", header: "Namespace", width: 16 },
                     { key: "key", header: "Key", width: 24 },
@@ -156,8 +164,7 @@ memoryCommand
         try {
             requireToken();
             const entry = await api<MemoryEntry>(
-                `/agents/${agentId}/memory/${encodeURIComponent(key)}`,
-                { query: { namespace: opts.namespace } },
+                `/agents/${agentId}/memory/${encodeURIComponent(opts.namespace)}/${encodeURIComponent(key)}`,
             );
 
             if (opts.json) {
@@ -168,7 +175,8 @@ memoryCommand
             printKeyValue([
                 ["Namespace", entry.namespace],
                 ["Key", entry.key],
-                ["Value", entry.value],
+                ["Tier", entry.tier ?? "—"],
+                ["Value", showValue(entry.value)],
                 ["TTL Expires", entry.ttl_expires_at ? formatDate(entry.ttl_expires_at) : "—"],
                 ["Created", formatDate(entry.created_at)],
                 ["Updated", formatDate(entry.updated_at)],
@@ -188,16 +196,12 @@ memoryCommand
     .action(async (agentId, key, value, opts) => {
         try {
             requireToken();
-            const body: Record<string, unknown> = {
-                namespace: opts.namespace,
-                key,
-                value,
-            };
+            const body: Record<string, unknown> = { value };
             if (opts.ttl) body.ttl_seconds = parseInt(opts.ttl, 10);
             if (opts.tier) body.tier = opts.tier;
 
             const entry = await api<MemoryEntry>(
-                `/agents/${agentId}/memory`,
+                `/agents/${agentId}/memory/${encodeURIComponent(opts.namespace)}/${encodeURIComponent(key)}`,
                 { method: "PUT", body },
             );
 
@@ -221,8 +225,8 @@ memoryCommand
         try {
             requireToken();
             await api(
-                `/agents/${agentId}/memory/${encodeURIComponent(key)}`,
-                { method: "DELETE", query: { namespace: opts.namespace } },
+                `/agents/${agentId}/memory/${encodeURIComponent(opts.namespace)}/${encodeURIComponent(key)}`,
+                { method: "DELETE" },
             );
             printSuccess(`Memory entry deleted: ${chalk.bold(key)}`);
         } catch (err) {
@@ -237,11 +241,11 @@ memoryCommand
     .action(async (agentId, namespace) => {
         try {
             requireToken();
-            const res = await api<{ deleted: number }>(
-                `/agents/${agentId}/memory/namespaces/${encodeURIComponent(namespace)}`,
+            const res = await api<{ deleted_count: number }>(
+                `/agents/${agentId}/memory/${encodeURIComponent(namespace)}`,
                 { method: "DELETE" },
             );
-            printSuccess(`Deleted ${res.deleted} entries from namespace ${chalk.cyan(namespace)}`);
+            printSuccess(`Deleted ${res.deleted_count} entries from namespace ${chalk.cyan(namespace)}`);
         } catch (err) {
             handleError(err);
         }

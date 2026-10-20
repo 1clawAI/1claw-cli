@@ -125,8 +125,8 @@ spendCommand
     .action(async (opts) => {
         try {
             requireToken();
-            const csv = await api<string>("/spend/ai/export.csv", { query: windowQuery(opts) });
-            process.stdout.write(typeof csv === "string" ? csv : JSON.stringify(csv));
+            const csv = await api<string>("/spend/ai/export.csv", { query: windowQuery(opts), raw: true });
+            process.stdout.write(csv ?? "");
         } catch (e) { handleError(e); }
     });
 

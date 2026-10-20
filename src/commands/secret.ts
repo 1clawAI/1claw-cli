@@ -12,15 +12,23 @@ import {
 } from "../output.js";
 import { promptHiddenValue } from "../lib/hidden-input.js";
 
+/** SecretMetadataResponse: the type is serialized as `type`, and there is no `updated_at`. */
 interface Secret {
     id: string;
     path: string;
-    secret_type: string;
+    type: string;
     version: number;
     created_at: string;
-    updated_at: string;
     expires_at?: string;
     is_disabled?: boolean;
+}
+
+/** Metadata for one path from the list route, so no value is read (or audited as a read). */
+async function secretMetadata(vaultId: string, path: string): Promise<Secret | undefined> {
+    const res = await api<{ secrets: Secret[] }>(`/vaults/${vaultId}/secrets`, {
+        query: { prefix: path },
+    });
+    return (res.secrets ?? []).find((s) => s.path === path);
 }
 
 interface SecretValue extends Secret {
@@ -79,14 +87,14 @@ secretCommand
             printTable(
                 secrets.map((s) => ({
                     ...s,
-                    updated: formatDate(s.updated_at),
+                    created: formatDate(s.created_at),
                     expires: formatDate(s.expires_at),
                 })),
                 [
                     { key: "path", header: "Path", width: 35 },
-                    { key: "secret_type", header: "Type", width: 14 },
+                    { key: "type", header: "Type", width: 14 },
                     { key: "version", header: "Ver" },
-                    { key: "updated", header: "Updated" },
+                    { key: "created", header: "Version created" },
                     { key: "expires", header: "Expires" },
                 ],
             );
@@ -125,10 +133,10 @@ secretCommand
 
             printKeyValue([
                 ["Path", secret.path],
-                ["Type", secret.secret_type],
+                ["Type", secret.type],
                 ["Version", String(secret.version)],
                 ["Value", secret.value],
-                ["Updated", formatDate(secret.updated_at ?? secret.created_at, "long")],
+                ["Version created", formatDate(secret.created_at, "long")],
             ]);
         } catch (err) {
             handleError(err);
@@ -223,6 +231,7 @@ secretCommand
     .option("-g, --generate", "Server-side generation (no value needed)")
     .option("-l, --length <n>", "Generated value length (default 32)")
     .option("-c, --charset <charset>", "hex|base64|alphanumeric|ascii (default hex)")
+    .option("-t, --type <type>", "Secret type for the new version (default: the current type)")
     .action(async (path, value, opts) => {
         try {
             requireToken();
@@ -253,11 +262,22 @@ secretCommand
                 process.exit(1);
             }
 
+            // PutSecretRequest requires `type`; keep the existing one.
+            let secretType: string | undefined = opts.type;
+            if (!secretType) {
+                const existing = await secretMetadata(vaultId, path);
+                if (!existing) {
+                    printWarning(`No secret at ${path} to rotate. Use "1claw secret set" to create it.`);
+                    process.exit(1);
+                }
+                secretType = existing.type;
+            }
+
             await api(
                 `/vaults/${vaultId}/secrets/${encodeURIComponent(path)}`,
                 {
                     method: "PUT",
-                    body: { value: secretValue },
+                    body: { type: secretType, value: secretValue },
                 },
             );
 
@@ -299,7 +319,7 @@ secretCommand
                 })),
                 [
                     { key: "version", header: "Ver" },
-                    { key: "secret_type", header: "Type", width: 14 },
+                    { key: "type", header: "Type", width: 14 },
                     { key: "created", header: "Created" },
                     { key: "disabled", header: "Disabled" },
                 ],
@@ -318,17 +338,18 @@ secretCommand
         try {
             requireToken();
             const vaultId = resolveVaultId(opts);
-            const secret = await api<{ path: string; type?: string; secret_type?: string; version: number; value: string; created_at: string; expires_at?: string }>(
-                `/vaults/${vaultId}/secrets/${encodeURIComponent(path)}`,
-            );
+            const secret = await secretMetadata(vaultId, path);
+            if (!secret) {
+                printWarning(`No secret at ${path}.`);
+                process.exit(1);
+            }
 
             if (opts.json) {
-                const { value: _v, ...meta } = secret;
-                printJson(meta);
+                printJson(secret);
                 return;
             }
 
-            const secretType = secret.type ?? secret.secret_type ?? "—";
+            const secretType = secret.type ?? "—";
             printKeyValue([
                 ["Path", secret.path],
                 ["Type", secretType],

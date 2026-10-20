@@ -251,7 +251,7 @@ automationCommand
             if (opts.idempotencyKey) body.idempotency_key = opts.idempotencyKey;
             const run = await api<AutomationRun>(`/automations/${automationId}/trigger`, {
                 method: "POST",
-                body: JSON.stringify(body),
+                body,
             });
 
             if (opts.json) {
@@ -312,7 +312,7 @@ automationCommand
             requireToken();
             const a = await api<{ id: string; spec_version?: number }>(
                 `/automations/${automationId}/versions/${Number(version)}/rollback`,
-                { method: "POST", body: JSON.stringify({ note: opts.note, approval_id: opts.approvalId }) },
+                { method: "POST", body: { note: opts.note, approval_id: opts.approvalId } },
             );
             if (opts.json) {
                 printJson(a);
@@ -475,7 +475,7 @@ automationCommand
     .option("--json", "Output as JSON")
     .action(async (opts) => {
         try {
-            const res = await api<{ presets: Array<{ id: string; name: string; description?: string; trigger_type: string }> }>(
+            const res = await api<{ presets: Array<{ id: string; name: string; description?: string; trigger_type?: string; default_cron?: string }> }>(
                 "/automations/presets",
             );
             const presets = res.presets ?? [];
@@ -494,7 +494,7 @@ automationCommand
                 presets.map((p) => ({
                     id: p.id,
                     name: p.name,
-                    trigger: p.trigger_type,
+                    trigger: p.trigger_type ?? (p.default_cron ? `cron ${p.default_cron}` : chalk.dim("—")),
                     description: p.description ?? chalk.dim("—"),
                 })),
                 [

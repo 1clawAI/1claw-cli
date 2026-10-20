@@ -26,13 +26,16 @@ interface Subscription {
 
 interface CreditBalance {
     balance_cents: number;
-    expiring_within_30d_cents: number;
+    balance_usd?: string;
+    expiring_within_90_days?: { amount_cents: number; earliest_expiry: string } | null;
 }
 
 interface CreditTransaction {
     id: string;
+    type: string;
     amount_cents: number;
-    description: string;
+    balance_after_cents: number;
+    description: string | null;
     created_at: string;
 }
 
@@ -117,10 +120,10 @@ billingCommand
                     chalk.bold(`$${(balance.balance_cents / 100).toFixed(2)}`),
                 ],
                 [
-                    "Expiring within 30 days",
-                    balance.expiring_within_30d_cents > 0
+                    "Expiring within 90 days",
+                    balance.expiring_within_90_days && balance.expiring_within_90_days.amount_cents > 0
                         ? chalk.yellow(
-                              `$${(balance.expiring_within_30d_cents / 100).toFixed(2)}`,
+                              `$${(balance.expiring_within_90_days.amount_cents / 100).toFixed(2)} (first ${formatDate(balance.expiring_within_90_days.earliest_expiry)})`,
                           )
                         : "$0.00",
                 ],
@@ -199,10 +202,11 @@ billingCommand
     .action(async (opts) => {
         try {
             requireToken();
-            const txns = await api<CreditTransaction[]>(
+            const res = await api<{ transactions: CreditTransaction[]; page: number; limit: number }>(
                 "/billing/credits/transactions",
                 { query: { limit: opts.limit } },
             );
+            const txns = res.transactions ?? [];
 
             if (opts.json) {
                 printJson(txns);
@@ -221,6 +225,7 @@ billingCommand
                                   `-$${(Math.abs(t.amount_cents) / 100).toFixed(2)}`,
                               ),
                     date: formatDate(t.created_at, "long"),
+                    description: t.description ?? t.type,
                 })),
                 [
                     { key: "date", header: "Date", width: 22 },
