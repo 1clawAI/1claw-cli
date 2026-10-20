@@ -915,6 +915,7 @@ agentCommand
     .option('--new-recipient-cap-native <amount>', 'First-time recipient cap (use "" to clear)')
     .option('--tx-max-value-usd <amount>', 'Per-transaction USD cap (use "" to clear)')
     .option('--tx-daily-limit-usd <amount>', 'Rolling 24h USD cap (use "" to clear)')
+    .option('--raw-signing <on|off>', 'Raw (blind) digest signing for sign_digest / eip712_digest; turning it on needs the step-up')
     .option('--raw-signing-policy <mode>', 'Raw digest: allow, deny, or approve')
     .option('--personal-sign-policy <json>', 'personal_sign guardrails JSON (use "" to clear)')
     .option('--address-screening-policy <mode>', 'Recipient screening: off, deny, or approve')
@@ -1086,6 +1087,13 @@ agentCommand
             if (opts.txDailyLimitUsd !== undefined) {
                 body.tx_daily_limit_usd =
                     opts.txDailyLimitUsd === "" ? null : opts.txDailyLimitUsd;
+            }
+            if (opts.rawSigning !== undefined) {
+                const v = String(opts.rawSigning).toLowerCase();
+                if (!["on", "off", "true", "false"].includes(v)) {
+                    throw new Error("--raw-signing must be on or off");
+                }
+                body.raw_signing_enabled = v === "on" || v === "true";
             }
             if (opts.rawSigningPolicy !== undefined) {
                 body.raw_signing_policy = opts.rawSigningPolicy;
