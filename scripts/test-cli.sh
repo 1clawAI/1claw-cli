@@ -416,6 +416,15 @@ else
   tail -20 /tmp/cli_cred
 fi
 
+if node --test src/__tests__/env-protect.test.mjs > /tmp/cli_env_protect 2>&1; then
+  echo "  OK   node --test src/__tests__/env-protect.test.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test src/__tests__/env-protect.test.mjs"
+  ((FAILED++)) || true
+  tail -20 /tmp/cli_env_protect
+fi
+
 if node --test src/__tests__/hidden-input.test.mjs > /tmp/cli_hidden_input 2>&1; then
   echo "  OK   node --test src/__tests__/hidden-input.test.mjs"
   ((PASSED++)) || true

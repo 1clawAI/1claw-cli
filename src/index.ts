@@ -31,6 +31,8 @@ import { mfaCommand } from "./commands/mfa.js";
 import { configCommand } from "./commands/config.js";
 import { setupCommand } from "./commands/setup.js";
 import { importCommand } from "./commands/import.js";
+import { ignoreCommand } from "./commands/ignore.js";
+import { revokeCommand, restoreCommand } from "./commands/revoke.js";
 import { localCommand } from "./commands/local.js";
 import { daemonCommand } from "./commands/daemon.js";
 import { proxyCommand } from "./commands/proxy.js";
@@ -123,6 +125,9 @@ export function createProgram(): Command {
     // Setup, import & local vault
     program.addCommand(setupCommand);
     program.addCommand(importCommand);
+    program.addCommand(ignoreCommand);
+    program.addCommand(revokeCommand);
+    program.addCommand(restoreCommand);
     program.addCommand(localCommand);
     program.addCommand(daemonCommand);
 

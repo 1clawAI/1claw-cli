@@ -97,6 +97,43 @@ permissions.
 
 If you provide an existing key (`--agent-key` or "Enter an existing key"), provisioning is skipped — the assumption is those resources already exist.
 
+### Keep `.env` away from coding agents (`ignore`, `env import`)
+
+A coding agent can read your `.env` like any other file. `1claw ignore` takes it
+away; `1claw env import` moves the values into your vault. Neither prints a value,
+so an agent can run both.
+
+```bash
+1claw ignore                            # rules for Claude Code, Cursor, OpenCode (+ any found),
+                                        # .gitignore, and .env → .env.1claw (key in your vault)
+1claw ignore status                     # what is readable, what is encrypted, which agents have rules
+1claw env names                         # the env vars this project uses, by name; reads no values
+1claw env import                        # .env.1claw → vault env vars (production, write-only)
+1claw env import --secrets STRIPE_KEY   # …and STRIPE_KEY as a secret, for a binding
+1claw env import --plan plan.json       # per-key routing: env / secret / skip, environments, path
+1claw ignore restore                    # back to a plain .env (your own terminal only)
+```
+
+`ignore` writes each agent's own mechanism: deny rules in `.claude/settings.json`
+(Claude Code does not read `.claudeignore`), `.cursorignore`, `permission.read` in
+`opencode.json`, and `.devinignore` / `.geminiignore` / `.aiderignore` / `.clineignore` /
+`.aiexclude` where those tools are in use. Templates such as `.env.example` stay
+readable. These rules stop an agent's file tools, not every shell command, which is
+why the file is encrypted too: an agent that gets past a rule reads ciphertext.
+
+A third-party API key then becomes a binding the agent can call through without
+holding the key. `--credential-from-env` reads it from the protected file and
+stores it write-only:
+
+```bash
+1claw agent binding create <agent-id> --name stripe --type http \
+  --config '{"base_url":"https://api.stripe.com"}' \
+  --guardrails '{"allowed_hosts":["api.stripe.com"]}' \
+  --credential-from-env STRIPE_KEY
+```
+
+Your app reads the rest at start-up: `1claw env run -e production -- npm start`.
+
 ### Import (.env File)
 
 Import secrets from a local `.env` file into a 1Claw vault.
@@ -105,7 +142,7 @@ Import secrets from a local `.env` file into a 1Claw vault.
 1claw import .env                      # Import all keys from .env
 1claw import .env.production \
   --prefix prod/                       # Add a path prefix to all keys
-1claw import .env --dry-run            # Preview what would be imported
+1claw import .env --dry-run            # Show names and paths (never values)
 1claw import .env --force              # Overwrite existing secrets
 1claw import .env --vault <id>         # Import to a specific vault
 ```

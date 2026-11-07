@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import chalk from "chalk";
 import ora from "ora";
 import { api } from "../client.js";
+import { parseEnv } from "../lib/env-file.js";
 import { requireToken, resolveVaultId, handleError } from "../middleware.js";
 import {
     printSuccess,
@@ -11,64 +12,6 @@ import {
     printInfo,
     printTable,
 } from "../output.js";
-
-interface EnvEntry {
-    key: string;
-    value: string;
-    line: number;
-}
-
-function parseEnvFile(content: string): EnvEntry[] {
-    const entries: EnvEntry[] = [];
-    const lines = content.split("\n");
-
-    for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i].trim();
-
-        if (!raw || raw.startsWith("#")) continue;
-
-        let line = raw;
-        if (line.startsWith("export ")) {
-            line = line.slice(7).trim();
-        }
-
-        const eqIdx = line.indexOf("=");
-        if (eqIdx <= 0) continue;
-
-        const key = line.slice(0, eqIdx).trim();
-
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-
-        let value = line.slice(eqIdx + 1).trim();
-
-        if (
-            (value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))
-        ) {
-            value = value.slice(1, -1);
-        }
-
-        // Handle inline comments (only for unquoted values)
-        if (!raw.slice(eqIdx + 1).trim().startsWith('"') && !raw.slice(eqIdx + 1).trim().startsWith("'")) {
-            const commentIdx = value.indexOf(" #");
-            if (commentIdx >= 0) {
-                value = value.slice(0, commentIdx).trim();
-            }
-        }
-
-        if (value.startsWith('"')) {
-            value = value
-                .replace(/\\n/g, "\n")
-                .replace(/\\r/g, "\r")
-                .replace(/\\t/g, "\t")
-                .replace(/\\\\/g, "\\");
-        }
-
-        entries.push({ key, value, line: i + 1 });
-    }
-
-    return entries;
-}
 
 export const importCommand = new Command("import")
     .description("Import secrets from a .env file into a 1Claw vault")
@@ -115,7 +58,7 @@ async function runImport(
         process.exit(1);
     }
 
-    const entries = parseEnvFile(content);
+    const entries = parseEnv(content);
 
     if (entries.length === 0) {
         printWarning(`No valid environment variables found in ${file}`);
@@ -138,12 +81,14 @@ async function runImport(
         entries.map((e) => ({
             key: e.key,
             path: prefix + e.key,
-            preview: maskValue(e.value),
+            length: `${e.value.length} chars`,
         })),
         [
             { key: "key", header: "Variable" },
             { key: "path", header: "Vault Path" },
-            { key: "preview", header: "Value Preview" },
+            // Never a preview: the first and last characters of a key are
+            // exactly what an agent running this command should not see.
+            { key: "length", header: "Value" },
         ],
     );
     console.log();
@@ -168,7 +113,7 @@ async function runImport(
     }
     spinner.stop();
 
-    const toImport: EnvEntry[] = [];
+    const toImport: typeof entries = [];
     const skipped: string[] = [];
 
     for (const entry of entries) {
@@ -237,10 +182,4 @@ async function runImport(
         printWarning(`${failed} secret${failed > 1 ? "s" : ""} failed to import.`);
     }
     console.log();
-}
-
-function maskValue(value: string): string {
-    if (value.length <= 4) return "****";
-    if (value.length <= 8) return value.slice(0, 2) + "****";
-    return value.slice(0, 4) + "****" + value.slice(-2);
 }

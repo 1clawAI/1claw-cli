@@ -5,6 +5,11 @@ export function printJson(data: unknown): void {
     console.log(JSON.stringify(data, null, 2));
 }
 
+/** Visible width: ANSI colour codes take no columns. Padding by `.length` misaligns coloured cells. */
+const ANSI = /\x1b\[[0-9;]*m/g;
+const visible = (s: string) => s.replace(ANSI, "").length;
+const pad = (s: string, w: number) => s + " ".repeat(Math.max(0, w - visible(s)));
+
 export function printTable(
     rows: Record<string, unknown>[],
     columns: { key: string; header: string; width?: number }[],
@@ -31,20 +36,20 @@ export function printTable(
     const widths = columns.map((c) => {
         if (c.width) return c.width;
         const maxData = Math.max(
-            ...rows.map((r) => String(r[c.key] ?? "").length),
+            ...rows.map((r) => visible(String(r[c.key] ?? ""))),
         );
         return Math.max(c.header.length, maxData);
     });
 
     const headerLine = columns
-        .map((c, i) => chalk.bold(c.header.padEnd(widths[i])))
+        .map((c, i) => chalk.bold(pad(c.header, widths[i])))
         .join("  ");
     console.log(headerLine);
-    console.log(chalk.dim("─".repeat(headerLine.length)));
+    console.log(chalk.dim("─".repeat(visible(headerLine))));
 
     for (const row of rows) {
         const line = columns
-            .map((c, i) => String(row[c.key] ?? "").padEnd(widths[i]))
+            .map((c, i) => pad(String(row[c.key] ?? ""), widths[i]))
             .join("  ");
         console.log(line);
     }

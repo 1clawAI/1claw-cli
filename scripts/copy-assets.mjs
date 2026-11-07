@@ -83,6 +83,10 @@ if (existsSync(registryFrom)) {
     console.log(`copied agent-templates/registry.yaml → dist/bundled-templates/registry.yaml`);
 }
 
+// Skills that ship with the CLI and are installed into projects (`1claw ignore`).
+cpSync(join(root, "skills"), join(root, "dist", "bundled-skills"), { recursive: true });
+console.log("copied skills/ → dist/bundled-skills/");
+
 // Fail the build if templates are missing (prevents empty npm publishes).
 const manifestCount = existsSync(templatesTo)
     ? readdirSync(templatesTo).filter((d) =>
