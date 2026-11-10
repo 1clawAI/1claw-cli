@@ -88,9 +88,12 @@ export function setApiUrl(url: string): void {
     config.set("apiUrl", url);
 }
 
-/** The vault for this folder: env var, then `.1claw/project.json`, then the global default. */
+/** The vault for this folder: `.1claw/project.json`, then a non-empty ONECLAW_VAULT_ID, then the global default. */
 export function getDefaultVaultId(): string | null {
-    return process.env.ONECLAW_VAULT_ID ?? readProject()?.data.vault_id ?? (config.get("defaultVaultId") || null);
+    // The project's vault first: it is where `env import` put the values, so `env run` must read the
+    // same one (chooseProjectVault uses the same order). An empty variable counts as unset; CI exports
+    // ONECLAW_VAULT_ID="" and `??` took that as a vault id.
+    return readProject()?.data.vault_id || process.env.ONECLAW_VAULT_ID?.trim() || config.get("defaultVaultId") || null;
 }
 
 export function setDefaultVaultId(id: string): void {

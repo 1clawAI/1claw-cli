@@ -38,7 +38,7 @@ export async function chooseProjectVault(opts: { vault?: string; yes?: boolean; 
     }
     const project = readProject(dir);
     if (project?.data.vault_id) return project.data.vault_id;
-    if (process.env.ONECLAW_VAULT_ID) return process.env.ONECLAW_VAULT_ID;
+    if (process.env.ONECLAW_VAULT_ID?.trim()) return process.env.ONECLAW_VAULT_ID.trim();
 
     const name = basename(dir);
     const vaults = await listVaults();
