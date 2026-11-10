@@ -8,14 +8,20 @@ createServer((req, res) => {
   let raw = "";
   req.on("data", (c) => (raw += c));
   req.on("end", () => {
+    // The proxy exchanges the agent key for a JWT; the execute route only takes the JWT.
+    if (req.url === "/v1/auth/agent-token" && req.method === "POST") {
+      const ok = JSON.parse(raw).api_key === "ocv_test_key";
+      res.writeHead(ok ? 200 : 401, { "content-type": "application/json" });
+      return res.end(JSON.stringify(ok ? { access_token: "agent_jwt", expires_in: 900 } : { detail: "bad agent key" }));
+    }
     const m = req.url?.match(/^\/v1\/agents\/([^/]+)\/execute$/);
     if (!m || req.method !== "POST") {
       res.writeHead(404, { "content-type": "application/json" });
       return res.end(JSON.stringify({ detail: "not found" }));
     }
-    if (req.headers.authorization !== "Bearer ocv_test_key") {
+    if (req.headers.authorization !== "Bearer agent_jwt") {
       res.writeHead(401, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ detail: "bad agent key" }));
+      return res.end(JSON.stringify({ detail: "bad agent token" }));
     }
     const body = JSON.parse(raw);
     const p = body.params ?? {};

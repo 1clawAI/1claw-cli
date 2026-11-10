@@ -3,6 +3,7 @@ import chalk from "chalk";
 import { api } from "../client.js";
 import { requireToken, handleError } from "../middleware.js";
 import { setDefaultVaultId, getDefaultVaultId } from "../config.js";
+import { readProject, writeProject } from "../lib/project.js";
 import {
     printTable,
     printKeyValue,
@@ -135,15 +136,17 @@ vaultCommand
 vaultCommand
     .command("link <id>")
     .description(
-        "Link current directory to a vault (used as default for other commands)",
+        "Set your default vault, for every folder without its own (a project's .1claw/project.json wins)",
     )
     .action(async (id) => {
         try {
             requireToken();
             const vault = await api<Vault>(`/vaults/${id}`);
             setDefaultVaultId(id);
+            const project = readProject();
+            if (project) writeProject(project.root, { vault_id: id, vault_name: vault.name });
             printSuccess(
-                `Linked to vault ${chalk.bold(vault.name)} (${id}). This is now the default vault.`,
+                `Linked to vault ${chalk.bold(vault.name)} (${id}). ${project ? "This project now uses it." : "This is now the default vault."}`,
             );
         } catch (err) {
             handleError(err);

@@ -2,6 +2,7 @@ import Conf from "conf";
 import { chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readProject } from "./lib/project.js";
 
 export interface StoredAuth {
     token: string;
@@ -87,8 +88,9 @@ export function setApiUrl(url: string): void {
     config.set("apiUrl", url);
 }
 
+/** The vault for this folder: env var, then `.1claw/project.json`, then the global default. */
 export function getDefaultVaultId(): string | null {
-    return process.env.ONECLAW_VAULT_ID ?? config.get("defaultVaultId");
+    return process.env.ONECLAW_VAULT_ID ?? readProject()?.data.vault_id ?? (config.get("defaultVaultId") || null);
 }
 
 export function setDefaultVaultId(id: string): void {

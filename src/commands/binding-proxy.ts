@@ -14,7 +14,7 @@
  * If the vault is unreachable the proxy answers 502 and the tool stops. That
  * is the point.
  */
-import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Command } from "commander";
 import chalk from "chalk";
@@ -95,15 +95,40 @@ export interface ProxyRequestShape {
 
 export type Forwarder = (r: ProxyRequestShape) => Promise<Forwarded>;
 
+/**
+ * The agent's short-lived JWT, exchanged from its API key and renewed a minute
+ * before it expires. The vault's execute route takes the JWT, not the `ocv_`
+ * key: sending the key as the bearer answers 401 "Invalid or expired token",
+ * which is how every request through a cloud binding proxy used to fail.
+ */
+export function agentJwtSource(agentId: string, apiKey: string, exchange = defaultExchange): () => Promise<string> {
+    let cached: { token: string; renewAt: number } | undefined;
+    return async () => {
+        if (cached && Date.now() < cached.renewAt) return cached.token;
+        const res = await exchange(agentId, apiKey);
+        const lifetime = (res.expires_in ?? 900) * 1000;
+        cached = { token: res.access_token, renewAt: Date.now() + Math.max(lifetime - 60_000, lifetime / 2) };
+        return cached.token;
+    };
+}
+
+async function defaultExchange(agentId: string, apiKey: string): Promise<{ access_token: string; expires_in?: number }> {
+    return api<{ access_token: string; expires_in?: number }>("/auth/agent-token", {
+        method: "POST",
+        token: "",
+        body: { agent_id: agentId, api_key: apiKey },
+    });
+}
+
 /** Cloud: one execute call per request against the named binding. */
-export function cloudBindingForwarder(agentId: string, agentToken: string, binding: string): Forwarder {
+export function cloudBindingForwarder(agentId: string, agentKey: string, binding: string, jwt = agentJwtSource(agentId, agentKey)): Forwarder {
     return async ({ method, path, headers, body }) => {
         const params: Record<string, unknown> = { method, path, headers };
         if (body !== undefined) params.body = body;
         try {
             const result = await api<ExecuteHttpResult>(`/agents/${agentId}/execute`, {
                 method: "POST",
-                token: agentToken,
+                token: await jwt(),
                 body: { binding, intent_type: "http", execution_mode: "vault", params },
             });
             // ExecuteResponse.status: success | denied | error | dry_run (handlers/bindings.rs).
@@ -202,6 +227,29 @@ export function presentedCredential(headers: IncomingMessage["headers"]): string
     return undefined;
 }
 
+/**
+ * Whether a request carries the proxy token, and the path to forward. Tools put their API key in a bearer token,
+ * a vendor header (`X-Index-Key`) or a query parameter (`?key=`), so the token is accepted in any of them. A query
+ * parameter carrying it is removed, so it never travels upstream; headers are never relayed anyway.
+ * Returns null when the token is missing or wrong.
+ */
+export function acceptProxyToken(headers: IncomingMessage["headers"], path: string, expected: string): string | null {
+    const url = new URL(path, "http://proxy.local");
+    let found = credentialMatches(presentedCredential(headers), expected);
+    for (const value of Object.values(headers)) {
+        for (const v of Array.isArray(value) ? value : [value]) {
+            if (typeof v === "string" && credentialMatches(v.trim().replace(/^Bearer\s+/i, ""), expected)) found = true;
+        }
+    }
+    for (const [name, value] of [...url.searchParams]) {
+        if (credentialMatches(value, expected)) {
+            url.searchParams.delete(name);
+            found = true;
+        }
+    }
+    return found ? url.pathname + url.search : null;
+}
+
 export function credentialMatches(presented: string | undefined, expected: string): boolean {
     if (!presented) return false;
     const a = Buffer.from(presented);
@@ -216,8 +264,9 @@ export async function handleProxyRequest(
     res: ServerResponse,
 ): Promise<void> {
     const method = (req.method ?? "GET").toUpperCase();
-    const path = req.url ?? "/";
-    if (deps.token !== undefined && !credentialMatches(presentedCredential(req.headers), deps.token)) {
+    let path = req.url ?? "/";
+    const accepted = deps.token === undefined ? path : acceptProxyToken(req.headers, path, deps.token);
+    if (accepted === null) {
         if (deps.verbose) console.log(chalk.yellow(`  ${method} ${path} → 401 (proxy token missing or wrong)`));
         send(res, 401, { "www-authenticate": "Bearer realm=\"1claw-proxy\"" }, JSON.stringify({
             error: "proxy_unauthorized",
@@ -225,6 +274,7 @@ export async function handleProxyRequest(
         }));
         return;
     }
+    path = accepted;
     const raw = await readBody(req);
     const shape: ProxyRequestShape = { method, path, headers: relayableHeaders(req.headers), body: parseBody(raw) };
     const f = await deps.forward(shape);
@@ -283,9 +333,14 @@ function announceToken(token: string | undefined): void {
 }
 
 /** Bind and announce. Shared by the cloud and local commands. */
-export function listenProxy(deps: ProxyDeps, host: string, port: number, banner: (base: string) => void): void {
+export function listenProxy(deps: ProxyDeps, host: string, port: number, banner: (base: string) => void): Server {
     const server = createServer((req, res) => {
-        void handleProxyRequest(deps, req, res);
+        // Any local process can reach this port. A request it cannot parse (`GET http://[x/`) used to
+        // throw out of the token check and take `env run`, and every proxy with it, down.
+        handleProxyRequest(deps, req, res).catch(() => {
+            if (!res.headersSent) res.writeHead(400, { "content-type": "text/plain" });
+            res.end("bad request\n");
+        });
     });
     server.listen(port, host, () => {
         const addr = server.address();
@@ -296,6 +351,7 @@ export function listenProxy(deps: ProxyDeps, host: string, port: number, banner:
         printError(`Could not bind ${host}:${port}: ${err.message}`);
         process.exit(1);
     });
+    return server;
 }
 
 export function registerBindingProxyCommand(bindingCommand: Command): void {

@@ -3,6 +3,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { api } from "../client.js";
 import { registerBindingProxyCommand } from "./binding-proxy.js";
+import { defaultEnvFile, loadEnvFile } from "../lib/env-source.js";
 import { requireToken, handleError } from "../middleware.js";
 import {
     printTable,
@@ -100,6 +101,34 @@ function resolveJson(
     return parseJsonOption(inline, label);
 }
 
+/** Binding types whose credential is a single token or header value. */
+const SINGLE_VALUE_TYPES = ["http", "graphql", "grpc", "custom"];
+
+/**
+ * Turn one variable of an env file into a binding credential, in this process.
+ *
+ * The shape follows how the vault injects it (`inject_credential`): bearer and
+ * oauth2 read `token`, header and query read `value`. Stored inline, the
+ * credential lands in `__agent-keys`, write-only: no agent can read it back,
+ * which a `--vault-ref` cannot promise while the agent needs read on the path.
+ */
+export function credentialFromValue(value: string, bindingType: string, config: Record<string, unknown> | undefined): Record<string, string> {
+    if (!SINGLE_VALUE_TYPES.includes(bindingType)) {
+        throw new Error(`--credential-from-env works for ${SINGLE_VALUE_TYPES.join("/")} bindings; for ${bindingType} use --credential-file`);
+    }
+    const authType = String(config?.auth_type ?? "bearer");
+    if (authType === "bearer" || authType === "oauth2") return { token: value };
+    if (authType === "header" || authType === "query") return { value };
+    throw new Error(`--credential-from-env cannot build a "${authType}" credential from one value; use --credential-file`);
+}
+
+async function credentialFromEnv(key: string, envFile: string | undefined, bindingType: string, config: Record<string, unknown> | undefined) {
+    const loaded = await loadEnvFile(envFile ?? defaultEnvFile());
+    const entry = loaded.entries.find((e) => e.key === key);
+    if (!entry) throw new Error(`${key} is not in ${loaded.file}`);
+    return credentialFromValue(entry.value, bindingType, config);
+}
+
 type GraphqlGuardrailOpts = {
     allowMutations?: boolean;
     allowIntrospection?: boolean;
@@ -184,6 +213,11 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
         )
         .option("--credential-file <path>", "Path to credential JSON file")
         .option(
+            "--credential-from-env <key>",
+            "Take the credential from this variable of an env file (.env.1claw or .env), read here and never printed",
+        )
+        .option("--env-file <path>", "Env file for --credential-from-env (default .env.1claw, else .env)")
+        .option(
             "--vault-ref <vault-id:path>",
             "Live-pointer credential source — reference a vault secret instead of inline credential (e.g. <vault-id>:secrets/api-key)",
         )
@@ -210,8 +244,14 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
                     allowedOperations: opts.allowedOperations,
                     allowedRequestHeaders: opts.allowedHeaders,
                 });
-                const credential = resolveJson(opts.credential, opts.credentialFile, "credential");
+                let credential = resolveJson(opts.credential, opts.credentialFile, "credential");
                 const vaultRef = parseVaultRef(opts.vaultRef);
+                if (opts.credentialFromEnv) {
+                    if (credential || vaultRef) {
+                        throw new Error("Use one credential source: --credential, --credential-from-env or --vault-ref.");
+                    }
+                    credential = await credentialFromEnv(opts.credentialFromEnv, opts.envFile, opts.type, config);
+                }
 
                 if (vaultRef && credential) {
                     throw new Error("Cannot use both --credential and --vault-ref. Choose one credential source.");
@@ -451,15 +491,21 @@ export function registerAgentBindingCommands(agentCommand: Command): void {
     bindingCommand
         .command("rotate-credential <agent-id> <binding-id>")
         .description("Rotate (overwrite) a binding's stored credential")
-        .requiredOption("--credential <json>", "New credential JSON")
+        .option("--credential <json>", "New credential JSON")
         .option("--credential-file <path>", "Path to credential JSON file (overrides --credential)")
+        .option("--credential-from-env <key>", "Take the new credential from this variable of an env file, never printed")
+        .option("--env-file <path>", "Env file for --credential-from-env (default .env.1claw, else .env)")
         .option("--json", "Output as JSON")
         .action(async (agentId: string, bindingId: string, opts) => {
             try {
                 requireToken();
-                const credential = resolveJson(opts.credential, opts.credentialFile, "credential");
+                let credential = resolveJson(opts.credential, opts.credentialFile, "credential");
+                if (opts.credentialFromEnv) {
+                    const current = await api<Binding>(`/agents/${agentId}/bindings/${bindingId}`);
+                    credential = await credentialFromEnv(opts.credentialFromEnv, opts.envFile, current.binding_type, current.config);
+                }
                 if (!credential) {
-                    throw new Error("Credential is required");
+                    throw new Error("A credential is required: --credential, --credential-file or --credential-from-env");
                 }
                 const result = await api<Binding>(
                     `/agents/${agentId}/bindings/${bindingId}/rotate-credential`,
