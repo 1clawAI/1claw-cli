@@ -24,6 +24,9 @@ import { routeImport } from "../../dist/src/commands/env.js";
 import { credentialFromValue } from "../../dist/src/commands/binding.js";
 
 const CLI = resolve("dist/bin/1claw.js");
+// Ids are UUIDs, as the API's are: project.json and envelope ids are refused otherwise.
+const vid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const AGENT_ID = "00000000-0000-4000-8000-0000000000a1";
 
 // --- parser ---------------------------------------------------------------------
 
@@ -159,7 +162,7 @@ function mockVault() {
   const secrets = new Map();
   const envVars = new Map();
   const bindings = [];
-  const vaults = [{ id: "v0", name: "someone-elses" }];
+  const vaults = [{ id: vid(0), name: "someone-elses" }];
   const policies = [];
   const agents = [];
   const revoked = { value: false };
@@ -190,7 +193,7 @@ function mockVault() {
         return send(201, json);
       }
       if (url.pathname === "/v1/vaults") {
-        if (req.method === "POST") { vaults.push({ id: `v${vaults.length + 1}`, name: json.name }); return send(201, vaults.at(-1)); }
+        if (req.method === "POST") { vaults.push({ id: vid(vaults.length), name: json.name }); return send(201, vaults.at(-1)); }
         return send(200, { vaults });
       }
       if (url.pathname.match(/^\/v1\/vaults\/[^/]+\/policies$/)) {
@@ -198,7 +201,7 @@ function mockVault() {
         return send(200, { policies });
       }
       if (url.pathname === "/v1/agents") {
-        if (req.method === "POST") { agents.push({ id: "a1", name: json.name, body: json }); return send(201, { agent: { id: "a1", name: json.name }, api_key: AGENT_KEY }); }
+        if (req.method === "POST") { agents.push({ id: AGENT_ID, name: json.name, body: json }); return send(201, { agent: { id: AGENT_ID, name: json.name }, api_key: AGENT_KEY }); }
         return send(200, { agents });
       }
       if (url.pathname === "/v1/auth/agent-token") {
@@ -245,7 +248,7 @@ test("ignore → env import → binding: no value ever reaches output or disk in
   const DB = "postgres://u:" + randomBytes(12).toString("hex") + "@db/x";
   writeFileSync(join(dir, ".env"), `STRIPE_KEY=${STRIPE}\nDATABASE_URL="${DB}"\nPORT=3000\n`);
   writeFileSync(join(dir, ".env.example"), "STRIPE_KEY=\nDATABASE_URL=\nPORT=3000\n");
-  const env = { ONECLAW_API_URL: vault.url, ONECLAW_TOKEN: "test-token", ONECLAW_VAULT_ID: "vault-1", HOME: dir };
+  const env = { ONECLAW_API_URL: vault.url, ONECLAW_TOKEN: "test-token", ONECLAW_VAULT_ID: vid(1), HOME: dir };
   const leaks = (text) => text.includes(STRIPE) || text.includes(DB);
 
   try {
@@ -346,7 +349,9 @@ test("the whole app: ignore makes the vault, the plan does the rest, env run sta
     assert.strictEqual(vault.bindings[0].name, "x");
     assert.deepStrictEqual(vault.bindings[0].guardrails.allowed_hosts, ["api.example.com"]);
     assert.deepStrictEqual(vault.bindings[0].credential, { token: API });
-    assert.strictEqual(vault.policies[0].secret_path_pattern, "**");
+    // Env vars only: `**` would let the key in .env read every secret in the vault.
+    assert.strictEqual(vault.policies[0].secret_path_pattern, "__env/**");
+    assert.deepStrictEqual(vault.policies[0].permissions, ["read"]);
 
     // Running ignore again must leave the access key alone: encrypting it would stop the app starting.
     const again = await run(["ignore"], dir, human);
@@ -497,4 +502,115 @@ test("the proxy token works as a bearer, any vendor header or a query parameter,
   assert.strictEqual(acceptProxyToken({}, "/geocode?q=Lisbon&key=" + T, T), "/geocode?q=Lisbon");
   assert.strictEqual(acceptProxyToken({ "x-index-key": "wrong" }, "/price?key=nope", T), null);
   assert.strictEqual(acceptProxyToken({}, "/price", T), null);
+});
+
+// --- review fixes ---------------------------------------------------------------
+
+test("parseEnv: a quote closes only at the end of its line, and one that never closes is an error", () => {
+  assert.deepStrictEqual(parseEnv("A='it's here'\nZ=ok\n").map((e) => [e.key, e.value]), [["A", "it's here"], ["Z", "ok"]]);
+  assert.deepStrictEqual(parseEnv('A="x" # note\n').map((e) => e.value), ["x"]);
+  assert.deepStrictEqual(parseEnv('PEM="-----BEGIN\nabc\n-----END"\nB=2\n').map((e) => [e.key, e.value]), [["PEM", "-----BEGIN\nabc\n-----END"], ["B", "2"]]);
+  // Before: B swallowed C and D, which then never became routes, and `env import` retired the only copy.
+  assert.throws(() => parseEnv('A=1\nB="x\nC=SENTINEL_C\nD=SENTINEL_D\n'), (err) => {
+    assert.match(err.message, /B \(line 2\).*never closes/);
+    assert.ok(!err.message.includes("SENTINEL"), "the error printed a value");
+    return true;
+  });
+});
+
+test("a binding URL variable holding more than the base URL keeps the encrypted file", async () => {
+  const vault = await mockVault();
+  const dir = mkdtempSync(join(tmpdir(), "rpc-"));
+  const cfg = mkdtempSync(join(tmpdir(), "cfg-"));
+  // An RPC URL with the key in its path: the binding's base_url is only the host part.
+  writeFileSync(join(dir, ".env"), "RPC_URL=https://rpc.example.com/v2/SENTINEL_PATHKEY\nRPC_KEY=k\n");
+  const human = { ONECLAW_API_URL: vault.url, ONECLAW_TOKEN: "human", ONECLAW_CONFIG_DIR: cfg };
+  try {
+    await run(["ignore", "--yes"], dir, human);
+    writeFileSync(join(dir, "plan.json"), JSON.stringify({
+      app: { name: "rpc" },
+      vars: { RPC_KEY: { to: "binding", binding: { name: "rpc", base_url: "https://rpc.example.com", url_env: "RPC_URL" } } },
+    }));
+    const out = await run(["env", "import", "--plan", "plan.json"], dir, human);
+    assert.strictEqual(out.code, 0, out.out);
+    assert.ok(existsSync(join(dir, ".env.1claw")), "retired the only copy of RPC_URL");
+    assert.match(out.out, /still holds RPC_URL/);
+    assert.ok(!out.out.includes("SENTINEL_PATHKEY"));
+  } finally {
+    vault.server.close();
+  }
+});
+
+test("an existing .env stops the app setup before an agent is created, so no key is lost", async () => {
+  const vault = await mockVault();
+  const dir = mkdtempSync(join(tmpdir(), "kept-"));
+  const cfg = mkdtempSync(join(tmpdir(), "cfg-"));
+  writeFileSync(join(dir, ".env"), "A=1\n");
+  const human = { ONECLAW_API_URL: vault.url, ONECLAW_TOKEN: "human", ONECLAW_CONFIG_DIR: cfg };
+  try {
+    await run(["ignore", "--yes", "--keep-plaintext"], dir, human);
+    writeFileSync(join(dir, "plan.json"), JSON.stringify({ app: { name: "kept" }, vars: {} }));
+    const out = await run(["env", "import", ".env.1claw", "--plan", "plan.json"], dir, human);
+    assert.notStrictEqual(out.code, 0);
+    assert.match(out.out, /already exists/);
+    assert.strictEqual(vault.agents.length, 0, "created an agent whose key had nowhere to go");
+  } finally {
+    vault.server.close();
+  }
+});
+
+test("the proxy answers an unparseable request with 400 and keeps serving", async () => {
+  const { listenProxy } = await import("../../dist/src/commands/binding-proxy.js");
+  const net = await import("node:net");
+  let server;
+  const base = await new Promise((r) => { server = listenProxy({ forward: async () => ({ status: 200, headers: {}, body: "" }), token: "t" }, "127.0.0.1", 0, r); });
+  const port = Number(base.split(":").pop());
+  const raw = (line) => new Promise((r) => {
+    const s = net.connect(port, "127.0.0.1", () => s.write(`${line}\r\nHost: a\r\nConnection: close\r\n\r\n`));
+    let got = "";
+    s.on("data", (d) => (got += d));
+    s.on("close", () => r(got));
+  });
+  try {
+    assert.match(await raw("GET http://[x/ HTTP/1.1"), /^HTTP\/1\.1 400/);
+    assert.match(await raw("GET / HTTP/1.1"), /^HTTP\/1\.1 401/, "the proxy died after the bad request");
+  } finally {
+    server.close();
+  }
+});
+
+test("env names masks connection strings, short secrets, and literals cut by the line limit", async () => {
+  const { maskLiterals } = await import("../../dist/src/lib/env-names.js");
+  for (const line of [
+    'const db = process.env.DATABASE_URL || "postgres://admin:hunter2@db/app";',
+    'const pw = process.env.PW ?? "short-pass1";',
+    'const k = process.env.K || "p@ss w0rd!&x";',
+  ]) {
+    const { shown } = maskLiterals(line);
+    for (const leak of ["hunter2", "short-pass1", "p@ss"]) assert.ok(!shown.includes(leak), `${shown} shows ${leak}`);
+  }
+  assert.strictEqual(maskLiterals('fetch("STRIPE_SECRET_KEY")').shown, 'fetch("STRIPE_SECRET_KEY")');
+  assert.strictEqual(maskLiterals('log("api key missing")').shown, 'log("api key missing")');
+
+  const dir = mkdtempSync(join(tmpdir(), "names-"));
+  writeFileSync(join(dir, "a.js"), `const k = process.env.KEY || "${"x".repeat(210)}sk_live_SENTINEL_TAIL";\n`);
+  const out = await run(["env", "names", dir], dir, {});
+  assert.strictEqual(out.code, 0, out.out);
+  assert.ok(!out.out.includes("SENTINEL") && !out.out.includes("xxxxxxxxxx"), out.out);
+});
+
+test("ids from a committed project.json must be UUIDs before they reach an API path", async () => {
+  const vault = await mockVault();
+  const dir = mkdtempSync(join(tmpdir(), "hostile-"));
+  writeFileSync(join(dir, ".gitignore"), "");
+  await import("node:fs").then((fs) => fs.mkdirSync(join(dir, ".1claw")));
+  writeFileSync(join(dir, ".1claw/project.json"), JSON.stringify({ agent_id: "../vaults/x/secrets/y?" }));
+  try {
+    const out = await run(["revoke"], dir, { ONECLAW_API_URL: vault.url, ONECLAW_TOKEN: "human", ONECLAW_CONFIG_DIR: mkdtempSync(join(tmpdir(), "cfg-")) });
+    assert.notStrictEqual(out.code, 0);
+    assert.match(out.out, /not a UUID/);
+    assert.strictEqual(vault.revoked.value, false, "the PATCH was sent");
+  } finally {
+    vault.server.close();
+  }
 });

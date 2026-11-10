@@ -435,6 +435,15 @@ Secrets are what bindings point at, so an agent can call an API without the key:
                 },
             );
             const values = new Map(loaded.entries.map((e) => [e.key, e.value]));
+            // A binding's URL variable is replaced by the local proxy at run time, so it is not imported.
+            // When the file's value is not just the binding's base URL (an RPC URL with a key in its
+            // path, say), it is the only copy: keep the encrypted file rather than retire it.
+            const trim = (u: string) => u.trim().replace(/\/+$/, "");
+            const urlValuesKept = Object.values(plan?.vars ?? {})
+                .map((v) => v.binding)
+                .filter((b): b is PlannedBinding => Boolean(b?.url_env && values.has(b.url_env)))
+                .filter((b) => trim(values.get(b.url_env!) ?? "") !== trim(b.base_url))
+                .map((b) => b.url_env!);
             const results: { key: string; destination: string; result: string }[] = [];
 
             const vaultId = opts.dryRun ? undefined : resolveVaultId(opts);
@@ -545,7 +554,10 @@ Secrets are what bindings point at, so an agent can call an API without the key:
             // The whole app: remember its bindings, and retire the encrypted file once nothing depends on it.
             let retired = false;
             const failed = results.some((r) => r.result.startsWith("failed"));
-            const leftOut = routes.filter((r) => r.to === "skip" && r.why !== "binding URL").map((r) => r.key);
+            const leftOut = [
+                ...routes.filter((r) => r.to === "skip" && r.why !== "binding URL").map((r) => r.key),
+                ...urlValuesKept,
+            ];
             if (agent && vaultId) {
                 const root = readProject()?.root ?? process.cwd();
                 writeProject(root, { bindings: madeBindings });
@@ -574,7 +586,7 @@ Secrets are what bindings point at, so an agent can call an API without the key:
             else if (results.some((r) => r.result.startsWith("failed"))) printWarning("Some variables failed; the rest were imported.");
             else printSuccess("Done. No values were printed.");
             if (agent && !opts.dryRun) {
-                if (agent.created) printSuccess(`Agent ${chalk.bold(agent.name)} created, with access to this vault`);
+                if (agent.created) printSuccess(`Agent ${chalk.bold(agent.name)} created, with read access to this vault's env vars only`);
                 if (retired) printSuccess(`${chalk.bold(loaded.file)} and its key removed`);
                 else if (leftOut.length) printWarning(`Kept ${loaded.file}: it still holds ${leftOut.join(", ")}, which the plan left out.`);
                 printSuccess(`${chalk.bold(".env")} now holds only this app's access key`);

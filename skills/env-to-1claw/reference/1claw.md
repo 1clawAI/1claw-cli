@@ -91,8 +91,8 @@ make the call and inject the credential; `guardrails.allowed_hosts` is required.
   `basic` needs `{username, password}` (use `--credential-file`).
 - Credential sources: **inline** (`--credential-from-env`, `--credential-file`) is stored write-only in `__agent-keys`.
   **`--vault-ref <vault>:<path>`** points at a vault secret (import it with `1claw env import --secrets KEY`); one secret
-  can feed several bindings, but today the agent needs `read` on that path, so it could fetch the value. Prefer inline
-  until the `use` permission ships. `private_key` / `ssh_key` secrets are refused as binding credentials.
+  can feed several bindings. Grant the agent `use` on that path, not `read`: `use` lets the vault inject it into the
+  call, while `read` would also let the agent fetch the value. `private_key` / `ssh_key` secrets are refused as binding credentials.
 - The app reaches the API through the binding: `1claw agent binding proxy <binding>` runs a local proxy for a vendor
   SDK/CLI (point its base URL at the proxy; no key on the machine), or call `1claw agent binding execute` / the execute
   API. Rotate with `1claw agent binding rotate-credential <agent> <binding> --credential-from-env KEY`.

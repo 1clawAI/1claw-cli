@@ -40,14 +40,24 @@ export function findProjectRoot(start = process.cwd()): string | null {
     }
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function readProject(start = process.cwd()): { root: string; data: ProjectFile } | null {
     const root = findProjectRoot(start);
     if (!root) return null;
+    let data: ProjectFile;
     try {
-        return { root, data: JSON.parse(readFileSync(projectPath(root), "utf8")) as ProjectFile };
+        data = JSON.parse(readFileSync(projectPath(root), "utf8")) as ProjectFile;
     } catch {
         throw new Error(`${projectPath(root)} is not valid JSON`);
     }
+    // Committed to the repo, so anyone with a PR can write it; these ids go into API paths.
+    for (const field of ["vault_id", "agent_id"] as const) {
+        if (data[field] !== undefined && !UUID.test(String(data[field]))) {
+            throw new Error(`${projectPath(root)}: ${field} is not a UUID`);
+        }
+    }
+    return { root, data };
 }
 
 export function writeProject(root: string, patch: Partial<ProjectFile>): void {

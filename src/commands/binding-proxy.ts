@@ -14,7 +14,7 @@
  * If the vault is unreachable the proxy answers 502 and the tool stops. That
  * is the point.
  */
-import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Command } from "commander";
 import chalk from "chalk";
@@ -333,9 +333,14 @@ function announceToken(token: string | undefined): void {
 }
 
 /** Bind and announce. Shared by the cloud and local commands. */
-export function listenProxy(deps: ProxyDeps, host: string, port: number, banner: (base: string) => void): void {
+export function listenProxy(deps: ProxyDeps, host: string, port: number, banner: (base: string) => void): Server {
     const server = createServer((req, res) => {
-        void handleProxyRequest(deps, req, res);
+        // Any local process can reach this port. A request it cannot parse (`GET http://[x/`) used to
+        // throw out of the token check and take `env run`, and every proxy with it, down.
+        handleProxyRequest(deps, req, res).catch(() => {
+            if (!res.headersSent) res.writeHead(400, { "content-type": "text/plain" });
+            res.end("bad request\n");
+        });
     });
     server.listen(port, host, () => {
         const addr = server.address();
@@ -346,6 +351,7 @@ export function listenProxy(deps: ProxyDeps, host: string, port: number, banner:
         printError(`Could not bind ${host}:${port}: ${err.message}`);
         process.exit(1);
     });
+    return server;
 }
 
 export function registerBindingProxyCommand(bindingCommand: Command): void {

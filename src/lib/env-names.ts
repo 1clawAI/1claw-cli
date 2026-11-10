@@ -49,7 +49,9 @@ const SIGNALS: [string, RegExp][] = [
     ["rpc endpoint", /JsonRpcProvider\(|http\(\s*process|createPublicClient\(|new\s+Connection\(|WebSocketProvider\(/],
 ];
 const PUBLIC_PREFIX = /^(NEXT_PUBLIC_|VITE_|PUBLIC_|EXPO_PUBLIC_|REACT_APP_|NUXT_PUBLIC_|GATSBY_)/;
-const SECRETISH_LITERAL = /(['"`])([A-Za-z0-9_\-+/=.:]{16,})\1/g;
+// Any quoted literal of 8 or more characters. Passwords and connection strings carry `@ ? & ! % $` and
+// spaces, and short ones are still secrets; what is left visible is decided in maskLiterals.
+const SECRETISH_LITERAL = /(['"`])((?:(?!\1)[^\\\n]|\\.){8,})\1/g;
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -77,6 +79,7 @@ export function maskLiterals(line: string): { shown: string; hits: ("url" | "tok
     const hits: ("url" | "token")[] = [];
     const shown = line.replace(SECRETISH_LITERAL, (whole, quote: string, v: string) => {
         if (/^[A-Z][A-Z0-9_]+$/.test(v)) return whole; // an env var name, not a value
+        if (/^[a-z]+(?:[ -][a-z]+)*$/.test(v) && v.length <= 24) return whole; // plain lowercase words: a label, not a key
         if (/^0x[0-9a-fA-F]{40}$/.test(v)) return whole; // a public address
         const kind = /^(https?|wss?):\/\//.test(v) ? "url" : "token";
         hits.push(kind);
@@ -204,7 +207,10 @@ export function scanEnvNames(rootArg: string): EnvNamesReport {
             for (const n of destructured.get(i) ?? []) found.add(n);
             if (!found.size) return;
             const windowText = lines.slice(Math.max(0, i - 3), i + 4).join("\n");
-            const { shown, hits } = maskLiterals(line.trim().slice(0, 220));
+            // Mask, then cut: cutting first can split a literal and print its prefix unmasked.
+            const masked = maskLiterals(line.trim());
+            const hits = masked.hits;
+            const shown = masked.shown.length > 220 ? `${masked.shown.slice(0, 220)}…` : masked.shown;
             for (const n of found) {
                 const e = entry(n);
                 if (e.uses.length < 12) e.uses.push(`${rel}:${i + 1}  ${shown}`);

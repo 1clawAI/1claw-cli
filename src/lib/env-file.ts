@@ -45,15 +45,23 @@ export function parseEnv(content: string): EnvEntry[] {
         const quote = rest[0];
 
         if (quote === '"' || quote === "'" || quote === "`") {
-            // A quoted value may span lines (PEM keys, JSON); read until the closing quote.
+            // A quoted value may span lines (PEM keys, JSON); read until the closing quote, which is
+            // the last quote on its line followed by nothing but a comment. So `'it's here'` keeps
+            // its apostrophe, and a quote that never closes is an error rather than a value that
+            // swallows every later line: `env import` deletes the source once the import succeeds,
+            // so a misparse there loses the variables it swallowed.
             let body = rest.slice(1);
-            let close = findClosingQuote(body, quote);
+            let close = findClosingQuote(body, quote, 0);
             while (close < 0 && i + 1 < lines.length) {
                 i++;
+                const from = body.length + 1;
                 body += "\n" + lines[i];
-                close = findClosingQuote(body, quote);
+                close = findClosingQuote(body, quote, from);
             }
-            let value = close >= 0 ? body.slice(0, close) : body;
+            if (close < 0) {
+                throw new Error(`${key} (line ${startLine}) opens a ${quote} quote that never closes; fix the file first. No value was printed.`);
+            }
+            let value = body.slice(0, close);
             if (quote === '"') value = unescapeDoubleQuoted(value);
             entries.push({ key, value, line: startLine });
             continue;
@@ -67,15 +75,18 @@ export function parseEnv(content: string): EnvEntry[] {
     return entries;
 }
 
-function findClosingQuote(s: string, quote: string): number {
-    for (let i = 0; i < s.length; i++) {
+/** The closing quote on the line starting at `from`: the last one followed only by whitespace or a `#` comment. */
+function findClosingQuote(s: string, quote: string, from: number): number {
+    const end = s.indexOf("\n", from) < 0 ? s.length : s.indexOf("\n", from);
+    let found = -1;
+    for (let i = from; i < end; i++) {
         if (s[i] === "\\" && quote === '"') {
             i++;
             continue;
         }
-        if (s[i] === quote) return i;
+        if (s[i] === quote && /^\s*(#.*)?$/.test(s.slice(i + 1, end))) found = i;
     }
-    return -1;
+    return found;
 }
 
 function unescapeDoubleQuoted(v: string): string {
@@ -177,9 +188,18 @@ export function open(envelope: Envelope, dataKey: Buffer): string {
 }
 
 export function readEnvelope(file: string): Envelope {
-    const parsed = JSON.parse(readFileSync(file, "utf8")) as Envelope;
+    let parsed: Envelope;
+    try {
+        parsed = JSON.parse(readFileSync(file, "utf8")) as Envelope;
+    } catch {
+        // JSON.parse's message quotes the start of the file, which could be a plaintext .env renamed.
+        throw new Error(`${file} is not a 1Claw-protected env file (not JSON)`);
+    }
     if (parsed.format !== ENVELOPE_FORMAT) {
         throw new Error(`${file} is not a 1Claw-protected env file (format ${String(parsed.format)})`);
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(parsed.key?.vault_id))) {
+        throw new Error(`${file}: its key's vault_id is not a UUID`);
     }
     return parsed;
 }

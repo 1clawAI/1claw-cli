@@ -12,6 +12,7 @@ function setActive(active: boolean, opts: { agent?: string }) {
             const project = readProject()?.data;
             const id = opts.agent ?? project?.agent_id;
             if (!id) throw new Error("This folder has no agent yet. Pass --agent <id>.");
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error("--agent must be an agent ID (a UUID).");
             await api(`/agents/${id}`, { method: "PATCH", body: { is_active: active } });
             const name = chalk.bold(project?.agent_name ?? id);
             printSuccess(active ? `${name} restored. Its key works again.` : `${name} revoked. Its key stopped working just now.`);

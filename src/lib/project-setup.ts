@@ -1,10 +1,14 @@
 /** Find or create what a project needs in 1Claw: its vault, and its app's agent with access to that vault. */
-import { basename } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, join } from "node:path";
 import inquirer from "inquirer";
 import chalk from "chalk";
 import { api } from "../client.js";
 import { printSuccess } from "../output.js";
 import { readAgentKey, readProject, writeAgentKey, writeProject } from "./project.js";
+
+/** The app agent's only grant: the vault's env vars (the vault checks env var reads against `__env/<KEY>`). */
+export const APP_ENV_PATTERN = "__env/**";
 
 interface NamedVault {
     id: string;
@@ -87,6 +91,10 @@ export async function ensureAppAgent(vaultId: string, app: AppSpec): Promise<{ i
     if (id) {
         if (!readAgentKey(root)) throw new Error(`This project's agent ${name} has no key in .env. Its key is only shown at creation, so create a new agent.`);
     } else {
+        // The key is shown once, at creation; refuse before creating rather than lose it after.
+        if (existsSync(join(root, ".env"))) {
+            throw new Error(`${join(root, ".env")} already exists, and the new agent's key goes there; move it aside first (1claw ignore encrypts it)`);
+        }
         const list = await api<{ agents?: { id: string; name: string }[] }>("/agents");
         if ((list.agents ?? []).some((a) => a.name === name)) {
             throw new Error(`An agent named "${name}" already exists, and its key is only shown when it's created. Delete it, or set "app": {"name": "..."} in the plan.`);
@@ -104,10 +112,13 @@ export async function ensureAppAgent(vaultId: string, app: AppSpec): Promise<{ i
     }
 
     const policies = await api<{ policies?: { principal_id: string; secret_path_pattern: string }[] }>(`/vaults/${vaultId}/policies`);
-    if (!(policies.policies ?? []).some((p) => p.principal_id === id && p.secret_path_pattern === "**")) {
+    // Env vars only. `env run` resolves the vault's env vars and nothing else, and its bindings carry
+    // their credentials inline. `**` would also let the key in `.env` read every secret in the vault,
+    // including the data keys of other projects' `.env.1claw` files and any `--secrets` values.
+    if (!(policies.policies ?? []).some((p) => p.principal_id === id && p.secret_path_pattern === APP_ENV_PATTERN)) {
         await api(`/vaults/${vaultId}/policies`, {
             method: "POST",
-            body: { principal_type: "agent", principal_id: id, secret_path_pattern: "**", permissions: ["read"], policy_schema_version: 2 },
+            body: { principal_type: "agent", principal_id: id, secret_path_pattern: APP_ENV_PATTERN, permissions: ["read"], policy_schema_version: 2 },
         });
     }
     return { id, name, created };
