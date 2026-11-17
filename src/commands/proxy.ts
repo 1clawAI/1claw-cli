@@ -105,6 +105,11 @@ const PROVIDER_FROM_MODEL: Record<string, string> = {
     "mistral-": "mistral",
     "command-": "cohere",
     "openrouter/": "openrouter",
+    // Pearl's open models keep their Hugging Face-style ids, slash included,
+    // and Shroud expects them unchanged (no namespace stripping).
+    "deepseek-ai/": "pearl",
+    "qwen/": "pearl",
+    "zai-org/": "pearl",
 };
 
 /** Build `agent_id:api_key` for Shroud. Accepts full pair or key-only `ocv_...`. */
@@ -252,7 +257,7 @@ export function isOriginFormTarget(target: string): boolean {
     return true;
 }
 
-function detectProvider(model: string): string {
+export function detectProvider(model: string): string {
     const lower = model.toLowerCase();
     for (const [prefix, provider] of Object.entries(PROVIDER_FROM_MODEL)) {
         if (lower.startsWith(prefix)) return provider;

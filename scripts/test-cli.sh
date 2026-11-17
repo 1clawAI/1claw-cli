@@ -477,6 +477,14 @@ else
   ((FAILED++)) || true
   tail -20 /tmp/cli_proxy_hint
 fi
+if node --test src/__tests__/proxy-provider-detect.test.mjs > /tmp/cli_provider_detect 2>&1; then
+  echo "  OK   node --test src/__tests__/proxy-provider-detect.test.mjs"
+  ((PASSED++)) || true
+else
+  echo "  FAIL node --test src/__tests__/proxy-provider-detect.test.mjs"
+  ((FAILED++)) || true
+  tail -20 /tmp/cli_provider_detect
+fi
 
 echo ""
 echo "=== 7d. no shell interpolation in child_process calls ==="
