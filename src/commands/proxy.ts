@@ -138,7 +138,7 @@ export async function resolveShroudAgentKey(input: string): Promise<string> {
 const FALLBACK_MODELS_BODY = JSON.stringify({
     object: "list",
     data: [
-        { id: "gpt-4o-mini", object: "model", owned_by: "openai" },
+        { id: "gpt-5.1", object: "model", owned_by: "openai" },
         { id: "claude-sonnet-4-6", object: "model", owned_by: "anthropic" },
         { id: "gemini-2.5-flash", object: "model", owned_by: "google" },
     ],
@@ -723,7 +723,7 @@ function printIdeSetupBlock(boundPort: number): void {
         chalk.dim(
             `    curl ${openaiV1}/chat/completions \\
       -H "Content-Type: application/json" \\
-      -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}'`,
+      -d '{"model":"gpt-5.1","messages":[{"role":"user","content":"hello"}]}'`,
         ),
     );
     console.log();

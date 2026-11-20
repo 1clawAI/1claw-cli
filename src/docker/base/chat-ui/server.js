@@ -37,7 +37,7 @@ const SHROUD_SECRET = process.env.ONECLAW_SHROUD_SECRET || "";
 // the X-Shroud-Api-Key header (the container never sees the value).
 const SHROUD_API_KEY_SECRET = process.env.ONECLAW_SHROUD_API_KEY_SECRET || "";
 const SHROUD_PROVIDER = process.env.ONECLAW_SHROUD_PROVIDER || "openai";
-const SHROUD_MODEL = process.env.ONECLAW_SHROUD_MODEL || "gpt-4o-mini";
+const SHROUD_MODEL = process.env.ONECLAW_SHROUD_MODEL || "gpt-5.1";
 const SYSTEM_PROMPT =
     process.env.ONECLAW_SHROUD_SYSTEM_PROMPT ||
     "You are a helpful AI agent running inside a 1Claw secure container. Your credentials are held by the host daemon and never exposed to you.";

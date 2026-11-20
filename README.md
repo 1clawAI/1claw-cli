@@ -1276,7 +1276,7 @@ When the cloud is reachable, `init` provisions an agent + vault + read policy an
 
 In cloud mode (not `--local`), the embedded chat UI is wired to an LLM **through Shroud** — type a message and it routes via the host daemon, which injects the `X-Shroud-Agent-Key` header (the container never sees the key). Shroud inspects the prompt (redaction, PII, injection detection) and forwards to the provider.
 
-- Pick the model with `--llm-provider` (default `openai`) and `--llm-model` (default per provider, e.g. `gpt-4o-mini`).
+- Pick the model with `--llm-provider` (default `openai`) and `--llm-model` (default per provider, e.g. `gpt-5.1`).
 - `--local` mode has **no LLM** (no cloud agent → no Shroud credential); only the `/help`, `/secrets`, `/info`, and `/proxy` slash commands work.
 
 **Where does the provider key come from?** Shroud resolves it in this order — pick whichever you prefer:

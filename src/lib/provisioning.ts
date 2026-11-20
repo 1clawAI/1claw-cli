@@ -258,7 +258,7 @@ export async function ensureDaemonRunning(opts: {
 export function defaultModelForProvider(provider: string): string {
     switch (provider.toLowerCase()) {
         case "anthropic":
-            return "claude-3-5-haiku-latest";
+            return "claude-haiku-4-5";
         case "google":
         case "gemini":
             return "gemini-2.5-flash";
@@ -266,7 +266,9 @@ export function defaultModelForProvider(provider: string): string {
             return "mistral-small-latest";
         case "openai":
         default:
-            return "gpt-4o-mini";
+            // In Stripe's Token Billing catalog and on OpenAI's API directly;
+            // gpt-4o-mini shuts down 2027-01-14.
+            return "gpt-5.1";
     }
 }
 

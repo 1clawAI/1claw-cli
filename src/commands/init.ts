@@ -87,7 +87,7 @@ export const initCommand = new Command("init")
     )
     .option(
         "--llm-model <model>",
-        "LLM model for the chat UI via Shroud (e.g. gpt-4o-mini, claude-3-5-haiku-latest)",
+        "LLM model for the chat UI via Shroud (e.g. gpt-5.1, claude-haiku-4-5)",
     )
     .option(
         "--llm-api-key <key>",
